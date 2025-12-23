@@ -167,6 +167,20 @@ class _RolandControlPageState extends State<RolandControlPage> {
                   );
                 }),
               ),
+
+              const SizedBox(height: 24),
+              const Text('Macros', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: List.generate(8, (index) {
+                  return ElevatedButton(
+                    onPressed: () => _rolandService?.executeMacro(index + 1),
+                    child: Text('Macro ${index + 1}'),
+                  );
+                }),
+              ),
               
               const Spacer(),
               const Divider(),
