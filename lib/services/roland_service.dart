@@ -1,277 +1,122 @@
-import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:collection';
 
 class RolandService {
-  Socket? _socket;
   final String host;
   final int port;
-  
-  // STX (Start of Text) - 0x02
-  static const int _stx = 0x02;
-  // ACK (Acknowledge) - 0x06
-  static const int _ack = 0x06;
-  
-  bool get isConnected => _socket != null;
-  
-  final _controller = StreamController<String>.broadcast();
-  Stream<String> get responseStream => _controller.stream;
+  Socket? _socket;
+  final StreamController<String> _responseController = StreamController<String>.broadcast();
+  Stream<String> get responseStream => _responseController.stream;
+  final Queue<String> _commandQueue = Queue<String>();
+  bool _isProcessing = false;
 
   RolandService({required this.host, this.port = 8023});
 
   Future<void> connect() async {
     try {
       _socket = await Socket.connect(host, port);
-      print('Connected to Roland V-60HD at $host:$port');
-      
       _socket!.listen(
-        (Uint8List data) {
-          final response = String.fromCharCodes(data);
-          _handleResponse(response);
-        },
-        onError: (error) {
-          print('Socket error: $error');
-          disconnect();
-        },
-        onDone: () {
-          print('Socket closed');
-          disconnect();
-        },
+        (data) => _handleResponse(utf8.decode(data)),
+        onError: (error) => _responseController.addError('Socket error: $error'),
+        onDone: () => disconnect(),
       );
     } catch (e) {
-      print('Failed to connect: $e');
-      rethrow;
+      throw Exception('Connection failed: $e');
     }
   }
 
   void disconnect() {
-    _socket?.destroy();
+    _socket?.close();
     _socket = null;
+    _responseController.close();
+  }
+
+  Future<void> _sendCommand(String command) async {
+    _commandQueue.add(command);
+    await _processQueue();
+  }
+
+  Future<void> _processQueue() async {
+    if (_isProcessing) return;
+    _isProcessing = true;
+    while (_commandQueue.isNotEmpty) {
+      String cmd = _commandQueue.removeFirst();
+      if (_socket == null) throw Exception('Not connected');
+      _socket!.write('$cmd\n');
+      await _socket!.flush();
+    }
+    _isProcessing = false;
   }
 
   void _handleResponse(String response) {
-    // Remove STX and ACK characters for cleaner processing if needed
-    // The companion module logic suggests responses might be mixed or need splitting
-    // For now, we just broadcast the raw string for debugging/logging
-    _controller.add(response);
+    // Basic parsing: emit raw response
+    _responseController.add(response.trim());
   }
 
-  /// Sends a raw command string.
-  /// Automatically adds STX (0x02) prefix and semicolon suffix if missing.
-  void sendCommand(String cmd) {
-    if (_socket == null) {
-      print('Cannot send command: Not connected');
-      return;
-    }
+  // VIDEO Commands
+  Future<void> cut() => _sendCommand('CUT;');
 
-    final buffer = StringBuffer();
-    
-    // Add STX if not present
-    if (!cmd.startsWith(String.fromCharCode(_stx))) {
-      buffer.writeCharCode(_stx);
-    }
-    
-    buffer.write(cmd);
-    
-    // Add semicolon if not present
-    if (!cmd.endsWith(';')) {
-      buffer.write(';');
-    }
+  Future<void> auto() => _sendCommand('ATO;');
 
-    try {
-      _socket!.write(buffer.toString());
-    } catch (e) {
-      print('Error sending command: $e');
-      disconnect();
-    }
-  }
+  Future<void> setProgram(int inputIndex) => _sendCommand('PGM:INPUT${inputIndex + 1};');
 
-  /// Helper to send DTH (Data Transmit Hex) command
-  /// [address] should be a 6-character hex string (e.g., "002100")
-  /// [value] is the integer value to set
-  void _sendDTH(String address, int value) {
-    final valueHex = value.toRadixString(16).padLeft(2, '0').toUpperCase();
-    sendCommand('DTH:$address,$valueHex');
-  }
+  Future<void> setPreview(int inputIndex) => _sendCommand('PST:INPUT${inputIndex + 1};');
 
-  // --- High Level Commands (V-160HD) ---
+  Future<void> setFaderLevel(int level) => _sendCommand('VFL:$level;');
 
-  // --- Video Switching ---
+  Future<void> getFaderLevel() => _sendCommand('QVFL;');
 
-  /// Select Program Channel
-  /// 0-7: HDMI 1-8
-  /// 8-15: SDI 1-8
-  /// 16-31: STILL 1-16
-  void setProgram(int input) {
-    _sendDTH('002100', input);
-  }
+  Future<void> getProgram() => _sendCommand('QPGM;');
 
-  /// Select Preview/Preset Channel
-  void setPreview(int input) {
-    _sendDTH('002101', input);
-  }
+  Future<void> getPreview() => _sendCommand('QPST;');
 
-  /// Select Aux 1 Channel
-  void setAux1(int input) {
-    _sendDTH('000011', input);
-  }
+  // PinP Commands
+  Future<void> setPinPSource(int pinpIndex, String source) => _sendCommand('PIS:PinP$pinpIndex,$source;');
 
-  /// Select Aux 2 Channel
-  void setAux2(int input) {
-    _sendDTH('00002E', input);
-  }
+  Future<void> getPinPSource(int pinpIndex) => _sendCommand('QPIS:PinP$pinpIndex;');
 
-  /// Select Aux 3 Channel
-  void setAux3(int input) {
-    _sendDTH('00002F', input);
-  }
+  Future<void> setPinPPosition(int pinpIndex, int h, int v) => _sendCommand('PIP:PinP$pinpIndex,$h,$v;');
 
-  // --- Transitions ---
+  Future<void> getPinPPosition(int pinpIndex) => _sendCommand('QPIP:PinP$pinpIndex;');
 
-  /// Perform Cut Transition
-  void cut() {
-    _sendDTH('0B001E', 1);
-  }
+  Future<void> setPinPPgm(int pinpIndex, bool on) => _sendCommand('PPS:PinP$pinpIndex,${on ? 'ON' : 'OFF'};');
 
-  /// Perform Auto Transition
-  void auto() {
-    _sendDTH('0B001F', 1);
-  }
+  Future<void> getPinPPgm(int pinpIndex) => _sendCommand('QPPS:PinP$pinpIndex;');
 
-  /// Set Transition Effect Type
-  /// 0: Mix, 1: Wipe
-  void setTransitionEffect(int effectId) {
-    _sendDTH('001800', effectId);
-  }
+  Future<void> setPinPPvw(int pinpIndex, bool on) => _sendCommand('PPW:PinP$pinpIndex,${on ? 'ON' : 'OFF'};');
 
-  /// Set Transition Time (0-40, representing 0.0s to 4.0s)
-  void setTransitionTime(int time) {
-    _sendDTH('001700', time);
-  }
+  Future<void> getPinPPvw(int pinpIndex) => _sendCommand('QPPW:PinP$pinpIndex;');
 
-  // --- PinP & Key ---
+  // CONTROL Commands
+  Future<void> executeMacro(int macro) => _sendCommand('MCREX:$macro;');
 
-  /// Set PinP & Key 1 Source
-  void setPinP1Source(int input) {
-    _sendDTH('001B02', input);
-  }
+  // SYSTEM Commands
+  Future<void> getVersion() => _sendCommand('VER;');
 
-  /// Set PinP & Key 1 On/Off (Program Layer)
-  void setPinP1Program(bool enabled) {
-    _sendDTH('000012', enabled ? 1 : 0);
-  }
+  // CAMERA Commands
+  Future<void> setPanTilt(int cameraIndex, String pan, String tilt) => _sendCommand('CAMPT:CAMERA$cameraIndex,$pan,$tilt;');
 
-  /// Set PinP & Key 1 On/Off (Preview Layer)
-  void setPinP1Preview(bool enabled) {
-    _sendDTH('001B01', enabled ? 1 : 0);
-  }
+  Future<void> setPanTiltSpeed(int cameraIndex, int speed) => _sendCommand('CAMPTS:CAMERA$cameraIndex,$speed;');
 
-  // --- DSK ---
+  Future<void> getPanTiltSpeed(int cameraIndex) => _sendCommand('QCAMPTS:CAMERA$cameraIndex;');
 
-  /// Set DSK 1 Source (Key)
-  void setDSK1Source(int input) {
-    _sendDTH('001F03', input);
-  }
+  Future<void> setZoom(int cameraIndex, String direction) => _sendCommand('CAMZM:CAMERA$cameraIndex,$direction;');
 
-  /// Set DSK 1 On/Off (Program Layer)
-  void setDSK1Program(bool enabled) {
-    _sendDTH('000016', enabled ? 1 : 0);
-  }
+  Future<void> resetZoom(int cameraIndex) => _sendCommand('CAMZMR:CAMERA$cameraIndex;');
 
-  /// Set DSK 1 On/Off (Preview Layer)
-  void setDSK1Preview(bool enabled) {
-    _sendDTH('001F01', enabled ? 1 : 0);
-  }
+  Future<void> setFocus(int cameraIndex, String direction) => _sendCommand('CAMFC:CAMERA$cameraIndex,$direction;');
 
-  // --- Split ---
+  Future<void> setAutoFocus(int cameraIndex, bool on) => _sendCommand('CAMAFC:CAMERA$cameraIndex,${on ? 'ON' : 'OFF'};');
 
-  /// Set Split 1 On/Off
-  void setSplit1(bool enabled) {
-    _sendDTH('001900', enabled ? 1 : 0);
-  }
+  Future<void> getAutoFocus(int cameraIndex) => _sendCommand('QCAMAFC:CAMERA$cameraIndex;');
 
-  /// Set Split 1 Type (0: V, 1: H)
-  void setSplit1Type(int type) {
-    _sendDTH('001901', type);
-  }
+  Future<void> setAutoExposure(int cameraIndex, bool on) => _sendCommand('CAMAEP:CAMERA$cameraIndex,${on ? 'ON' : 'OFF'};');
 
-  // --- Audio ---
+  Future<void> getAutoExposure(int cameraIndex) => _sendCommand('QCAMAEP:CAMERA$cameraIndex;');
 
-  /// Set Audio Input Level
-  /// [inputIndex] 0-19 (Audio In 1-4, USB, BT, HDMI 1-8, SDI 1-8)
-  /// [level] 0 = -INF, 100 = 0dB. Intermediate values are not yet supported.
-  void setAudioInputLevel(int inputIndex, int level) {
-    // Address: 01H xxH 03H
-    final addr = '01${inputIndex.toRadixString(16).padLeft(2, '0')}03';
-    
-    // Value: 3 bytes. 
-    // -INF: 7E 00 00
-    // 0dB: 00 00 00
-    // +10dB: 00 00 64
-    String valueHex;
-    if (level <= 0) {
-      valueHex = '7E,00,00';
-    } else if (level >= 100) {
-      valueHex = '00,00,00';
-    } else {
-       // Fallback to 0dB for now for any positive level
-       valueHex = '00,00,00';
-    }
-    
-    sendCommand('DTH:$addr,$valueHex');
-  }
+  Future<void> recallPreset(int cameraIndex, int preset) => _sendCommand('CAMPR:CAMERA$cameraIndex,PRESET$preset;');
 
-  /// Set Audio Input Mute
-  /// [inputIndex] 0-19
-  void setAudioInputMute(int inputIndex, bool muted) {
-    final addr = '01${inputIndex.toRadixString(16).padLeft(2, '0')}06';
-    _sendDTH(addr, muted ? 1 : 0);
-  }
-
-  /// Set Master Output Mute
-  void setMasterMute(bool muted) {
-    _sendDTH('012103', muted ? 1 : 0);
-  }
-
-  // --- Camera Control ---
-
-  /// Recall Camera Preset
-  /// [cameraIndex] 0-15 (Camera 1-16)
-  /// [presetIndex] 0-9 (Preset 1-10)
-  void recallCameraPreset(int cameraIndex, int presetIndex) {
-    final addr = '0D${cameraIndex.toRadixString(16).padLeft(2, '0')}00';
-    _sendDTH(addr, presetIndex);
-  }
-
-  /// Store Camera Preset
-  void storeCameraPreset(int cameraIndex, int presetIndex) {
-    final addr = '0D${cameraIndex.toRadixString(16).padLeft(2, '0')}01';
-    _sendDTH(addr, presetIndex);
-  }
-
-  // --- Macros & Memory ---
-
-  /// Execute Macro (1-100)
-  void executeMacro(int macroIndex) {
-    // Macro 1 is 00H
-    _sendDTH('500504', macroIndex - 1);
-  }
-
-  /// Load Memory (1-30)
-  void loadMemory(int memoryIndex) {
-    // Memory 1 is 00H
-    _sendDTH('0A0000', memoryIndex - 1);
-  }
-
-  /// Save Memory (1-30)
-  void saveMemory(int memoryIndex) {
-    _sendDTH('0A0001', memoryIndex - 1);
-  }
-  
-  /// Poll status (Request Program Input)
-  void pollStatus() {
-    // RQH: Address, Size
-    // Request Program Select (002100)
-    sendCommand('RQH:002100,01');
-  }
+  Future<void> getCurrentPreset(int cameraIndex) => _sendCommand('QCAMPR:CAMERA$cameraIndex;');
 }
