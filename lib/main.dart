@@ -67,10 +67,10 @@ class _RolandControlPageState extends State<RolandControlPage> {
   void _getPinPPvw() => _rolandService?.getPinPPvw(_selectedPinP);
 
   // Camera methods
-  void _setPanTilt(String pan, String tilt) => _rolandService?.setPanTilt(_selectedCamera, pan, tilt);
-  void _setZoom(String direction) => _rolandService?.setZoom(_selectedCamera, direction);
+  void _setPanTilt(PanDirection pan, TiltDirection tilt) => _rolandService?.setPanTilt(_selectedCamera, pan, tilt);
+  void _setZoom(ZoomDirection direction) => _rolandService?.setZoom(_selectedCamera, direction);
   void _resetZoom() => _rolandService?.resetZoom(_selectedCamera);
-  void _setFocus(String direction) => _rolandService?.setFocus(_selectedCamera, direction);
+  void _setFocus(FocusDirection direction) => _rolandService?.setFocus(_selectedCamera, direction);
   void _setAutoFocus() => _rolandService?.setAutoFocus(_selectedCamera, _autoFocus);
   void _getAutoFocus() => _rolandService?.getAutoFocus(_selectedCamera);
   void _setAutoExposure() => _rolandService?.setAutoExposure(_selectedCamera, _autoExposure);
@@ -367,17 +367,17 @@ class _RolandControlPageState extends State<RolandControlPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                ElevatedButton(onPressed: () => _setPanTilt('LEFT', 'STOP'), child: const Text('LEFT')),
+                ElevatedButton(onPressed: () => _setPanTilt(PanDirection.left, TiltDirection.stop), child: const Text('LEFT')),
                 const SizedBox(width: 8),
                 Column(
                   children: [
-                    ElevatedButton(onPressed: () => _setPanTilt('STOP', 'UP'), child: const Text('UP')),
-                    ElevatedButton(onPressed: () => _setPanTilt('STOP', 'STOP'), child: const Text('STOP')),
-                    ElevatedButton(onPressed: () => _setPanTilt('STOP', 'DOWN'), child: const Text('DOWN')),
+                    ElevatedButton(onPressed: () => _setPanTilt(PanDirection.stop, TiltDirection.up), child: const Text('UP')),
+                    ElevatedButton(onPressed: () => _setPanTilt(PanDirection.stop, TiltDirection.stop), child: const Text('STOP')),
+                    ElevatedButton(onPressed: () => _setPanTilt(PanDirection.stop, TiltDirection.down), child: const Text('DOWN')),
                   ],
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setPanTilt('RIGHT', 'STOP'), child: const Text('RIGHT')),
+                ElevatedButton(onPressed: () => _setPanTilt(PanDirection.right, TiltDirection.stop), child: const Text('RIGHT')),
               ],
             ),
             const SizedBox(height: 16),
@@ -402,11 +402,11 @@ class _RolandControlPageState extends State<RolandControlPage> {
             const Text('Zoom'),
             Row(
               children: [
-                ElevatedButton(onPressed: () => _setZoom('WIDE_FAST'), child: const Text('WIDE FAST')),
+                ElevatedButton(onPressed: () => _setZoom(ZoomDirection.wideFast), child: const Text('WIDE FAST')),
                 const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setZoom('STOP'), child: const Text('STOP')),
+                ElevatedButton(onPressed: () => _setZoom(ZoomDirection.stop), child: const Text('STOP')),
                 const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setZoom('TELE_FAST'), child: const Text('TELE FAST')),
+                ElevatedButton(onPressed: () => _setZoom(ZoomDirection.teleFast), child: const Text('TELE FAST')),
               ],
             ),
             const SizedBox(height: 8),
@@ -415,11 +415,11 @@ class _RolandControlPageState extends State<RolandControlPage> {
             const Text('Focus'),
             Row(
               children: [
-                ElevatedButton(onPressed: () => _setFocus('NEAR'), child: const Text('NEAR')),
+                ElevatedButton(onPressed: () => _setFocus(FocusDirection.near), child: const Text('NEAR')),
                 const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setFocus('STOP'), child: const Text('STOP')),
+                ElevatedButton(onPressed: () => _setFocus(FocusDirection.stop), child: const Text('STOP')),
                 const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setFocus('FAR'), child: const Text('FAR')),
+                ElevatedButton(onPressed: () => _setFocus(FocusDirection.far), child: const Text('FAR')),
               ],
             ),
             const SizedBox(height: 16),
