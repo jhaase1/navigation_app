@@ -57,28 +57,28 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   // PinP methods
-  void _setPinPSource() => _rolandService?.setPinPSource(_selectedPinP, _pinpSource);
-  void _getPinPSource() => _rolandService?.getPinPSource(_selectedPinP);
-  void _setPinPPosition() => _rolandService?.setPinPPosition(_selectedPinP, _pinpH.toInt(), _pinpV.toInt());
-  void _getPinPPosition() => _rolandService?.getPinPPosition(_selectedPinP);
-  void _setPinPPgm() => _rolandService?.setPinPPgm(_selectedPinP, _pinpPgm);
-  void _getPinPPgm() => _rolandService?.getPinPPgm(_selectedPinP);
-  void _setPinPPvw() => _rolandService?.setPinPPvw(_selectedPinP, _pinpPvw);
-  void _getPinPPvw() => _rolandService?.getPinPPvw(_selectedPinP);
+  void _setPinPSource() => _rolandService?.setPinPSource('PinP${_selectedPinP + 1}', _pinpSource);
+  void _getPinPSource() => _rolandService?.getPinPSource('PinP${_selectedPinP + 1}');
+  void _setPinPPosition() => _rolandService?.setPinPPosition('PinP${_selectedPinP + 1}', _pinpH.toInt(), _pinpV.toInt());
+  void _getPinPPosition() => _rolandService?.getPinPPosition('PinP${_selectedPinP + 1}');
+  void _setPinPPgm() => _rolandService?.setPinPPgm('PinP${_selectedPinP + 1}', _pinpPgm);
+  void _getPinPPgm() => _rolandService?.getPinPPgm('PinP${_selectedPinP + 1}');
+  void _setPinPPvw() => _rolandService?.setPinPPvw('PinP${_selectedPinP + 1}', _pinpPvw);
+  void _getPinPPvw() => _rolandService?.getPinPPvw('PinP${_selectedPinP + 1}');
 
   // Camera methods
-  void _setPanTilt(PanDirection pan, TiltDirection tilt) => _rolandService?.setPanTilt(_selectedCamera, pan, tilt);
-  void _setZoom(ZoomDirection direction) => _rolandService?.setZoom(_selectedCamera, direction);
-  void _resetZoom() => _rolandService?.resetZoom(_selectedCamera);
-  void _setFocus(FocusDirection direction) => _rolandService?.setFocus(_selectedCamera, direction);
-  void _setAutoFocus() => _rolandService?.setAutoFocus(_selectedCamera, _autoFocus);
-  void _getAutoFocus() => _rolandService?.getAutoFocus(_selectedCamera);
-  void _setAutoExposure() => _rolandService?.setAutoExposure(_selectedCamera, _autoExposure);
-  void _getAutoExposure() => _rolandService?.getAutoExposure(_selectedCamera);
-  void _recallPreset() => _rolandService?.recallPreset(_selectedCamera, _preset);
-  void _getCurrentPreset() => _rolandService?.getCurrentPreset(_selectedCamera);
-  void _setPanTiltSpeed() => _rolandService?.setPanTiltSpeed(_selectedCamera, _panTiltSpeed);
-  void _getPanTiltSpeed() => _rolandService?.getPanTiltSpeed(_selectedCamera);
+  void _setPanTilt(PanDirection pan, TiltDirection tilt) => _rolandService?.setPanTilt('CAMERA${_selectedCamera + 1}', pan.name.toUpperCase(), tilt.name.toUpperCase());
+  void _setZoom(ZoomDirection direction) => _rolandService?.setZoom('CAMERA${_selectedCamera + 1}', direction.name.replaceAll('tele', 'TELE_').replaceAll('wide', 'WIDE_').toUpperCase());
+  void _resetZoom() => _rolandService?.resetZoom('CAMERA${_selectedCamera + 1}');
+  void _setFocus(FocusDirection direction) => _rolandService?.setFocus('CAMERA${_selectedCamera + 1}', direction.name.toUpperCase());
+  void _setAutoFocus() => _rolandService?.setAutoFocus('CAMERA${_selectedCamera + 1}', _autoFocus);
+  void _getAutoFocus() => _rolandService?.getAutoFocus('CAMERA${_selectedCamera + 1}');
+  void _setAutoExposure() => _rolandService?.setAutoExposure('CAMERA${_selectedCamera + 1}', _autoExposure);
+  void _getAutoExposure() => _rolandService?.getAutoExposure('CAMERA${_selectedCamera + 1}');
+  void _recallPreset() => _rolandService?.recallPreset('CAMERA${_selectedCamera + 1}', 'PRESET$_preset');
+  void _getCurrentPreset() => _rolandService?.getCurrentPreset('CAMERA${_selectedCamera + 1}');
+  void _setPanTiltSpeed() => _rolandService?.setPanTiltSpeed('CAMERA${_selectedCamera + 1}', _panTiltSpeed);
+  void _getPanTiltSpeed() => _rolandService?.getPanTiltSpeed('CAMERA${_selectedCamera + 1}');
 
   Future<void> _connect() async {
     final context = this.context;
@@ -220,7 +220,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
             children: List.generate(8, (index) {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
-                onPressed: () => _rolandService?.setProgram(index),
+                onPressed: () => _rolandService?.setProgram('INPUT${index + 1}'),
               );
             }),
           ),
@@ -234,7 +234,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
                 backgroundColor: Colors.green.shade50,
-                onPressed: () => _rolandService?.setPreview(index),
+                onPressed: () => _rolandService?.setPreview('INPUT${index + 1}'),
               );
             }),
           ),

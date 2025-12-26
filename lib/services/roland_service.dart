@@ -13,6 +13,19 @@ class RolandException implements Exception {
   String toString() => 'RolandException: $message';
 }
 
+/// Custom exceptions for specific errors.
+class ConnectionException extends RolandException {
+  ConnectionException(String message) : super(message);
+}
+
+class CommandException extends RolandException {
+  CommandException(String message) : super(message);
+}
+
+class ValidationException extends RolandException {
+  ValidationException(String message) : super(message);
+}
+
 /// Enums for camera directions.
 enum PanDirection { left, stop, right }
 enum TiltDirection { down, stop, up }
@@ -53,21 +66,965 @@ class PresetResponse {
   PresetResponse(this.preset);
 }
 
+class AudioLevelResponse {
+  final String input;
+  final String level; // Can be int or 'INF'
+  AudioLevelResponse(this.input, this.level);
+}
+
+class MeterResponse {
+  final List<String> levels;
+  MeterResponse(this.levels);
+}
+
+class TallyResponse {
+  final List<int> statuses;
+  TallyResponse(this.statuses);
+}
+
+class MemoryResponse {
+  final String memory;
+  MemoryResponse(this.memory);
+}
+
+class DskSourceResponse {
+  final String dsk;
+  final String source;
+  final String? input;
+  DskSourceResponse(this.dsk, this.source, this.input);
+}
+
+class DskLevelResponse {
+  final int level;
+  DskLevelResponse(this.level);
+}
+
+class AuxResponse {
+  final String source;
+  final String? input;
+  AuxResponse(this.source, this.input);
+}
+
+class TransitionStatusResponse {
+  final String status;
+  TransitionStatusResponse(this.status);
+}
+
+class FreezeResponse {
+  final String status;
+  FreezeResponse(this.status);
+}
+
+class FadeResponse {
+  final String status;
+  FadeResponse(this.status);
+}
+
+class StillResponse {
+  final String status;
+  StillResponse(this.status);
+}
+
+class HdcpResponse {
+  final String status;
+  HdcpResponse(this.status);
+}
+
+class TestPatternResponse {
+  final String pattern;
+  TestPatternResponse(this.pattern);
+}
+
+class TestToneResponse {
+  final String level;
+  final String freqL;
+  final String freqR;
+  TestToneResponse(this.level, this.freqL, this.freqR);
+}
+
+class BusyResponse {
+  final String status;
+  BusyResponse(this.status);
+}
+
+class MacroStatusResponse {
+  final String status;
+  MacroStatusResponse(this.status);
+}
+
+class SequencerStatusResponse {
+  final String status;
+  SequencerStatusResponse(this.status);
+}
+
+class AutoSequenceResponse {
+  final String status;
+  AutoSequenceResponse(this.status);
+}
+
+class VideoInputSourceResponse {
+  final int index;
+  final String source;
+  VideoInputSourceResponse(this.index, this.source);
+}
+
+class VideoInputStatusResponse {
+  final String input;
+  final String status;
+  VideoInputStatusResponse(this.input, this.status);
+}
+
+class PreviewResponse {
+  final String source;
+  final String? input;
+  PreviewResponse(this.source, this.input);
+}
+
+class TransitionTypeResponse {
+  final String type;
+  TransitionTypeResponse(this.type);
+}
+
+class TransitionTimeResponse {
+  final String type;
+  final int time;
+  TransitionTimeResponse(this.type, this.time);
+}
+
+class PinPSourceResponse {
+  final String pinp;
+  final String source;
+  PinPSourceResponse(this.pinp, this.source);
+}
+
+class PinPProgramResponse {
+  final String pinp;
+  final String status;
+  PinPProgramResponse(this.pinp, this.status);
+}
+
+class PinPPreviewResponse {
+  final String pinp;
+  final String status;
+  PinPPreviewResponse(this.pinp, this.status);
+}
+
+class DskProgramResponse {
+  final String dsk;
+  final String status;
+  DskProgramResponse(this.dsk, this.status);
+}
+
+class DskPreviewResponse {
+  final String dsk;
+  final String status;
+  DskPreviewResponse(this.dsk, this.status);
+}
+
+class SplitStatusResponse {
+  final String split;
+  final String status;
+  SplitStatusResponse(this.split, this.status);
+}
+
+class SplitPositionsResponse {
+  final String split;
+  final int pgmCenter;
+  final int pvwCenter;
+  final int? center;
+  SplitPositionsResponse(this.split, this.pgmCenter, this.pvwCenter, this.center);
+}
+
+class VideoInputAssignResponse {
+  final String input;
+  final String source;
+  VideoInputAssignResponse(this.input, this.source);
+}
+
+class VideoOutputAssignResponse {
+  final String output;
+  final String source;
+  VideoOutputAssignResponse(this.output, this.source);
+}
+
+class AudioOutputAssignResponse {
+  final String output;
+  final String assign;
+  AudioOutputAssignResponse(this.output, this.assign);
+}
+
+class AudioMuteResponse {
+  final String input;
+  final String status;
+  AudioMuteResponse(this.input, this.status);
+}
+
+class AudioSoloResponse {
+  final String input;
+  final String status;
+  AudioSoloResponse(this.input, this.status);
+}
+
+class AudioDelayResponse {
+  final String input;
+  final int delay;
+  AudioDelayResponse(this.input, this.delay);
+}
+
+class AudioFilterResponse {
+  final String input;
+  final String status;
+  AudioFilterResponse(this.input, this.status);
+}
+
+class AudioGateResponse {
+  final String input;
+  final String status;
+  AudioGateResponse(this.input, this.status);
+}
+
+class AudioLinkResponse {
+  final String input;
+  final String status;
+  AudioLinkResponse(this.input, this.status);
+}
+
+class AudioChangerResponse {
+  final String input;
+  final String status;
+  AudioChangerResponse(this.input, this.status);
+}
+
+class AudioOutputMuteResponse {
+  final String output;
+  final String status;
+  AudioOutputMuteResponse(this.output, this.status);
+}
+
+class ReverbResponse {
+  final String status;
+  ReverbResponse(this.status);
+}
+
+class AutoMixingResponse {
+  final String status;
+  AutoMixingResponse(this.status);
+}
+
+class MeterAutoTransmitResponse {
+  final String status;
+  MeterAutoTransmitResponse(this.status);
+}
+
+class MeterChannelResponse {
+  final int channel;
+  final String name;
+  MeterChannelResponse(this.channel, this.name);
+}
+
+class CompGrAutoTransmitResponse {
+  final String status;
+  CompGrAutoTransmitResponse(this.status);
+}
+
+class AutoMixingAutoTransmitResponse {
+  final String status;
+  AutoMixingAutoTransmitResponse(this.status);
+}
+
+class SigPeakAutoTransmitResponse {
+  final String status;
+  SigPeakAutoTransmitResponse(this.status);
+}
+
+class AuxAutoTransmitResponse {
+  final String status;
+  AuxAutoTransmitResponse(this.status);
+}
+
+class GpoResponse {
+  final String gpo;
+  final String status;
+  GpoResponse(this.gpo, this.status);
+}
+
+class AutoFocusResponse {
+  final String camera;
+  final String status;
+  AutoFocusResponse(this.camera, this.status);
+}
+
+class AutoExposureResponse {
+  final String camera;
+  final String status;
+  AutoExposureResponse(this.camera, this.status);
+}
+
+class AutoSwitchingResponse {
+  final String status;
+  AutoSwitchingResponse(this.status);
+}
+
+/// Mixins for command groups.
+mixin VideoCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Performs a cut transition.
+  Future<void> cut() => _sendCommand(_buildCommand('CUT'));
+
+  /// Performs an auto transition.
+  /// Variant 1: ATO;
+  /// Variant 2: ATO:input;
+  /// Variant 3: ATO:input,time;
+  Future<void> auto({String? input, int? time}) {
+    List<String> params = [];
+    if (input != null) params.add(input);
+    if (time != null) {
+      if (time == -1 || (time >= 0 && time <= 40)) {
+        params.add(time.toString());
+      } else {
+        throw ArgumentError('time must be -1 or 0-40');
+      }
+    }
+    return _sendCommand(_buildCommand('ATO', params));
+  }
+
+  /// Performs a cut transition with optional input.
+  Future<void> cutWithInput(String input) => _sendCommand(_buildCommand('CUT', [input]));
+
+  /// Sets the program input.
+  Future<void> setProgram(String input) {
+    if (!RolandService.inputRegex.hasMatch(input)) throw ArgumentError('Invalid input format: $input');
+    int index = int.parse(input.substring(5));
+    if (index < 1 || index > 20) throw ArgumentError('Input index must be 1-20');
+    return _sendCommand(_buildCommand('PGM', [input]));
+  }
+
+  /// Gets the program input.
+  Future<void> getProgram() => _sendCommand(_buildCommand('QPGM'));
+
+  /// Sets the preview input.
+  Future<void> setPreview(String input) {
+    if (!RegExp(r'^INPUT\d+$').hasMatch(input)) throw ArgumentError('Invalid input format: $input');
+    int index = int.parse(input.substring(5));
+    if (index < 1 || index > 20) throw ArgumentError('Input index must be 1-20');
+    return _sendCommand(_buildCommand('PST', [input]));
+  }
+
+  /// Gets the preview input.
+  Future<void> getPreview() => _sendCommand(_buildCommand('QPST'));
+
+  /// Sets the AUX bus video channel.
+  Future<void> setAux(String aux, String input) => _sendCommand(_buildCommand('AUX', [aux, input]));
+
+  /// Gets the AUX bus video channel.
+  Future<void> getAux(String aux) => _sendCommand(_buildCommand('QAUX', [aux]));
+
+  /// Sets the video fader level (0-2047).
+  Future<void> setFaderLevel(int level) {
+    if (level < 0 || level > 2047) throw ArgumentError('level must be 0-2047');
+    return _sendCommand(_buildCommand('VFL', [level.toString()]));
+  }
+
+  /// Gets the video fader level.
+  Future<void> getFaderLevel() => _sendCommand(_buildCommand('QVFL'));
+
+  /// Gets video input source.
+  Future<void> getVideoInputSource(int index) {
+    if (index < 0 || index > 51) throw ArgumentError('index must be 0-51');
+    return _sendCommand(_buildCommand('QVISRC', [index.toString()]));
+  }
+
+  /// Gets video input status.
+  Future<void> getVideoInputStatus(String input) => _sendCommand(_buildCommand('QVIST', [input]));
+
+  /// Sets the transition type.
+  Future<void> setTransitionType(String type) => _sendCommand(_buildCommand('TRS', [type]));
+
+  /// Gets the transition type.
+  Future<void> getTransitionType() => _sendCommand(_buildCommand('QTRS'));
+
+  /// Sets the transition time.
+  Future<void> setTransitionTime(String type, int time) {
+    if (time < 0 || time > 40) throw ArgumentError('time must be 0-40');
+    return _sendCommand(_buildCommand('TIM', [type, time.toString()]));
+  }
+
+  /// Gets the transition time.
+  Future<void> getTransitionTime(String type) => _sendCommand(_buildCommand('QTIM', [type]));
+
+  /// Gets the auto transition status.
+  Future<void> getAutoTransitionStatus() => _sendCommand(_buildCommand('QATG'));
+
+  /// Sets freeze.
+  Future<void> setFreeze(bool on) => _sendCommand(_buildCommand('FRZ', [on ? 'ON' : 'OFF']));
+
+  /// Toggles freeze.
+  Future<void> toggleFreeze() => _sendCommand(_buildCommand('FRZ'));
+
+  /// Gets freeze status.
+  Future<void> getFreeze() => _sendCommand(_buildCommand('QFRZ'));
+
+  /// Sets output fade.
+  Future<void> setFade(bool on) => _sendCommand(_buildCommand('FTB', [on ? 'ON' : 'OFF']));
+
+  /// Toggles output fade.
+  Future<void> toggleFade() => _sendCommand(_buildCommand('FTB'));
+
+  /// Gets output fade status.
+  Future<void> getFade() => _sendCommand(_buildCommand('QFTB'));
+
+  /// Sets video input assign.
+  Future<void> setVideoInputAssign(String input, String source) => _sendCommand(_buildCommand('VIS', [input, source]));
+
+  /// Gets video input assign.
+  Future<void> getVideoInputAssign(String input) => _sendCommand(_buildCommand('QVIS', [input]));
+
+  /// Sets video output assign.
+  Future<void> setVideoOutputAssign(String output, String source) => _sendCommand(_buildCommand('VOS', [output, source]));
+
+  /// Gets video output assign.
+  Future<void> getVideoOutputAssign(String output) => _sendCommand(_buildCommand('QVOS', [output]));
+
+  /// Sets still image output.
+  Future<void> setStillOutput(String still) => _sendCommand(_buildCommand('STO', [still]));
+
+  /// Gets still image output.
+  Future<void> getStillOutput() => _sendCommand(_buildCommand('QSTO'));
+}
+
+mixin PinPCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets the PinP source.
+  Future<void> setPinPSource(String pinp, String source) => _sendCommand(_buildCommand('PIS', [pinp, source]));
+
+  /// Gets the PinP source.
+  Future<void> getPinPSource(String pinp) => _sendCommand(_buildCommand('QPIS', [pinp]));
+
+  /// Sets the PinP position.
+  Future<void> setPinPPosition(String pinp, int h, int v) {
+    if (h < -1000 || h > 1000 || v < -1000 || v > 1000) throw ArgumentError('h,v must be -1000 to 1000');
+    return _sendCommand(_buildCommand('PIP', [pinp, h.toString(), v.toString()]));
+  }
+
+  /// Gets the PinP position.
+  Future<void> getPinPPosition(String pinp) => _sendCommand(_buildCommand('QPIP', [pinp]));
+
+  /// Sets PinP on program.
+  Future<void> setPinPPgm(String pinp, bool on) => _sendCommand(_buildCommand('PPS', [pinp, on ? 'ON' : 'OFF']));
+
+  /// Toggles PinP on program.
+  Future<void> togglePinPPgm(String pinp) => _sendCommand(_buildCommand('PPS', [pinp]));
+
+  /// Gets PinP on program status.
+  Future<void> getPinPPgm(String pinp) => _sendCommand(_buildCommand('QPPS', [pinp]));
+
+  /// Sets PinP on preview.
+  Future<void> setPinPPvw(String pinp, bool on) => _sendCommand(_buildCommand('PPW', [pinp, on ? 'ON' : 'OFF']));
+
+  /// Toggles PinP on preview.
+  Future<void> togglePinPPvw(String pinp) => _sendCommand(_buildCommand('PPW', [pinp]));
+
+  /// Gets PinP on preview status.
+  Future<void> getPinPPvw(String pinp) => _sendCommand(_buildCommand('QPPW', [pinp]));
+}
+
+mixin DskCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets DSK on program.
+  Future<void> setDskPgm(String dsk, bool on) => _sendCommand(_buildCommand('DSK', [dsk, on ? 'ON' : 'OFF']));
+
+  /// Toggles DSK on program.
+  Future<void> toggleDskPgm(String dsk) => _sendCommand(_buildCommand('DSK', [dsk]));
+
+  /// Gets DSK on program status.
+  Future<void> getDskPgm(String dsk) => _sendCommand(_buildCommand('QDSK', [dsk]));
+
+  /// Sets DSK on preview.
+  Future<void> setDskPvw(String dsk, bool on) => _sendCommand(_buildCommand('DVW', [dsk, on ? 'ON' : 'OFF']));
+
+  /// Toggles DSK on preview.
+  Future<void> toggleDskPvw(String dsk) => _sendCommand(_buildCommand('DVW', [dsk]));
+
+  /// Gets DSK on preview status.
+  Future<void> getDskPvw(String dsk) => _sendCommand(_buildCommand('QDVW', [dsk]));
+
+  /// Sets DSK fill source.
+  Future<void> setDskSource(String dsk, String source) => _sendCommand(_buildCommand('DSS', [dsk, source]));
+
+  /// Gets DSK fill source.
+  Future<void> getDskSource(String dsk) => _sendCommand(_buildCommand('QDSS', [dsk]));
+
+  /// Sets DSK level.
+  Future<void> setDskLevel(String dsk, int level) {
+    if (level < 0 || level > 255) throw ArgumentError('level must be 0-255');
+    return _sendCommand(_buildCommand('KYL', [dsk, level.toString()]));
+  }
+
+  /// Gets DSK level.
+  Future<void> getDskLevel(String dsk) => _sendCommand(_buildCommand('QKYL', [dsk]));
+
+  /// Sets DSK gain.
+  Future<void> setDskGain(String dsk, int gain) {
+    if (gain < 0 || gain > 255) throw ArgumentError('gain must be 0-255');
+    return _sendCommand(_buildCommand('KYG', [dsk, gain.toString()]));
+  }
+
+  /// Gets DSK gain.
+  Future<void> getDskGain(String dsk) => _sendCommand(_buildCommand('QKYG', [dsk]));
+}
+
+mixin AudioCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets audio output assign.
+  Future<void> setAudioOutputAssign(String output, String assign) => _sendCommand(_buildCommand('AOS', [output, assign]));
+
+  /// Gets audio output assign.
+  Future<void> getAudioOutputAssign(String output) => _sendCommand(_buildCommand('QAOS', [output]));
+
+  /// Sets audio input level (in tenths of dB, e.g., -60 for -6.0 dB).
+  Future<void> setAudioInputLevel(String input, int level) {
+    if (level < -800 || level > 100) throw ArgumentError('level must be -800 to 100 (tenths of dB)');
+    return _sendCommand(_buildCommand('IAL', [input, level.toString()]));
+  }
+
+  /// Gets audio input level.
+  Future<void> getAudioInputLevel(String input) => _sendCommand(_buildCommand('QIAL', [input]));
+
+  /// Sets audio input mute.
+  Future<void> setAudioInputMute(String input, bool mute) => _sendCommand(_buildCommand('IAM', [input, mute ? 'ON' : 'OFF']));
+
+  /// Toggles audio input mute.
+  Future<void> toggleAudioInputMute(String input) => _sendCommand(_buildCommand('IAM', [input]));
+
+  /// Gets audio input mute status.
+  Future<void> getAudioInputMute(String input) => _sendCommand(_buildCommand('QIAM', [input]));
+
+  /// Sets audio input solo.
+  Future<void> setAudioInputSolo(String input, bool solo) => _sendCommand(_buildCommand('IAS', [input, solo ? 'ON' : 'OFF']));
+
+  /// Toggles audio input solo.
+  Future<void> toggleAudioInputSolo(String input) => _sendCommand(_buildCommand('IAS', [input]));
+
+  /// Gets audio input solo status.
+  Future<void> getAudioInputSolo(String input) => _sendCommand(_buildCommand('QIAS', [input]));
+
+  /// Sets audio input delay time.
+  Future<void> setAudioInputDelay(String input, int delay) {
+    if (delay < 0 || delay > 5000) throw ArgumentError('delay must be 0-5000');
+    return _sendCommand(_buildCommand('ADT', [input, delay.toString()]));
+  }
+
+  /// Gets audio input delay time.
+  Future<void> getAudioInputDelay(String input) => _sendCommand(_buildCommand('QADT', [input]));
+
+  /// Sets high pass filter.
+  Future<void> setHighPassFilter(String input, bool on) => _sendCommand(_buildCommand('HPF', [input, on ? 'ON' : 'OFF']));
+
+  /// Gets high pass filter status.
+  Future<void> getHighPassFilter(String input) => _sendCommand(_buildCommand('QHPF', [input]));
+
+  /// Sets gate.
+  Future<void> setGate(String input, bool on) => _sendCommand(_buildCommand('GATE', [input, on ? 'ON' : 'OFF']));
+
+  /// Gets gate status.
+  Future<void> getGate(String input) => _sendCommand(_buildCommand('QGATE', [input]));
+
+  /// Sets stereo link.
+  Future<void> setStereoLink(String input, bool on) => _sendCommand(_buildCommand('STLK', [input, on ? 'ON' : 'OFF']));
+
+  /// Toggles stereo link.
+  Future<void> toggleStereoLink(String input) => _sendCommand(_buildCommand('STLK', [input]));
+
+  /// Gets stereo link status.
+  Future<void> getStereoLink(String input) => _sendCommand(_buildCommand('QSTLK', [input]));
+
+  /// Sets voice changer.
+  Future<void> setVoiceChanger(String input, bool on) => _sendCommand(_buildCommand('VOCH', [input, on ? 'ON' : 'OFF']));
+
+  /// Toggles voice changer.
+  Future<void> toggleVoiceChanger(String input) => _sendCommand(_buildCommand('VOCH', [input]));
+
+  /// Gets voice changer status.
+  Future<void> getVoiceChanger(String input) => _sendCommand(_buildCommand('QVOCH', [input]));
+
+  /// Sets audio output level (in tenths of dB, e.g., -60 for -6.0 dB).
+  Future<void> setAudioOutputLevel(String output, int level) {
+    if (level < -800 || level > 100) throw ArgumentError('level must be -800 to 100 (tenths of dB)');
+    return _sendCommand(_buildCommand('OAL', [output, level.toString()]));
+  }
+
+  /// Gets audio output level.
+  Future<void> getAudioOutputLevel(String output) => _sendCommand(_buildCommand('QOAL', [output]));
+
+  /// Sets audio output mute.
+  Future<void> setAudioOutputMute(String output, bool mute) => _sendCommand(_buildCommand('OAM', [output, mute ? 'ON' : 'OFF']));
+
+  /// Gets audio output mute status.
+  Future<void> getAudioOutputMute(String output) => _sendCommand(_buildCommand('QOAM', [output]));
+
+  /// Sets reverb.
+  Future<void> setReverb(bool on) => _sendCommand(_buildCommand('RVB', [on ? 'ON' : 'OFF']));
+
+  /// Toggles reverb.
+  Future<void> toggleReverb() => _sendCommand(_buildCommand('RVB'));
+
+  /// Gets reverb status.
+  Future<void> getReverb() => _sendCommand(_buildCommand('QRVB'));
+
+  /// Sets audio auto mixing.
+  Future<void> setAutoMixing(bool on) => _sendCommand(_buildCommand('ATM', [on ? 'ON' : 'OFF']));
+
+  /// Toggles audio auto mixing.
+  Future<void> toggleAutoMixing() => _sendCommand(_buildCommand('ATM'));
+
+  /// Gets audio auto mixing status.
+  Future<void> getAutoMixing() => _sendCommand(_buildCommand('QATM'));
+}
+
+mixin MeterCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets auto-transmit for audio level meter.
+  Future<void> setMeterAutoTransmit(bool on) => _sendCommand(_buildCommand('MTRSW', [on ? 'ON' : 'OFF']));
+
+  /// Gets auto-transmit status for audio level meter.
+  Future<void> getMeterAutoTransmit() => _sendCommand(_buildCommand('QMTRSW'));
+
+  /// Gets audio level meter.
+  Future<void> getAudioLevelMeter(String mode) => _sendCommand(_buildCommand('MTRLV', [mode]));
+
+  /// Gets audio level meter channel info.
+  Future<void> getAudioLevelMeterChannel(int channel) => _sendCommand(_buildCommand('MTRCH', [channel.toString()]));
+
+  /// Sets auto-transmit for comp GR level.
+  Future<void> setCompGrAutoTransmit(bool on) => _sendCommand(_buildCommand('GRSW', [on ? 'ON' : 'OFF']));
+
+  /// Gets auto-transmit status for comp GR level.
+  Future<void> getCompGrAutoTransmit() => _sendCommand(_buildCommand('QGRSW'));
+
+  /// Gets comp GR level.
+  Future<void> getCompGrLevel() => _sendCommand(_buildCommand('GRLV'));
+
+  /// Gets comp GR channel info.
+  Future<void> getCompGrChannel(int channel) => _sendCommand(_buildCommand('GRCH', [channel.toString()]));
+
+  /// Sets auto-transmit for auto mixing level.
+  Future<void> setAutoMixingAutoTransmit(bool on) => _sendCommand(_buildCommand('AMSW', [on ? 'ON' : 'OFF']));
+
+  /// Gets auto-transmit status for auto mixing level.
+  Future<void> getAutoMixingAutoTransmit() => _sendCommand(_buildCommand('QAMSW'));
+
+  /// Gets auto mixing level.
+  Future<void> getAutoMixingLevel() => _sendCommand(_buildCommand('AMLV'));
+
+  /// Gets auto mixing channel info.
+  Future<void> getAutoMixingChannel(int channel) => _sendCommand(_buildCommand('AMCH', [channel.toString()]));
+
+  /// Sets auto-transmit for sig/peak level.
+  Future<void> setSigPeakAutoTransmit(bool on) => _sendCommand(_buildCommand('SPSW', [on ? 'ON' : 'OFF']));
+
+  /// Gets auto-transmit status for sig/peak level.
+  Future<void> getSigPeakAutoTransmit() => _sendCommand(_buildCommand('QSPSW'));
+
+  /// Gets sig/peak level.
+  Future<void> getSigPeakLevel() => _sendCommand(_buildCommand('SPLV'));
+
+  /// Gets sig/peak channel info.
+  Future<void> getSigPeakChannel(int channel) => _sendCommand(_buildCommand('SPCH', [channel.toString()]));
+
+  /// Sets auto-transmit for AUX level.
+  Future<void> setAuxAutoTransmit(bool on) => _sendCommand(_buildCommand('AUXSW', [on ? 'ON' : 'OFF']));
+
+  /// Gets auto-transmit status for AUX level.
+  Future<void> getAuxAutoTransmit() => _sendCommand(_buildCommand('QAUXSW'));
+
+  /// Gets AUX meter level.
+  Future<void> getAuxLevel(String aux) => _sendCommand(_buildCommand('AUXLV', [aux]));
+
+  /// Gets AUX meter channel info.
+  Future<void> getAuxChannel(int channel) => _sendCommand(_buildCommand('AUXCH', [channel.toString()]));
+}
+
+mixin ControlCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Executes a macro.
+  Future<void> executeMacro(int macro) {
+    if (macro < 1 || macro > 100) throw ArgumentError('macro must be 1-100');
+    return _sendCommand(_buildCommand('MCREX', [macro.toString()]));
+  }
+
+  /// Checks if macro is executing.
+  Future<void> getMacroStatus(int macro) {
+    if (macro < 1 || macro > 100) throw ArgumentError('macro must be 1-100');
+    return _sendCommand(_buildCommand('QMCRST', [macro.toString()]));
+  }
+
+  /// Recalls scene memory.
+  Future<void> recallMemory(String memory) => _sendCommand(_buildCommand('MEM', [memory]));
+
+  /// Gets selected scene memory.
+  Future<void> getMemory() => _sendCommand(_buildCommand('QMEM'));
+
+  /// Outputs GPO.
+  Future<void> outputGpo(String gpo, {bool? state}) {
+    List<String> params = [gpo];
+    if (state != null) params.add(state ? 'ON' : 'OFF');
+    return _sendCommand(_buildCommand('GPO', params));
+  }
+
+  /// Gets GPO status.
+  Future<void> getGpo(String gpo) => _sendCommand(_buildCommand('QGPO', [gpo]));
+
+  /// Gets tally status.
+  Future<void> getTally() => _sendCommand(_buildCommand('TLY'));
+
+  /// Sets auto switching.
+  Future<void> setAutoSwitching(bool on) => _sendCommand(_buildCommand('ASW', [on ? 'ON' : 'OFF']));
+
+  /// Toggles auto switching.
+  Future<void> toggleAutoSwitching() => _sendCommand(_buildCommand('ASW'));
+
+  /// Gets auto switching status.
+  Future<void> getAutoSwitching() => _sendCommand(_buildCommand('QASW'));
+
+  /// Executes input scan.
+  Future<void> executeInputScan(String type) => _sendCommand(_buildCommand('INSC', [type]));
+
+  /// Executes scene memory scan.
+  Future<void> executeMemoryScan(String type) => _sendCommand(_buildCommand('MEMSC', [type]));
+
+  /// Executes PinP source scan.
+  Future<void> executePinPScan(String pinp, String type) => _sendCommand(_buildCommand('PPSC', [pinp, type]));
+
+  /// Executes DSK source scan.
+  Future<void> executeDskScan(String dsk, String type) => _sendCommand(_buildCommand('DSKSC', [dsk, type]));
+}
+
+mixin SystemCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Returns ACK.
+  Future<void> ack() => _sendCommand(_buildCommand('ACS'));
+
+  /// Gets model and version.
+  Future<void> getVersion() => _sendCommand(_buildCommand('VER'));
+
+  /// Gets busy status.
+  Future<void> getBusyStatus() => _sendCommand(_buildCommand('QBSY'));
+
+  /// Sets HDCP.
+  Future<void> setHdcp(bool on) => _sendCommand(_buildCommand('HDCP', [on ? 'ON' : 'OFF']));
+
+  /// Gets HDCP status.
+  Future<void> getHdcp() => _sendCommand(_buildCommand('QHDCP'));
+
+  /// Sets test pattern.
+  Future<void> setTestPattern(String pattern) => _sendCommand(_buildCommand('TPT', [pattern]));
+
+  /// Gets test pattern.
+  Future<void> getTestPattern() => _sendCommand(_buildCommand('QTPT'));
+
+  /// Sets test tone.
+  Future<void> setTestTone(String level, {String? freqL, String? freqR}) {
+    List<String> params = [level];
+    if (freqL != null) params.add(freqL);
+    if (freqR != null) params.add(freqR);
+    return _sendCommand(_buildCommand('TTN', params));
+  }
+
+  /// Gets test tone.
+  Future<void> getTestTone() => _sendCommand(_buildCommand('QTTN'));
+}
+
+mixin CameraCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets pan and tilt.
+  Future<void> setPanTilt(String camera, String pan, String tilt) {
+    if (!RolandService.cameraRegex.hasMatch(camera)) throw ArgumentError('Invalid camera format: $camera');
+    int index = int.parse(camera.substring(6));
+    if (index < 1 || index > 16) throw ArgumentError('Camera index must be 1-16');
+    const validPans = {'LEFT', 'STOP', 'RIGHT'};
+    const validTilts = {'DOWN', 'STOP', 'UP'};
+    if (!validPans.contains(pan.toUpperCase())) throw ArgumentError('Invalid pan direction: $pan');
+    if (!validTilts.contains(tilt.toUpperCase())) throw ArgumentError('Invalid tilt direction: $tilt');
+    return _sendCommand(_buildCommand('CAMPT', [camera, pan, tilt]));
+  }
+
+  /// Sets pan/tilt speed.
+  Future<void> setPanTiltSpeed(String camera, int speed) {
+    if (speed < 1 || speed > 24) throw ArgumentError('speed must be 1-24');
+    return _sendCommand(_buildCommand('CAMPTS', [camera, speed.toString()]));
+  }
+
+  /// Gets pan/tilt speed.
+  Future<void> getPanTiltSpeed(String camera) => _sendCommand(_buildCommand('QCAMPTS', [camera]));
+
+  /// Sets zoom.
+  Future<void> setZoom(String camera, String direction) => _sendCommand(_buildCommand('CAMZM', [camera, direction]));
+
+  /// Resets zoom.
+  Future<void> resetZoom(String camera) => _sendCommand(_buildCommand('CAMZMR', [camera]));
+
+  /// Sets focus.
+  Future<void> setFocus(String camera, String direction) => _sendCommand(_buildCommand('CAMFC', [camera, direction]));
+
+  /// Sets auto focus.
+  Future<void> setAutoFocus(String camera, bool on) => _sendCommand(_buildCommand('CAMAFC', [camera, on ? 'ON' : 'OFF']));
+
+  /// Gets auto focus status.
+  Future<void> getAutoFocus(String camera) => _sendCommand(_buildCommand('QCAMAFC', [camera]));
+
+  /// Sets auto exposure.
+  Future<void> setAutoExposure(String camera, bool on) => _sendCommand(_buildCommand('CAMAEP', [camera, on ? 'ON' : 'OFF']));
+
+  /// Gets auto exposure status.
+  Future<void> getAutoExposure(String camera) => _sendCommand(_buildCommand('QCAMAEP', [camera]));
+
+  /// Recalls preset.
+  Future<void> recallPreset(String camera, String preset) => _sendCommand(_buildCommand('CAMPR', [camera, preset]));
+
+  /// Gets current preset.
+  Future<void> getCurrentPreset(String camera) => _sendCommand(_buildCommand('QCAMPR', [camera]));
+}
+
+mixin SplitCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets SPLIT control.
+  Future<void> setSplit(String split, bool on) => _sendCommand(_buildCommand('SPS', [split, on ? 'ON' : 'OFF']));
+
+  /// Toggles SPLIT.
+  Future<void> toggleSplit(String split) => _sendCommand(_buildCommand('SPS', [split]));
+
+  /// Gets SPLIT status.
+  Future<void> getSplit(String split) => _sendCommand(_buildCommand('QSPS', [split]));
+
+  /// Sets SPLIT positions.
+  Future<void> setSplitPositions(String split, int pgmCenter, int pvwCenter, {int? center}) {
+    if (pgmCenter < RolandService.minSplitCenter || pgmCenter > RolandService.maxSplitCenter) throw ArgumentError('pgmCenter must be -500 to 500');
+    if (pvwCenter < RolandService.minSplitCenter || pvwCenter > RolandService.maxSplitCenter) throw ArgumentError('pvwCenter must be -500 to 500');
+    if (center != null && (center < RolandService.minSplitCenter || center > RolandService.maxSplitCenter)) throw ArgumentError('center must be -500 to 500');
+    List<String> params = [split, pgmCenter.toString(), pvwCenter.toString()];
+    if (center != null) params.add(center.toString());
+    return _sendCommand(_buildCommand('SPT', params));
+  }
+
+  /// Gets SPLIT positions.
+  Future<void> getSplitPositions(String split) => _sendCommand(_buildCommand('QSPT', [split]));
+}
+
+mixin SequencerCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Sets sequencer ON/OFF.
+  Future<void> setSequencer(bool on) => _sendCommand(_buildCommand('SEQSW', [on ? 'ON' : 'OFF']));
+
+  /// Gets sequencer status.
+  Future<void> getSequencerStatus() => _sendCommand(_buildCommand('QSEQSW'));
+
+  /// Sets sequencer auto sequence.
+  Future<void> setAutoSequence(bool on) => _sendCommand(_buildCommand('SEQAS', [on ? 'ON' : 'OFF']));
+
+  /// Gets sequencer auto sequence status.
+  Future<void> getAutoSequenceStatus() => _sendCommand(_buildCommand('QSEQAS'));
+
+  /// Sets sequencer to previous.
+  Future<void> previousSequence({int? steps}) {
+    List<String> params = [];
+    if (steps != null) params.add(steps.toString());
+    return _sendCommand(_buildCommand('SEQPV', params));
+  }
+
+  /// Advances sequencer.
+  Future<void> nextSequence() => _sendCommand(_buildCommand('SEQNX'));
+
+  /// Sets sequencer number.
+  Future<void> setSequenceNumber(String seq) => _sendCommand(_buildCommand('SEQJP', [seq]));
+}
+
+mixin GraphicsCommands {
+  String _buildCommand(String cmd, [List<String>? params]);
+  Future<void> _sendCommand(String command);
+
+  /// Selects next content.
+  Future<void> nextContent() => _sendCommand(_buildCommand('GPNC'));
+
+  /// Selects content.
+  Future<void> selectContent(String content) => _sendCommand(_buildCommand('GPSC', [content]));
+
+  /// Hides front content.
+  Future<void> hideFrontContent() => _sendCommand(_buildCommand('GPHF'));
+
+  /// Hides background content.
+  Future<void> hideBackgroundContent() => _sendCommand(_buildCommand('GPHB'));
+
+  /// Toggles ON AIR.
+  Future<void> toggleOnAir() => _sendCommand(_buildCommand('GPOA'));
+}
+
 /// Service for communicating with Roland V-160HD device.
 /// 
 /// This service provides methods to control various aspects of the Roland V-160HD
-/// video mixer via TCP socket commands. It supports VIDEO, PinP, CONTROL, SYSTEM,
-/// CAMERA, AUDIO, METER, and DSK commands as per the official documentation.
+/// video mixer via TCP socket commands. It supports the following command groups
+/// as per the official documentation:
+/// - VIDEO: CUT, ATO, QATG, FRZ, FTB, VIS, QVIS, VOS, QVOS, TRS, QTRS, TIM, QTIM,
+///   PIS, QPIS, PPS, PPW, PIP, QPIP, DSK, DVW, DSS, QDSS, KYL, QKYL, KYG, QKYG,
+///   SPS, SPT, QSPT, STO, QSTO, PGM, QPGM, PST, QPST, AUX, QAUX, VFL, QVFL,
+///   QVISRC, QVIST
+/// - AUDIO: AOS, QAOS, IAL, QIAL, IAM, QIAM, IAS, QIAS, ADT, QADT, HPF, QHPF,
+///   GATE, QGATE, STLK, QSTLK, VOCH, QVOCH, OAL, QOAL, OAM, QOAM, RVB, QRVB,
+///   ATM, QATM
+/// - METER: MTRSW, QMTRSW, MTRLV, MTRCH, GRSW, QGRSW, GRLV, GRCH, AMSW, QAMSW,
+///   AMLV, AMCH, SPSW, QSPSW, SPLV, SPCH, AUXSW, QAUXSW, AUXLV, AUXCH
+/// - CONTROL: MEM, QMEM, GPO, QGPO, TLY, ASW, QASW, INSC, MEMSC, PPSC, DSKSC,
+///   MCREX, QMCRST
+/// - SYSTEM: ACS, VER, QBSY, HDCP, QHDCP, TPT, QTPT, TTN, QTTN
+/// - CAMERA: CAMPT, CAMPTS, QCAMPTS, CAMZM, CAMZMR, CAMFC, CAMAFC, QCAMAFC,
+///   CAMAEP, QCAMAEP, CAMPR, QCAMPR
+/// - SPLIT: SPS, QSPS, SPT, QSPT
+/// - SEQUENCER: SEQSW, QSEQSW, SEQAS, QSEQAS, SEQPV, SEQNX, SEQJP
+/// - GRAPHICS: GPNC, GPSC, GPHF, GPHB, GPOA
+/// 
+/// Note: Auto-transmit for meters sends responses periodically without ACK; ensure listeners handle continuous data.
+/// For security in production networks, enable SSL.
+/// Auto-reconnect can be configured via setAutoReconnect() for resilience.
 /// 
 /// Example usage:
 /// ```dart
-/// final service = RolandService(host: '192.168.1.100');
+/// final service = RolandService(host: '192.168.1.100', useSSL: true);
 /// await service.connect();
-/// await service.setProgram(0); // Set program to INPUT1
+/// await service.setProgram('INPUT1'); // Set program to INPUT1
 /// await service.setFaderLevel(1024); // Set fader to mid-level
 /// service.disconnect();
 /// ```
-class RolandService {
+class RolandService with
+  VideoCommands,
+  PinPCommands,
+  DskCommands,
+  AudioCommands,
+  MeterCommands,
+  ControlCommands,
+  SystemCommands,
+  CameraCommands,
+  SplitCommands,
+  SequencerCommands,
+  GraphicsCommands {
   static const int defaultPort = 8023;
   static const int maxFaderLevel = 2047;
   static const int minFaderLevel = 0;
@@ -97,51 +1054,117 @@ class RolandService {
   static const int minSplit = 0;
   static const int maxMemory = 30;
   static const int minMemory = 1;
+  static const int maxDelay = 5000; // 500.0 msec
+  static const int minDelay = 0;
+  static const int maxPinPH = 1000;
+  static const int minPinPH = -1000;
+  static const int maxPinPV = 1000;
+  static const int minPinPV = -1000;
+  static const int maxSplitCenter = 500;
+  static const int minSplitCenter = -500;
+  static const Duration defaultConnectTimeout = Duration(seconds: 10);
+  static const Duration defaultAckTimeout = Duration(seconds: 5);
+  static const Duration defaultCommandRetryDelay = Duration(milliseconds: 100);
+
+  // Regex constants
+  static final RegExp hostRegex = RegExp(r'^[a-zA-Z0-9.-]+$');
+  static final RegExp inputRegex = RegExp(r'^INPUT\d+$');
+  static final RegExp cameraRegex = RegExp(r'^CAMERA\d+$');
+
+  // Auto-transmit prefixes
+  static const Set<String> _autoTransmitPrefixes = {'MTRLV', 'GRLV', 'AMLV', 'SPLV', 'AUXLV'};
 
   final String host;
   final int port;
+  final bool useSSL;
+  final Duration connectTimeout;
+  final Duration ackTimeout;
+  final Duration commandRetryDelay;
   Socket? _socket;
   final StreamController<dynamic> _responseController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get responseStream => _responseController.stream;
   final Queue<Completer<void>> _ackCompleters = Queue<Completer<void>>();
   final Queue<String> _commandQueue = Queue<String>();
+  int _commandId = 0;
   bool _isProcessing = false;
   bool _isConnected = false;
+  final StringBuffer _responseBuffer = StringBuffer();
+  int _pendingCount = 0;
+  static const int maxConcurrentCommands = 5;
+  static const int maxBufferSize = 1024 * 1024; // 1MB
 
-  /// Creates a new RolandService instance.
-  RolandService({required this.host, this.port = defaultPort});
+  // Auto-reconnect
+  bool _autoReconnect = false;
+  int _maxReconnectAttempts = 3;
+  Duration _reconnectDelay = const Duration(seconds: 5);
 
-  /// Helper to build commands.
-  String _buildCommand(String cmd, [List<String>? params]) {
-    if (params == null || params.isEmpty) return '$cmd;';
-    return '$cmd:${params.join(',')};';
+  RolandService({required this.host, this.port = defaultPort, this.useSSL = false, this.connectTimeout = defaultConnectTimeout, this.ackTimeout = defaultAckTimeout, this.commandRetryDelay = defaultCommandRetryDelay}) {
+    // Validate host
+    if (host.isEmpty || !hostRegex.hasMatch(host)) {
+      throw ValidationException('Invalid host: $host');
+    }
   }
 
-  /// Connects to the Roland device.
-  Future<void> connect() async {
-    try {
-      dev.log('Connecting to $host:$port');
-      _socket = await Socket.connect(host, port).timeout(const Duration(seconds: 10));
-      _isConnected = true;
-      _socket!.listen(
-        (data) => _handleResponse(utf8.decode(data)),
-        onError: (error) {
-          dev.log('Socket error: $error');
-          _isConnected = false;
-          _responseController.addError(RolandException('Socket error: $error'));
-          _responseController.close();
-        },
-        onDone: () {
-          dev.log('Socket closed');
-          _isConnected = false;
-          disconnect();
-        },
-      );
-      dev.log('Connected successfully');
-    } catch (e) {
-      dev.log('Connection failed: $e');
-      throw RolandException('Connection failed: $e');
+  /// Public method for testing response parsing
+  dynamic parseResponseForTest(String response) {
+    return _parseResponse(response);
+  }
+
+  /// Sets auto-reconnect on disconnection.
+  void setAutoReconnect(bool enable, {int maxAttempts = 3, Duration delay = const Duration(seconds: 5)}) {
+    _autoReconnect = enable;
+    _maxReconnectAttempts = maxAttempts;
+    _reconnectDelay = delay;
+  }
+
+  /// Helper to build commands.
+  @override
+  String _buildCommand(String cmd, [List<String>? params]) {
+    final buffer = StringBuffer(cmd);
+    if (params != null && params.isNotEmpty) {
+      buffer.write(':${params.join(',')}');
     }
+    buffer.write(';');
+    return buffer.toString();
+  }
+
+  /// Connects to the Roland device with retries.
+  Future<void> connect({int retryCount = 3}) async {
+    for (int attempt = 0; attempt <= retryCount; attempt++) {
+      try {
+        dev.log('Connecting to $host:$port (attempt ${attempt + 1})');
+        _socket = useSSL
+            ? await SecureSocket.connect(host, port).timeout(connectTimeout)
+            : await Socket.connect(host, port).timeout(connectTimeout);
+        _isConnected = true;
+        _socket!.listen(
+          (data) => _handleResponse(utf8.decode(data)),
+          onError: (error) {
+            dev.log('Socket error: $error');
+            _isConnected = false;
+            _responseController.addError(ConnectionException('Socket error: $error'));
+            _responseController.close();
+          },
+          onDone: () {
+            dev.log('Socket closed');
+            _isConnected = false;
+            disconnect();
+          },
+        );
+        dev.log('Connected successfully');
+        return;
+      } catch (e) {
+        dev.log('Connection attempt ${attempt + 1} failed: $e');
+        if (attempt == retryCount) throw ConnectionException('Connection failed after $retryCount attempts: $e');
+        await Future.delayed(commandRetryDelay * (attempt + 1)); // Backoff
+      }
+    }
+  }
+
+  /// Reconnects to the Roland device.
+  Future<void> reconnect() async {
+    if (_isConnected) disconnect();
+    await connect();
   }
 
   /// Disconnects from the Roland device.
@@ -150,57 +1173,112 @@ class RolandService {
     _socket?.close();
     _socket = null;
     _isConnected = false;
+    _responseBuffer.clear();
     _responseController.close();
     // Complete any pending acks with error
     while (_ackCompleters.isNotEmpty) {
       _ackCompleters.removeFirst().completeError(RolandException('Disconnected'));
     }
+    // Auto-reconnect if enabled
+    if (_autoReconnect && !_isConnected) {
+      Timer(_reconnectDelay, () => reconnect());
+    }
   }
 
-  Future<void> _sendCommand(String command) async {
-    if (!_isConnected) throw RolandException('Not connected');
-    final completer = Completer<void>();
-    _ackCompleters.add(completer);
-    _commandQueue.add(command);
-    await _processQueue();
-    return completer.future.timeout(const Duration(seconds: 5), onTimeout: () {
-      throw RolandException('Command timeout: $command');
-    });
+  @override
+  Future<void> _sendCommand(String command, {int retryCount = 3}) async {
+    // Queues the command, sends it via socket, and waits for ACK using a Completer
+    if (!_isConnected) throw ConnectionException('Not connected');
+    // Wait if too many pending
+    while (_pendingCount >= maxConcurrentCommands) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+    _pendingCount++;
+    int currentId = ++_commandId;
+    dev.log('Queueing command ID $currentId: $command');
+    for (int attempt = 0; attempt <= retryCount; attempt++) {
+      try {
+        final completer = Completer<void>();
+        _ackCompleters.add(completer);
+        _commandQueue.add('$currentId:$command');
+        await _processQueue();
+        await completer.future.timeout(ackTimeout);
+        _pendingCount--;
+        dev.log('Command ID $currentId completed successfully');
+        return;
+      } catch (e) {
+        dev.log('Command ID $currentId attempt ${attempt + 1} failed: $e');
+        if (attempt == retryCount) {
+          _pendingCount--;
+          rethrow;
+        }
+        await Future.delayed(commandRetryDelay * (attempt + 1)); // Exponential backoff
+      }
+    }
   }
 
   Future<void> _processQueue() async {
+    // Processes the command queue sequentially to avoid overwhelming the device
     if (_isProcessing || !_isConnected) return;
     _isProcessing = true;
     while (_commandQueue.isNotEmpty && _isConnected) {
-      String cmd = _commandQueue.removeFirst();
-      dev.log('Sending command: $cmd');
+      String entry = _commandQueue.removeFirst();
+      List<String> parts = entry.split(':');
+      String id = parts[0];
+      String cmd = parts.sublist(1).join(':');
+      dev.log('Sending command ID $id: $cmd');
       _socket!.write(cmd);
       await _socket!.flush().timeout(const Duration(seconds: 5));
+      await Future.delayed(Duration.zero); // Yield control to prevent blocking
     }
     _isProcessing = false;
   }
 
-  void _handleResponse(String response) {
-    final trimmed = response.trim();
-    dev.log('Received response: $trimmed');
-    if (trimmed.endsWith(';ACK;') || trimmed == 'ACK;') {
+  void _handleResponse(String data) {
+    // Accumulates incoming data into buffer, checks for overflow, processes complete responses (ended by \n), parses and emits via stream
+    _responseBuffer.write(data);
+    if (_responseBuffer.length > maxBufferSize) {
+      _responseBuffer.clear();
+      _responseController.addError(RolandException('Response buffer overflow'));
+      return;
+    }
+    String buffer = _responseBuffer.toString();
+    int endIndex;
+    while ((endIndex = buffer.indexOf('\n')) != -1) {
+      String response = buffer.substring(0, endIndex).trim();
+      buffer = buffer.substring(endIndex + 1);
+      _processCompleteResponse(response);
+    }
+    _responseBuffer.clear();
+    _responseBuffer.write(buffer);
+  }
+
+  void _processCompleteResponse(String response) {
+    dev.log('Received response: $response');
+    if (response.endsWith(';ACK;') || response == 'ACK;') {
       // Complete the next pending ACK
       if (_ackCompleters.isNotEmpty) {
         _ackCompleters.removeFirst().complete();
       }
       // Parse the response
-      final parsed = _parseResponse(trimmed);
+      final parsed = _parseResponse(response);
       if (parsed != null) {
         _responseController.add(parsed);
       }
-    } else if (trimmed.contains('NACK') || trimmed.contains('ERROR')) {
+    } else if (response.contains('NACK') || response.contains('ERROR')) {
       // Handle errors
       if (_ackCompleters.isNotEmpty) {
-        _ackCompleters.removeFirst().completeError(RolandException('Command failed: $trimmed'));
+        _ackCompleters.removeFirst().completeError(CommandException('Command failed: $response'));
+      }
+    } else if (_autoTransmitPrefixes.any((prefix) => response.startsWith(prefix + ':'))) {
+      // Handle auto-transmit responses
+      final parsed = _parseResponse(response + ';ACK;');
+      if (parsed != null) {
+        _responseController.add(parsed);
       }
     } else {
       // Raw response for unparsed
-      _responseController.add(trimmed);
+      _responseController.add(response);
     }
   }
 
@@ -210,12 +1288,15 @@ class RolandService {
     final parts = clean.split(':');
     if (parts.length < 2) return null;
     final cmd = parts[0];
-    final params = parts[1].split(',');
+    final paramStr = parts[1];
+    final params = paramStr.split(',');
     switch (cmd) {
       case 'VFL':
         return FaderLevelResponse(int.parse(params[0]));
       case 'PGM':
         return ProgramResponse(params[0], params.length > 1 ? params[1] : null);
+      case 'PST':
+        return PreviewResponse(params[0], params.length > 1 ? params[1] : null);
       case 'PIP':
         return PinPPositionResponse(int.parse(params[1]), int.parse(params[2]));
       case 'VER':
@@ -224,342 +1305,218 @@ class RolandService {
         return PanTiltSpeedResponse(int.parse(params[1]));
       case 'CAMPR':
         return PresetResponse(params[1]);
-      // Add more as needed
-      default:
-        return null;
+      case 'IAL':
+        return AudioLevelResponse(params[0], params[1]);
+      case 'QIAL':
+        return AudioLevelResponse(params[0], params[1]);
+      case 'OAL':
+        return AudioLevelResponse(params[0], params[1]);
+      case 'QOAL':
+        return AudioLevelResponse(params[0], params[1]);
+      case 'MTRLV':
+        return MeterResponse(params);
+      case 'GRLV':
+        return MeterResponse(params);
+      case 'AMLV':
+        return MeterResponse(params);
+      case 'SPLV':
+        return MeterResponse(params);
+      case 'AUXLV':
+        return MeterResponse(params);
+      case 'TLY':
+        return TallyResponse(params.map(int.parse).toList());
+      case 'MEM':
+        return MemoryResponse(params[0]);
+      case 'DSS':
+        return DskSourceResponse(params[0], params[1], params.length > 2 ? params[2] : null);
+      case 'KYL':
+        return DskLevelResponse(int.parse(params[1]));
+      case 'QKYL':
+        return DskLevelResponse(int.parse(params[1]));
+      case 'KYG':
+        return DskLevelResponse(int.parse(params[1]));
+      case 'QKYG':
+        return DskLevelResponse(int.parse(params[1]));
+      case 'AUX':
+        return AuxResponse(params[1], params.length > 2 ? params[2] : null);
+      case 'ATG':
+        return TransitionStatusResponse(params[0]);
+      case 'FRZ':
+        return FreezeResponse(params[0]);
+      case 'QFRZ':
+        return FreezeResponse(params[0]);
+      case 'FTB':
+        return FadeResponse(params[0]);
+      case 'QFTB':
+        return FadeResponse(params[0]);
+      case 'VISRC':
+        return VideoInputSourceResponse(int.parse(params[0]), params[1]);
+      case 'VIST':
+        return VideoInputStatusResponse(params[0], params[1]);
+      case 'VIS':
+        return VideoInputAssignResponse(params[0], params[1]);
+      case 'QVIS':
+        return VideoInputAssignResponse(params[0], params[1]);
+      case 'VOS':
+        return VideoOutputAssignResponse(params[0], params[1]);
+      case 'QVOS':
+        return VideoOutputAssignResponse(params[0], params[1]);
+      case 'TRS':
+        return TransitionTypeResponse(params[0]);
+      case 'QTRS':
+        return TransitionTypeResponse(params[0]);
+      case 'TIM':
+        return TransitionTimeResponse(params[0], int.parse(params[1]));
+      case 'QTIM':
+        return TransitionTimeResponse(params[0], int.parse(params[1]));
+      case 'PIS':
+        return PinPSourceResponse(params[0], params[1]);
+      case 'QPIS':
+        return PinPSourceResponse(params[0], params[1]);
+      case 'PPS':
+        return PinPProgramResponse(params[0], params[1]);
+      case 'QPPS':
+        return PinPProgramResponse(params[0], params[1]);
+      case 'PPW':
+        return PinPPreviewResponse(params[0], params[1]);
+      case 'QPPW':
+        return PinPPreviewResponse(params[0], params[1]);
+      case 'DSK':
+        return DskProgramResponse(params[0], params[1]);
+      case 'QDSK':
+        return DskProgramResponse(params[0], params[1]);
+      case 'DVW':
+        return DskPreviewResponse(params[0], params[1]);
+      case 'QDVW':
+        return DskPreviewResponse(params[0], params[1]);
+      case 'QDSS':
+        return DskSourceResponse(params[0], params[1], params.length > 2 ? params[2] : null);
+      case 'SPS':
+        return SplitStatusResponse(params[0], params[1]);
+      case 'QSPS':
+        return SplitStatusResponse(params[0], params[1]);
+      case 'SPT':
+        return SplitPositionsResponse(params[0], int.parse(params[1]), int.parse(params[2]), params.length > 3 ? int.parse(params[3]) : null);
+      case 'QSPT':
+        return SplitPositionsResponse(params[0], int.parse(params[1]), int.parse(params[2]), params.length > 3 ? int.parse(params[3]) : null);
+      case 'STO':
+        return StillResponse(params[0]);
+      case 'QSTO':
+        return StillResponse(params[0]);
+      case 'HDCP':
+        return HdcpResponse(params[0]);
+      case 'QHDCP':
+        return HdcpResponse(params[0]);
+      case 'TPT':
+        return TestPatternResponse(params[0]);
+      case 'QTPT':
+        return TestPatternResponse(params[0]);
+      case 'TTN':
+        return TestToneResponse(params[0], params.length > 1 ? params[1] : '500', params.length > 2 ? params[2] : '500');
+      case 'QTTN':
+        return TestToneResponse(params[0], params.length > 1 ? params[1] : '500', params.length > 2 ? params[2] : '500');
+      case 'BSY':
+        return BusyResponse(params[0]);
+      case 'QBSY':
+        return BusyResponse(params[0]);
+      case 'MCRST':
+        return MacroStatusResponse(params[1]);
+      case 'QMCRST':
+        return MacroStatusResponse(params[1]);
+      case 'SQS':
+        return SequencerStatusResponse(params[0]);
+      case 'QSEQSW':
+        return SequencerStatusResponse(params[0]);
+      case 'SQA':
+        return AutoSequenceResponse(params[0]);
+      case 'QSEQAS':
+        return AutoSequenceResponse(params[0]);
+      case 'AOS':
+        return AudioOutputAssignResponse(params[0], params[1]);
+      case 'QAOS':
+        return AudioOutputAssignResponse(params[0], params[1]);
+      case 'IAM':
+        return AudioMuteResponse(params[0], params[1]);
+      case 'QIAM':
+        return AudioMuteResponse(params[0], params[1]);
+      case 'IAS':
+        return AudioSoloResponse(params[0], params[1]);
+      case 'QIAS':
+        return AudioSoloResponse(params[0], params[1]);
+      case 'ADT':
+        return AudioDelayResponse(params[0], int.parse(params[1]));
+      case 'QADT':
+        return AudioDelayResponse(params[0], int.parse(params[1]));
+      case 'HPF':
+        return AudioFilterResponse(params[0], params[1]);
+      case 'QHPF':
+        return AudioFilterResponse(params[0], params[1]);
+      case 'GATE':
+        return AudioGateResponse(params[0], params[1]);
+      case 'QGATE':
+        return AudioGateResponse(params[0], params[1]);
+      case 'STLK':
+        return AudioLinkResponse(params[0], params[1]);
+      case 'QSTLK':
+        return AudioLinkResponse(params[0], params[1]);
+      case 'VOCH':
+        return AudioChangerResponse(params[0], params[1]);
+      case 'QVOCH':
+        return AudioChangerResponse(params[0], params[1]);
+      case 'OAM':
+        return AudioOutputMuteResponse(params[0], params[1]);
+      case 'QOAM':
+        return AudioOutputMuteResponse(params[0], params[1]);
+      case 'RVB':
+        return ReverbResponse(params[0]);
+      case 'QRVB':
+        return ReverbResponse(params[0]);
+      case 'ATM':
+        return AutoMixingResponse(params[0]);
+      case 'QATM':
+        return AutoMixingResponse(params[0]);
+      case 'MTRSW':
+        return MeterAutoTransmitResponse(params[0]);
+      case 'QMTRSW':
+        return MeterAutoTransmitResponse(params[0]);
+      case 'MTRCH':
+        return MeterChannelResponse(int.parse(params[0]), params[1]);
+      case 'GRSW':
+        return CompGrAutoTransmitResponse(params[0]);
+      case 'QGRSW':
+        return CompGrAutoTransmitResponse(params[0]);
+      case 'GRCH':
+        return MeterChannelResponse(int.parse(params[0]), params[1]);
+      case 'AMSW':
+        return AutoMixingAutoTransmitResponse(params[0]);
+      case 'QAMSW':
+        return AutoMixingAutoTransmitResponse(params[0]);
+      case 'AMCH':
+        return MeterChannelResponse(int.parse(params[0]), params[1]);
+      case 'SPSW':
+        return SigPeakAutoTransmitResponse(params[0]);
+      case 'QSPSW':
+        return SigPeakAutoTransmitResponse(params[0]);
+      case 'SPCH':
+        return MeterChannelResponse(int.parse(params[0]), params[1]);
+      case 'AUXSW':
+        return AuxAutoTransmitResponse(params[0]);
+      case 'QAUXSW':
+        return AuxAutoTransmitResponse(params[0]);
+      case 'AUXCH':
+        return MeterChannelResponse(int.parse(params[0]), params[1]);
+      case 'GPO':
+        return GpoResponse(params[0], params[1]);
+      case 'QGPO':
+        return GpoResponse(params[0], params[1]);
+      case 'ASW':
+        return AutoSwitchingResponse(params[0]);
+      case 'QASW':
+        return AutoSwitchingResponse(params[0]);
+      case 'CAFC':
+        return AutoFocusResponse(params[0], params[1]);
+      case 'CAEP':
+        return AutoExposureResponse(params[0], params[1]);
     }
-  }
-
-  // VIDEO Commands
-  /// Performs a cut transition.
-  Future<void> cut() => _sendCommand(_buildCommand('CUT'));
-
-  /// Performs an auto transition.
-  Future<void> auto() => _sendCommand(_buildCommand('ATO'));
-
-  /// Sets the program input (0-19 for INPUT1-20).
-  Future<void> setProgram(int inputIndex) {
-    if (inputIndex < minInputIndex || inputIndex > maxInputIndex) {
-      throw ArgumentError('inputIndex must be between $minInputIndex and $maxInputIndex');
-    }
-    return _sendCommand(_buildCommand('PGM', ['INPUT${inputIndex + 1}']));
-  }
-
-  /// Sets the preview input (0-19 for INPUT1-20).
-  Future<void> setPreview(int inputIndex) {
-    if (inputIndex < minInputIndex || inputIndex > maxInputIndex) {
-      throw ArgumentError('inputIndex must be between $minInputIndex and $maxInputIndex');
-    }
-    return _sendCommand(_buildCommand('PST', ['INPUT${inputIndex + 1}']));
-  }
-
-  /// Sets the video fader level (0-2047).
-  Future<void> setFaderLevel(int level) {
-    if (level < minFaderLevel || level > maxFaderLevel) {
-      throw ArgumentError('level must be between $minFaderLevel and $maxFaderLevel');
-    }
-    return _sendCommand(_buildCommand('VFL', [level.toString()]));
-  }
-
-  /// Gets the current video fader level.
-  Future<void> getFaderLevel() => _sendCommand(_buildCommand('QVFL'));
-
-  /// Gets the current program input.
-  Future<void> getProgram() => _sendCommand(_buildCommand('QPGM'));
-
-  /// Gets the current preview input.
-  Future<void> getPreview() => _sendCommand(_buildCommand('QPST'));
-
-  /// Sets the transition type.
-  Future<void> setTransitionType(String type) => _sendCommand(_buildCommand('TRS', [type]));
-
-  /// Gets the transition type.
-  Future<void> getTransitionType() => _sendCommand(_buildCommand('QTRS'));
-
-  /// Sets the transition time (0-40 for 0.0-4.0 sec).
-  Future<void> setTransitionTime(String type, int time) {
-    if (time < minTransitionTime || time > maxTransitionTime) {
-      throw ArgumentError('time must be between $minTransitionTime and $maxTransitionTime');
-    }
-    return _sendCommand(_buildCommand('TIM', [type, time.toString()]));
-  }
-
-  /// Gets the transition time.
-  Future<void> getTransitionTime(String type) => _sendCommand(_buildCommand('QTIM', [type]));
-
-  // PinP Commands
-  /// Sets the PinP source (0-3 for PinP1-4).
-  Future<void> setPinPSource(int pinpIndex, String source) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('PIS', ['PinP${pinpIndex + 1}', source]));
-  }
-
-  /// Gets the PinP source (0-3 for PinP1-4).
-  Future<void> getPinPSource(int pinpIndex) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('QPIS', ['PinP${pinpIndex + 1}']));
-  }
-
-  /// Sets the PinP position (0-3 for PinP1-4, h/v -1000 to 1000).
-  Future<void> setPinPPosition(int pinpIndex, int h, int v) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    if (h < -1000 || h > 1000 || v < -1000 || v > 1000) {
-      throw ArgumentError('h and v must be between -1000 and 1000');
-    }
-    return _sendCommand(_buildCommand('PIP', ['PinP${pinpIndex + 1}', h.toString(), v.toString()]));
-  }
-
-  /// Gets the PinP position (0-3 for PinP1-4).
-  Future<void> getPinPPosition(int pinpIndex) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('QPIP', ['PinP${pinpIndex + 1}']));
-  }
-
-  /// Sets PinP on program (0-3 for PinP1-4).
-  Future<void> setPinPPgm(int pinpIndex, bool on) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('PPS', ['PinP${pinpIndex + 1}', on ? 'ON' : 'OFF']));
-  }
-
-  /// Gets PinP on program status (0-3 for PinP1-4).
-  Future<void> getPinPPgm(int pinpIndex) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('QPPS', ['PinP${pinpIndex + 1}']));
-  }
-
-  /// Sets PinP on preview (0-3 for PinP1-4).
-  Future<void> setPinPPvw(int pinpIndex, bool on) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('PPW', ['PinP${pinpIndex + 1}', on ? 'ON' : 'OFF']));
-  }
-
-  /// Gets PinP on preview status (0-3 for PinP1-4).
-  Future<void> getPinPPvw(int pinpIndex) {
-    if (pinpIndex < minPinPIndex || pinpIndex > maxPinPIndex) {
-      throw ArgumentError('pinpIndex must be between $minPinPIndex and $maxPinPIndex');
-    }
-    return _sendCommand(_buildCommand('QPPW', ['PinP${pinpIndex + 1}']));
-  }
-
-  // CONTROL Commands
-  /// Executes a macro (1-100).
-  Future<void> executeMacro(int macro) {
-    if (macro < minMacro || macro > maxMacro) {
-      throw ArgumentError('macro must be between $minMacro and $maxMacro');
-    }
-    return _sendCommand(_buildCommand('MCREX', [macro.toString()]));
-  }
-
-  // SYSTEM Commands
-  /// Gets the device version.
-  Future<void> getVersion() => _sendCommand(_buildCommand('VER'));
-
-  // CAMERA Commands
-  /// Sets pan and tilt for camera (0-15 for CAMERA1-16).
-  Future<void> setPanTilt(int cameraIndex, PanDirection pan, TiltDirection tilt) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    final panStr = pan.name.toUpperCase();
-    final tiltStr = tilt.name.toUpperCase();
-    return _sendCommand(_buildCommand('CAMPT', ['CAMERA${cameraIndex + 1}', panStr, tiltStr]));
-  }
-
-  /// Sets pan/tilt speed for camera (0-15 for CAMERA1-16, 1-24).
-  Future<void> setPanTiltSpeed(int cameraIndex, int speed) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    if (speed < minPanTiltSpeed || speed > maxPanTiltSpeed) {
-      throw ArgumentError('speed must be between $minPanTiltSpeed and $maxPanTiltSpeed');
-    }
-    return _sendCommand(_buildCommand('CAMPTS', ['CAMERA${cameraIndex + 1}', speed.toString()]));
-  }
-
-  /// Gets pan/tilt speed for camera (0-15 for CAMERA1-16).
-  Future<void> getPanTiltSpeed(int cameraIndex) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('QCAMPTS', ['CAMERA${cameraIndex + 1}']));
-  }
-
-  /// Sets zoom for camera (0-15 for CAMERA1-16).
-  Future<void> setZoom(int cameraIndex, ZoomDirection direction) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    final dirStr = direction.name.replaceAll('tele', 'TELE_').replaceAll('wide', 'WIDE_').toUpperCase();
-    return _sendCommand(_buildCommand('CAMZM', ['CAMERA${cameraIndex + 1}', dirStr]));
-  }
-
-  /// Resets zoom for camera (0-15 for CAMERA1-16).
-  Future<void> resetZoom(int cameraIndex) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('CAMZMR', ['CAMERA${cameraIndex + 1}']));
-  }
-
-  /// Sets focus for camera (0-15 for CAMERA1-16).
-  Future<void> setFocus(int cameraIndex, FocusDirection direction) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    final dirStr = direction.name.toUpperCase();
-    return _sendCommand(_buildCommand('CAMFC', ['CAMERA${cameraIndex + 1}', dirStr]));
-  }
-
-  /// Sets auto focus for camera (0-15 for CAMERA1-16).
-  Future<void> setAutoFocus(int cameraIndex, bool on) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('CAMAFC', ['CAMERA${cameraIndex + 1}', on ? 'ON' : 'OFF']));
-  }
-
-  /// Gets auto focus status for camera (0-15 for CAMERA1-16).
-  Future<void> getAutoFocus(int cameraIndex) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('QCAMAFC', ['CAMERA${cameraIndex + 1}']));
-  }
-
-  /// Sets auto exposure for camera (0-15 for CAMERA1-16).
-  Future<void> setAutoExposure(int cameraIndex, bool on) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('CAMAEP', ['CAMERA${cameraIndex + 1}', on ? 'ON' : 'OFF']));
-  }
-
-  /// Gets auto exposure status for camera (0-15 for CAMERA1-16).
-  Future<void> getAutoExposure(int cameraIndex) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('QCAMAEP', ['CAMERA${cameraIndex + 1}']));
-  }
-
-  /// Recalls preset for camera (0-15 for CAMERA1-16, 1-10).
-  Future<void> recallPreset(int cameraIndex, int preset) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    if (preset < minPreset || preset > maxPreset) {
-      throw ArgumentError('preset must be between $minPreset and $maxPreset');
-    }
-    return _sendCommand(_buildCommand('CAMPR', ['CAMERA${cameraIndex + 1}', 'PRESET$preset']));
-  }
-
-  /// Gets current preset for camera (0-15 for CAMERA1-16).
-  Future<void> getCurrentPreset(int cameraIndex) {
-    if (cameraIndex < minCameraIndex || cameraIndex > maxCameraIndex) {
-      throw ArgumentError('cameraIndex must be between $minCameraIndex and $maxCameraIndex');
-    }
-    return _sendCommand(_buildCommand('QCAMPR', ['CAMERA${cameraIndex + 1}']));
-  }
-
-  // AUDIO Commands
-  /// Sets audio input level.
-  Future<void> setAudioInputLevel(String input, int level) {
-    if (level < minAudioLevel || level > maxAudioLevel) {
-      throw ArgumentError('level must be between $minAudioLevel and $maxAudioLevel');
-    }
-    return _sendCommand(_buildCommand('IAL', [input, level.toString()]));
-  }
-
-  /// Gets audio input level.
-  Future<void> getAudioInputLevel(String input) {
-    return _sendCommand(_buildCommand('QIAL', [input]));
-  }
-
-  /// Sets audio output level.
-  Future<void> setAudioOutputLevel(String output, int level) {
-    if (level < minAudioLevel || level > maxAudioLevel) {
-      throw ArgumentError('level must be between $minAudioLevel and $maxAudioLevel');
-    }
-    return _sendCommand(_buildCommand('OAL', [output, level.toString()]));
-  }
-
-  /// Gets audio output level.
-  Future<void> getAudioOutputLevel(String output) {
-    return _sendCommand(_buildCommand('QOAL', [output]));
-  }
-
-  // METER Commands
-  /// Sets auto-transmit for audio level meter.
-  Future<void> setMeterAutoTransmit(bool on) {
-    return _sendCommand(_buildCommand('MTRSW', [on ? 'ON' : 'OFF']));
-  }
-
-  /// Gets audio level meter.
-  Future<void> getAudioLevelMeter(String mode) {
-    return _sendCommand(_buildCommand('MTRLV', [mode]));
-  }
-
-  // DSK Commands
-  /// Sets DSK fill source.
-  Future<void> setDskSource(int dskIndex, String source) {
-    if (dskIndex < 0 || dskIndex > 1) {
-      throw ArgumentError('dskIndex must be 0 or 1');
-    }
-    return _sendCommand(_buildCommand('DSS', ['DSK${dskIndex + 1}', source]));
-  }
-
-  /// Gets DSK fill source.
-  Future<void> getDskSource(int dskIndex) {
-    if (dskIndex < 0 || dskIndex > 1) {
-      throw ArgumentError('dskIndex must be 0 or 1');
-    }
-    return _sendCommand(_buildCommand('QDSS', ['DSK${dskIndex + 1}']));
-  }
-
-  /// Sets DSK level.
-  Future<void> setDskLevel(int dskIndex, int level) {
-    if (dskIndex < 0 || dskIndex > 1) {
-      throw ArgumentError('dskIndex must be 0 or 1');
-    }
-    if (level < minDskLevel || level > maxDskLevel) {
-      throw ArgumentError('level must be between $minDskLevel and $maxDskLevel');
-    }
-    return _sendCommand(_buildCommand('KYL', ['DSK${dskIndex + 1}', level.toString()]));
-  }
-
-  /// Gets DSK level.
-  Future<void> getDskLevel(int dskIndex) {
-    if (dskIndex < 0 || dskIndex > 1) {
-      throw ArgumentError('dskIndex must be 0 or 1');
-    }
-    return _sendCommand(_buildCommand('QKYL', ['DSK${dskIndex + 1}']));
-  }
-
-  // CONTROL Commands
-  /// Recalls scene memory.
-  Future<void> recallMemory(int memory) {
-    if (memory < minMemory || memory > maxMemory) {
-      throw ArgumentError('memory must be between $minMemory and $maxMemory');
-    }
-    return _sendCommand(_buildCommand('MEM', ['MEMORY$memory']));
-  }
-
-  /// Gets selected scene memory.
-  Future<void> getMemory() {
-    return _sendCommand(_buildCommand('QMEM'));
   }
 }
