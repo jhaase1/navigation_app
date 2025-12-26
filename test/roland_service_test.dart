@@ -79,13 +79,15 @@ void main() {
     test('parseResponse parses CPTS correctly', () {
       final result = service.parseResponseForTest('CPTS:CAMERA1,12;ACK;');
       expect(result, isA<PanTiltSpeedResponse>());
-      expect((result as PanTiltSpeedResponse).speed, 12);
+      expect((result as PanTiltSpeedResponse).identifier, 'CAMERA1');
+      expect((result).speed, 12);
     });
 
     test('parseResponse parses CPR correctly', () {
       final result = service.parseResponseForTest('CPR:CAMERA1,PRESET1;ACK;');
       expect(result, isA<PresetResponse>());
-      expect((result as PresetResponse).preset, 'PRESET1');
+      expect((result as PresetResponse).identifier, 'CAMERA1');
+      expect((result).preset, 'PRESET1');
     });
 
     test('parseResponse parses HCP correctly', () {

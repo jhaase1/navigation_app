@@ -56,14 +56,18 @@ class VersionResponse {
   VersionResponse(this.model, this.version);
 }
 
+/// Response for CAMPTS command.
 class PanTiltSpeedResponse {
+  final String identifier;
   final int speed;
-  PanTiltSpeedResponse(this.speed);
+  PanTiltSpeedResponse(this.identifier, this.speed);
 }
 
+/// Response for CAMPR command.
 class PresetResponse {
+  final String identifier;
   final String preset;
-  PresetResponse(this.preset);
+  PresetResponse(this.identifier, this.preset);
 }
 
 class AudioLevelResponse {
@@ -99,10 +103,12 @@ class DskLevelResponse {
   DskLevelResponse(this.level);
 }
 
+/// Response for AUX command.
 class AuxResponse {
+  final String identifier;
   final String source;
   final String? input;
-  AuxResponse(this.source, this.input);
+  AuxResponse(this.identifier, this.source, this.input);
 }
 
 class TransitionStatusResponse {
@@ -147,9 +153,11 @@ class BusyResponse {
   BusyResponse(this.status);
 }
 
+/// Response for MCRST and QMCRST commands.
 class MacroStatusResponse {
+  final String identifier;
   final String status;
-  MacroStatusResponse(this.status);
+  MacroStatusResponse(this.identifier, this.status);
 }
 
 class SequencerStatusResponse {
@@ -1389,9 +1397,9 @@ class RolandService with
       case 'VER':
         return VersionResponse(params[0], params[1]);
       case 'CAMPTS':
-        return PanTiltSpeedResponse(int.parse(params[1]));
+        return PanTiltSpeedResponse(params[0], int.parse(params[1]));
       case 'CAMPR':
-        return PresetResponse(params[1]);
+        return PresetResponse(params[0], params[1]);
       case 'IAL':
         return AudioLevelResponse(params[0], params[1]);
       case 'QIAL':
@@ -1425,7 +1433,7 @@ class RolandService with
       case 'QKYG':
         return DskLevelResponse(int.parse(params[1]));
       case 'AUX':
-        return AuxResponse(params[1], params.length > 2 ? params[2] : null);
+        return AuxResponse(params[0], params[1], params.length > 2 ? params[2] : null);
       case 'ATG':
         return TransitionStatusResponse(params[0]);
       case 'FRZ':
@@ -1507,16 +1515,12 @@ class RolandService with
       case 'QBSY':
         return BusyResponse(params[0]);
       case 'MCRST':
-        return MacroStatusResponse(params[1]);
+        return MacroStatusResponse(params[0], params[1]);
       case 'QMCRST':
-        return MacroStatusResponse(params[1]);
+        return MacroStatusResponse(params[0], params[1]);
       case 'SQS':
         return SequencerStatusResponse(params[0]);
-      case 'QSEQSW':
-        return SequencerStatusResponse(params[0]);
       case 'SQA':
-        return AutoSequenceResponse(params[0]);
-      case 'QSEQAS':
         return AutoSequenceResponse(params[0]);
       case 'AOS':
         return AudioOutputAssignResponse(params[0], params[1]);
@@ -1605,9 +1609,9 @@ class RolandService with
       case 'CAEP':
         return AutoExposureResponse(params[0], params[1]);
       case 'CPTS':
-        return PanTiltSpeedResponse(int.parse(params[1]));
+        return PanTiltSpeedResponse(params[0], int.parse(params[1]));
       case 'CPR':
-        return PresetResponse(params[1]);
+        return PresetResponse(params[0], params[1]);
       case 'HCP':
         return HdcpResponse(params[0]);
     }
