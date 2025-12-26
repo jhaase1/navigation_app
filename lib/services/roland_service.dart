@@ -395,9 +395,7 @@ mixin VideoCommands {
 
   /// Sets the program input.
   Future<void> setProgram(String input) {
-    if (!RolandService.inputRegex.hasMatch(input)) throw ArgumentError('Invalid input format: $input');
-    int index = int.parse(input.substring(5));
-    if (index < 1 || index > 20) throw ArgumentError('Input index must be 1-20');
+    if (!RolandService.validVideoSources.contains(input)) throw ArgumentError('Invalid input: $input');
     return _sendCommand(_buildCommand('PGM', [input]));
   }
 
@@ -406,9 +404,7 @@ mixin VideoCommands {
 
   /// Sets the preview input.
   Future<void> setPreview(String input) {
-    if (!RegExp(r'^INPUT\d+$').hasMatch(input)) throw ArgumentError('Invalid input format: $input');
-    int index = int.parse(input.substring(5));
-    if (index < 1 || index > 20) throw ArgumentError('Input index must be 1-20');
+    if (!RolandService.validVideoSources.contains(input)) throw ArgumentError('Invalid input: $input');
     return _sendCommand(_buildCommand('PST', [input]));
   }
 
@@ -416,7 +412,11 @@ mixin VideoCommands {
   Future<void> getPreview() => _sendCommand(_buildCommand('QPST'));
 
   /// Sets the AUX bus video channel.
-  Future<void> setAux(String aux, String input) => _sendCommand(_buildCommand('AUX', [aux, input]));
+  Future<void> setAux(String aux, String input) {
+    if (!RegExp(r'^AUX[1-3]$').hasMatch(aux)) throw ArgumentError('Invalid aux: $aux');
+    if (input != 'PGMLINK' && !RolandService.validVideoSources.contains(input)) throw ArgumentError('Invalid input: $input');
+    return _sendCommand(_buildCommand('AUX', [aux, input]));
+  }
 
   /// Gets the AUX bus video channel.
   Future<void> getAux(String aux) => _sendCommand(_buildCommand('QAUX', [aux]));
@@ -440,13 +440,17 @@ mixin VideoCommands {
   Future<void> getVideoInputStatus(String input) => _sendCommand(_buildCommand('QVIST', [input]));
 
   /// Sets the transition type.
-  Future<void> setTransitionType(String type) => _sendCommand(_buildCommand('TRS', [type]));
+  Future<void> setTransitionType(String type) {
+    if (!['MIX', 'WIPE'].contains(type.toUpperCase())) throw ArgumentError('Invalid type: $type');
+    return _sendCommand(_buildCommand('TRS', [type]));
+  }
 
   /// Gets the transition type.
   Future<void> getTransitionType() => _sendCommand(_buildCommand('QTRS'));
 
   /// Sets the transition time.
   Future<void> setTransitionTime(String type, int time) {
+    if (!RolandService.validTransitionTypes.contains(type)) throw ArgumentError('Invalid type: $type');
     if (time < 0 || time > 40) throw ArgumentError('time must be 0-40');
     return _sendCommand(_buildCommand('TIM', [type, time.toString()]));
   }
@@ -476,13 +480,21 @@ mixin VideoCommands {
   Future<void> getFade() => _sendCommand(_buildCommand('QFTB'));
 
   /// Sets video input assign.
-  Future<void> setVideoInputAssign(String input, String source) => _sendCommand(_buildCommand('VIS', [input, source]));
+  Future<void> setVideoInputAssign(String input, String source) {
+    if (!RolandService.validVideoSources.where((s) => s.startsWith('INPUT')).contains(input)) throw ArgumentError('Invalid input: $input');
+    if (source != 'N/A' && !RolandService.validVideoSources.contains(source)) throw ArgumentError('Invalid source: $source');
+    return _sendCommand(_buildCommand('VIS', [input, source]));
+  }
 
   /// Gets video input assign.
   Future<void> getVideoInputAssign(String input) => _sendCommand(_buildCommand('QVIS', [input]));
 
   /// Sets video output assign.
-  Future<void> setVideoOutputAssign(String output, String source) => _sendCommand(_buildCommand('VOS', [output, source]));
+  Future<void> setVideoOutputAssign(String output, String source) {
+    if (!RolandService.validVideoOutputs.contains(output)) throw ArgumentError('Invalid output: $output');
+    if (!RolandService.validVideoOutputSources.contains(source)) throw ArgumentError('Invalid source: $source');
+    return _sendCommand(_buildCommand('VOS', [output, source]));
+  }
 
   /// Gets video output assign.
   Future<void> getVideoOutputAssign(String output) => _sendCommand(_buildCommand('QVOS', [output]));
@@ -499,7 +511,11 @@ mixin PinPCommands {
   Future<void> _sendCommand(String command);
 
   /// Sets the PinP source.
-  Future<void> setPinPSource(String pinp, String source) => _sendCommand(_buildCommand('PIS', [pinp, source]));
+  Future<void> setPinPSource(String pinp, String source) {
+    if (!RegExp(r'^PinP[1-4]$').hasMatch(pinp)) throw ArgumentError('Invalid pinp: $pinp');
+    if (!RolandService.validVideoSources.contains(source)) throw ArgumentError('Invalid source: $source');
+    return _sendCommand(_buildCommand('PIS', [pinp, source]));
+  }
 
   /// Gets the PinP source.
   Future<void> getPinPSource(String pinp) => _sendCommand(_buildCommand('QPIS', [pinp]));
@@ -555,7 +571,11 @@ mixin DskCommands {
   Future<void> getDskPvw(String dsk) => _sendCommand(_buildCommand('QDVW', [dsk]));
 
   /// Sets DSK fill source.
-  Future<void> setDskSource(String dsk, String source) => _sendCommand(_buildCommand('DSS', [dsk, source]));
+  Future<void> setDskSource(String dsk, String source) {
+    if (!RegExp(r'^DSK[1-2]$').hasMatch(dsk)) throw ArgumentError('Invalid dsk: $dsk');
+    if (!RolandService.validVideoSources.contains(source)) throw ArgumentError('Invalid source: $source');
+    return _sendCommand(_buildCommand('DSS', [dsk, source]));
+  }
 
   /// Gets DSK fill source.
   Future<void> getDskSource(String dsk) => _sendCommand(_buildCommand('QDSS', [dsk]));
@@ -584,7 +604,11 @@ mixin AudioCommands {
   Future<void> _sendCommand(String command);
 
   /// Sets audio output assign.
-  Future<void> setAudioOutputAssign(String output, String assign) => _sendCommand(_buildCommand('AOS', [output, assign]));
+  Future<void> setAudioOutputAssign(String output, String assign) {
+    if (!RolandService.validAudioOutputs.contains(output)) throw ArgumentError('Invalid output: $output');
+    if (!RolandService.validAudioOutputAssigns[output]!.contains(assign)) throw ArgumentError('Invalid assign for $output: $assign');
+    return _sendCommand(_buildCommand('AOS', [output, assign]));
+  }
 
   /// Gets audio output assign.
   Future<void> getAudioOutputAssign(String output) => _sendCommand(_buildCommand('QAOS', [output]));
@@ -831,13 +855,21 @@ mixin SystemCommands {
   Future<void> getHdcp() => _sendCommand(_buildCommand('QHDCP'));
 
   /// Sets test pattern.
-  Future<void> setTestPattern(String pattern) => _sendCommand(_buildCommand('TPT', [pattern]));
+  Future<void> setTestPattern(String pattern) {
+    if (!RolandService.validTestPatterns.contains(pattern)) throw ArgumentError('Invalid pattern: $pattern');
+    return _sendCommand(_buildCommand('TPT', [pattern]));
+  }
 
   /// Gets test pattern.
   Future<void> getTestPattern() => _sendCommand(_buildCommand('QTPT'));
 
   /// Sets test tone.
   Future<void> setTestTone(String level, {String? freqL, String? freqR}) {
+    const validLevels = {'OFF', '-20', '-10', '0dB'};
+    if (!validLevels.contains(level)) throw ArgumentError('Invalid level: $level');
+    const validFreqs = {'500', '1k', '2kHz'};
+    if (freqL != null && !validFreqs.contains(freqL)) throw ArgumentError('Invalid freqL: $freqL');
+    if (freqR != null && !validFreqs.contains(freqR)) throw ArgumentError('Invalid freqR: $freqR');
     List<String> params = [level];
     if (freqL != null) params.add(freqL);
     if (freqR != null) params.add(freqR);
@@ -874,7 +906,12 @@ mixin CameraCommands {
   Future<void> getPanTiltSpeed(String camera) => _sendCommand(_buildCommand('QCAMPTS', [camera]));
 
   /// Sets zoom.
-  Future<void> setZoom(String camera, String direction) => _sendCommand(_buildCommand('CAMZM', [camera, direction]));
+  Future<void> setZoom(String camera, String direction) {
+    if (!RolandService.cameraRegex.hasMatch(camera)) throw ArgumentError('Invalid camera: $camera');
+    const validDirections = {'WIDE_FAST', 'WIDE_SLOW', 'STOP', 'TELE_SLOW', 'TELE_FAST'};
+    if (!validDirections.contains(direction.toUpperCase())) throw ArgumentError('Invalid direction: $direction');
+    return _sendCommand(_buildCommand('CAMZM', [camera, direction]));
+  }
 
   /// Resets zoom.
   Future<void> resetZoom(String camera) => _sendCommand(_buildCommand('CAMZMR', [camera]));
@@ -895,7 +932,11 @@ mixin CameraCommands {
   Future<void> getAutoExposure(String camera) => _sendCommand(_buildCommand('QCAMAEP', [camera]));
 
   /// Recalls preset.
-  Future<void> recallPreset(String camera, String preset) => _sendCommand(_buildCommand('CAMPR', [camera, preset]));
+  Future<void> recallPreset(String camera, String preset) {
+    if (!RolandService.cameraRegex.hasMatch(camera)) throw ArgumentError('Invalid camera: $camera');
+    if (!RegExp(r'^PRESET(10|[1-9])$').hasMatch(preset)) throw ArgumentError('Invalid preset: $preset');
+    return _sendCommand(_buildCommand('CAMPR', [camera, preset]));
+  }
 
   /// Gets current preset.
   Future<void> getCurrentPreset(String camera) => _sendCommand(_buildCommand('QCAMPR', [camera]));
@@ -946,6 +987,7 @@ mixin SequencerCommands {
 
   /// Sets sequencer to previous.
   Future<void> previousSequence({int? steps}) {
+    if (steps != null && (steps < 0 || steps > 1)) throw ArgumentError('steps must be 0 or 1');
     List<String> params = [];
     if (steps != null) params.add(steps.toString());
     return _sendCommand(_buildCommand('SEQPV', params));
@@ -955,7 +997,14 @@ mixin SequencerCommands {
   Future<void> nextSequence() => _sendCommand(_buildCommand('SEQNX'));
 
   /// Sets sequencer number.
-  Future<void> setSequenceNumber(String seq) => _sendCommand(_buildCommand('SEQJP', [seq]));
+  Future<void> setSequenceNumber(String seq) {
+    if (seq != 'START' && !RegExp(r'^SEQ\d+$').hasMatch(seq)) throw ArgumentError('Invalid seq: $seq');
+    if (seq.startsWith('SEQ')) {
+      int num = int.parse(seq.substring(3));
+      if (num < 1 || num > 1000) throw ArgumentError('seq number must be 1-1000');
+    }
+    return _sendCommand(_buildCommand('SEQJP', [seq]));
+  }
 }
 
 mixin GraphicsCommands {
@@ -966,7 +1015,12 @@ mixin GraphicsCommands {
   Future<void> nextContent() => _sendCommand(_buildCommand('GPNC'));
 
   /// Selects content.
-  Future<void> selectContent(String content) => _sendCommand(_buildCommand('GPSC', [content]));
+  Future<void> selectContent(String content) {
+    if (!RegExp(r'^CONTENT\d+$').hasMatch(content)) throw ArgumentError('Invalid content: $content');
+    int num = int.parse(content.substring(7));
+    if (num < 1 || num > 124) throw ArgumentError('content number must be 1-124');
+    return _sendCommand(_buildCommand('GPSC', [content]));
+  }
 
   /// Hides front content.
   Future<void> hideFrontContent() => _sendCommand(_buildCommand('GPHF'));
@@ -1073,6 +1127,34 @@ class RolandService with
 
   // Auto-transmit prefixes
   static const Set<String> _autoTransmitPrefixes = {'MTRLV', 'GRLV', 'AMLV', 'SPLV', 'AUXLV'};
+
+  // Valid sources and parameters
+  static const Set<String> validVideoSources = {
+    'HDMI1', 'HDMI2', 'HDMI3', 'HDMI4', 'HDMI5', 'HDMI6', 'HDMI7', 'HDMI8',
+    'SDI1', 'SDI2', 'SDI3', 'SDI4', 'SDI5', 'SDI6', 'SDI7', 'SDI8',
+    'STILL1', 'STILL2', 'STILL3', 'STILL4', 'STILL5', 'STILL6', 'STILL7', 'STILL8',
+    'STILL9', 'STILL10', 'STILL11', 'STILL12', 'STILL13', 'STILL14', 'STILL15', 'STILL16',
+    'INPUT1', 'INPUT2', 'INPUT3', 'INPUT4', 'INPUT5', 'INPUT6', 'INPUT7', 'INPUT8',
+    'INPUT9', 'INPUT10', 'INPUT11', 'INPUT12', 'INPUT13', 'INPUT14', 'INPUT15', 'INPUT16',
+    'INPUT17', 'INPUT18', 'INPUT19', 'INPUT20'
+  };
+  static const Set<String> validVideoOutputs = {'HDMI1', 'HDMI2', 'HDMI3', 'SDI1', 'SDI2', 'SDI3', 'USB'};
+  static const Set<String> validVideoOutputSources = {'PGM', 'SUB', 'PVW', 'AUX1', 'AUX2', 'AUX3', 'DSK1', 'DSK2', 'MULTI', 'INPUT1', 'STILL'};
+  static const Set<String> validTransitionTypes = {'MIX', 'WIPE', 'PinP1', 'PinP2', 'PinP3', 'PinP4', 'DSK1', 'DSK2', 'OUTPUTFADE'};
+  static const Set<String> validAudioOutputs = {'HDMI1', 'HDMI2', 'HDMI3', 'SDI1', 'SDI2', 'SDI3', 'XLR1', 'RCA1', 'USB', 'PHONES'};
+  static const Map<String, Set<String>> validAudioOutputAssigns = {
+    'HDMI1': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'HDMI2': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'HDMI3': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'SDI1': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'SDI2': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'SDI3': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'XLR1': {'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'RCA1': {'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'USB': {'AUTO', 'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+    'PHONES': {'MAIN', 'AUX1', 'AUX2', 'AUX3'},
+  };
+  static const Set<String> validTestPatterns = {'OFF', 'COLORBAR75', 'COLORBAR100', 'RAMP', 'STEP', 'HATCH', 'DIAMOND', 'CIRCLE', 'COLORBAR75-SP', 'COLORBAR100-SP', 'RAMP-SP', 'STEP-SP', 'HATCH-SP'};
 
   final String host;
   final int port;
@@ -1247,7 +1329,12 @@ class RolandService with
     while ((endIndex = buffer.indexOf('\n')) != -1) {
       String response = buffer.substring(0, endIndex).trim();
       buffer = buffer.substring(endIndex + 1);
-      _processCompleteResponse(response);
+      try {
+        _processCompleteResponse(response);
+      } catch (e) {
+        dev.log('Error processing response: $e');
+        _responseController.addError(RolandException('Response parsing error: $e'));
+      }
     }
     _responseBuffer.clear();
     _responseBuffer.write(buffer);
@@ -1272,7 +1359,7 @@ class RolandService with
       }
     } else if (_autoTransmitPrefixes.any((prefix) => response.startsWith(prefix + ':'))) {
       // Handle auto-transmit responses
-      final parsed = _parseResponse(response + ';ACK;');
+      final parsed = _parseResponse(response);
       if (parsed != null) {
         _responseController.add(parsed);
       }
@@ -1517,6 +1604,12 @@ class RolandService with
         return AutoFocusResponse(params[0], params[1]);
       case 'CAEP':
         return AutoExposureResponse(params[0], params[1]);
+      case 'CPTS':
+        return PanTiltSpeedResponse(int.parse(params[1]));
+      case 'CPR':
+        return PresetResponse(params[1]);
+      case 'HCP':
+        return HdcpResponse(params[0]);
     }
   }
 }

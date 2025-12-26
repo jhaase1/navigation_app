@@ -29,6 +29,10 @@ void main() {
       expect(() => service.setProgram('INPUT0'), throwsArgumentError);
       expect(() => service.setProgram('INPUT21'), throwsArgumentError);
       expect(() => service.setProgram('INVALID'), throwsArgumentError);
+      expect(() => service.setProgram('HDMI9'), throwsArgumentError);
+      // Valid ones should throw ConnectionException since not connected
+      expect(() => service.setProgram('HDMI1'), throwsA(isA<ConnectionException>()));
+      expect(() => service.setProgram('INPUT1'), throwsA(isA<ConnectionException>()));
     });
 
     test('setFaderLevel validates level', () {
@@ -72,9 +76,28 @@ void main() {
       expect((result as AutoFocusResponse).status, 'ON');
     });
 
-    test('parseResponse returns null for unknown', () {
-      final result = service.parseResponseForTest('UNKNOWN:1;ACK;');
-      expect(result, isNull);
+    test('parseResponse parses CPTS correctly', () {
+      final result = service.parseResponseForTest('CPTS:CAMERA1,12;ACK;');
+      expect(result, isA<PanTiltSpeedResponse>());
+      expect((result as PanTiltSpeedResponse).speed, 12);
+    });
+
+    test('parseResponse parses CPR correctly', () {
+      final result = service.parseResponseForTest('CPR:CAMERA1,PRESET1;ACK;');
+      expect(result, isA<PresetResponse>());
+      expect((result as PresetResponse).preset, 'PRESET1');
+    });
+
+    test('parseResponse parses HCP correctly', () {
+      final result = service.parseResponseForTest('HCP:ON;ACK;');
+      expect(result, isA<HdcpResponse>());
+      expect((result as HdcpResponse).status, 'ON');
+    });
+
+    test('parseResponse handles auto-transmit MTRLV', () {
+      final result = service.parseResponseForTest('MTRLV:-INF,-80,0');
+      expect(result, isA<MeterResponse>());
+      expect((result as MeterResponse).levels, ['-INF', '-80', '0']);
     });
   });
 }
