@@ -393,12 +393,18 @@ mixin VideoCommands {
   Future<void> _sendCommand(String command);
 
   /// Performs a cut transition.
+  /// @example
+  /// await service.cut(); // Immediately switches to preview
   Future<void> cut() => _sendCommand(_buildCommand('CUT'));
 
   /// Performs an auto transition.
   /// Variant 1: ATO;
   /// Variant 2: ATO:input;
   /// Variant 3: ATO:input,time;
+  /// @example
+  /// await service.auto(); // Auto transition with current settings
+  /// await service.auto(input: 'HDMI2'); // Auto to HDMI2
+  /// await service.auto(input: 'HDMI2', time: 20); // Auto to HDMI2 in 2.0 seconds
   Future<void> auto({String? input, int? time}) {
     List<String> params = [];
     if (input != null) params.add(input);
@@ -416,6 +422,8 @@ mixin VideoCommands {
   Future<void> cutWithInput(String input) => _sendCommand(_buildCommand('CUT', [input]));
 
   /// Sets the program input.
+  /// @example
+  /// await service.setProgram('HDMI1'); // Sets program to HDMI1
   Future<void> setProgram(String input) {
     if (!RolandService.validVideoSources.contains(input)) throw ArgumentError('Invalid input: $input');
     return _sendCommand(_buildCommand('PGM', [input]));
@@ -444,6 +452,8 @@ mixin VideoCommands {
   Future<void> getAux(String aux) => _sendCommand(_buildCommand('QAUX', [aux]));
 
   /// Sets the video fader level (0-2047).
+  /// @example
+  /// await service.setFaderLevel(1024); // Sets fader to mid-level
   Future<void> setFaderLevel(int level) {
     if (level < 0 || level > 2047) throw ArgumentError('level must be 0-2047');
     return _sendCommand(_buildCommand('VFL', [level.toString()]));
@@ -940,6 +950,8 @@ mixin CameraCommands {
   Future<void> _sendCommand(String command);
 
   /// Sets pan and tilt.
+  /// @example
+  /// await service.setPanTilt('CAMERA1', 'LEFT', 'UP'); // Pans left and tilts up
   Future<void> setPanTilt(String camera, String pan, String tilt) {
     if (!RolandService.cameraRegex.hasMatch(camera)) throw ArgumentError('Invalid camera format: $camera');
     int index = int.parse(camera.substring(6));
@@ -1264,6 +1276,9 @@ class RolandService with
   final Duration _minCommandInterval = const Duration(milliseconds: 10);
   DateTime _lastCommandTime = DateTime.now();
 
+  /// Creates a new RolandService instance for communicating with a Roland V-160HD device.
+  /// @example
+  /// final service = RolandService(host: '192.168.1.100', port: 8023, useSSL: false);
   RolandService({required this.host, this.port = defaultPort, this.useSSL = false, this.connectTimeout = defaultConnectTimeout, this.ackTimeout = defaultAckTimeout, this.commandRetryDelay = defaultCommandRetryDelay}) {
     // Validate host
     if (host.isEmpty || !hostRegex.hasMatch(host)) {
@@ -1295,6 +1310,10 @@ class RolandService with
   }
 
   /// Connects to the Roland device with retries.
+  /// @example
+  /// final service = RolandService(host: '192.168.1.100');
+  /// await service.connect();
+  /// print('Connected successfully');
   Future<void> connect({int retryCount = 3}) async {
     for (int attempt = 0; attempt <= retryCount; attempt++) {
       try {
@@ -1359,7 +1378,11 @@ class RolandService with
         return;
       } catch (e) {
         if (i < _maxReconnectAttempts - 1) {
-          await Future.delayed(_reconnectDelay);
+          final delay = Duration(seconds: _reconnectDelay.inSeconds * (1 << i));
+          dev.log('Reconnection attempt ${i + 1} failed: $e, retrying in ${delay.inSeconds} seconds');
+          await Future.delayed(delay);
+        } else {
+          dev.log('Reconnection failed after $_maxReconnectAttempts attempts');
         }
       }
     }
@@ -1444,10 +1467,10 @@ class RolandService with
         } catch (e) {
           retryCount++;
           if (retryCount >= maxRetries) {
-            dev.log('Failed to parse response after $maxRetries attempts: $response');
+            dev.log('Failed to parse response after $maxRetries attempts: $response. Error: $e');
             _responseController.addError(e);
           } else {
-            dev.log('Retrying parsing for response: $response, attempt $retryCount');
+            dev.log('Parsing failed with error: $e for response: $response, attempt $retryCount');
           }
         }
       }
