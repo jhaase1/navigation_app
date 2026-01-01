@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/roland_service.dart';
+import 'services/panasonic_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,33 +17,44 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const RolandControlPage(),
+      home: const RolandControlPage(
+        panasonicIp: '10.0.1.21',
+      ),
     );
   }
 }
 
 class RolandControlPage extends StatefulWidget {
-  const RolandControlPage({super.key});
+  final String panasonicIp;
+  const RolandControlPage({super.key, this.panasonicIp = '10.0.1.10'});
 
   @override
   State<RolandControlPage> createState() => _RolandControlPageState();
 }
 
 class _RolandControlPageState extends State<RolandControlPage> {
-  final TextEditingController _ipController = TextEditingController(text: '10.0.1.20');
+  // Roland
+  final TextEditingController _rolandIpController = TextEditingController(text: '10.0.1.20');
   RolandService? _rolandService;
-  bool _isConnected = false;
-  bool _isConnecting = false;
-  String _lastResponse = '';
-  String _connectionError = '';
+  bool _rolandConnected = false;
+  bool _rolandConnecting = false;
+  String _rolandResponse = '';
+  String _rolandConnectionError = '';
+
+  // Panasonic
+  final TextEditingController _panasonicIpController = TextEditingController(text: '10.0.1.10');
+  PanasonicService? _panasonicService;
+  bool _panasonicConnected = false;
+  bool _panasonicConnecting = false;
+  String _panasonicResponse = '';
+  String _panasonicConnectionError = '';
+  int _selectedPresetNum = 1;
+  String _presetName = '';
+  String _presetSpeed = '100';
 
   @override
   void initState() {
     super.initState();
-    // Auto-connect on app start
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _connect();
-    });
   }
 
   // PinP state
@@ -53,17 +65,11 @@ class _RolandControlPageState extends State<RolandControlPage> {
   bool _pinpPgm = false;
   bool _pinpPvw = false;
 
-  // Camera state
-  int _selectedCamera = 1;
-  bool _autoFocus = false;
-  bool _autoExposure = false;
-  int _preset = 1;
-  int _panTiltSpeed = 12; // default
-
   @override
   void dispose() {
     _rolandService?.disconnect();
-    _ipController.dispose();
+    _rolandIpController.dispose();
+    _panasonicIpController.dispose();
     super.dispose();
   }
 
@@ -77,56 +83,124 @@ class _RolandControlPageState extends State<RolandControlPage> {
   void _setPinPPvw() => _rolandService?.setPinPPvw('PinP${_selectedPinP + 1}', _pinpPvw);
   void _getPinPPvw() => _rolandService?.getPinPPvw('PinP${_selectedPinP + 1}');
 
-  // Camera methods
-  void _setPanTilt(PanDirection pan, TiltDirection tilt) => _rolandService?.setPanTilt('CAMERA${_selectedCamera + 1}', pan.name.toUpperCase(), tilt.name.toUpperCase());
-  void _setZoom(ZoomDirection direction) => _rolandService?.setZoom('CAMERA${_selectedCamera + 1}', direction.name.replaceAll('tele', 'TELE_').replaceAll('wide', 'WIDE_').toUpperCase());
-  void _resetZoom() => _rolandService?.resetZoom('CAMERA${_selectedCamera + 1}');
-  void _setFocus(FocusDirection direction) => _rolandService?.setFocus('CAMERA${_selectedCamera + 1}', direction.name.toUpperCase());
-  void _setAutoFocus() => _rolandService?.setAutoFocus('CAMERA${_selectedCamera + 1}', _autoFocus);
-  void _getAutoFocus() => _rolandService?.getAutoFocus('CAMERA${_selectedCamera + 1}');
-  void _setAutoExposure() => _rolandService?.setAutoExposure('CAMERA${_selectedCamera + 1}', _autoExposure);
-  void _getAutoExposure() => _rolandService?.getAutoExposure('CAMERA${_selectedCamera + 1}');
-  void _recallPreset() => _rolandService?.recallPreset('CAMERA${_selectedCamera + 1}', 'PRESET$_preset');
-  void _getCurrentPreset() => _rolandService?.getCurrentPreset('CAMERA${_selectedCamera + 1}');
-  void _setPanTiltSpeed() => _rolandService?.setPanTiltSpeed('CAMERA${_selectedCamera + 1}', _panTiltSpeed);
-  void _getPanTiltSpeed() => _rolandService?.getPanTiltSpeed('CAMERA${_selectedCamera + 1}');
+  // Panasonic Preset Methods
+  Future<void> _recallPreset() async {
+    if (_panasonicService == null) return;
+    try {
+      final response = await _panasonicService!.recallPreset(_selectedPresetNum);
+      setState(() => _panasonicResponse = 'Recall: $response');
+    } catch (e) {
+      setState(() => _panasonicResponse = 'Error: ${e.toString()}');
+    }
+  }
 
-  Future<void> _connect() async {
-    if (_isConnected) {
+  Future<void> _savePreset() async {
+    if (_panasonicService == null) return;
+    try {
+      final response = await _panasonicService!.savePreset(_selectedPresetNum);
+      setState(() => _panasonicResponse = 'Saved: $response');
+    } catch (e) {
+      setState(() => _panasonicResponse = 'Error: ${e.toString()}');
+    }
+  }
+
+  Future<void> _deletePreset() async {
+    if (_panasonicService == null) return;
+    try {
+      final response = await _panasonicService!.deletePreset(_selectedPresetNum);
+      setState(() => _panasonicResponse = 'Deleted: $response');
+    } catch (e) {
+      setState(() => _panasonicResponse = 'Error: ${e.toString()}');
+    }
+  }
+
+  Future<void> _setPresetSpeed() async {
+    if (_panasonicService == null) return;
+    try {
+      final response = await _panasonicService!.setPresetSpeed(_presetSpeed);
+      setState(() => _panasonicResponse = 'Speed set: $response');
+    } catch (e) {
+      setState(() => _panasonicResponse = 'Error: ${e.toString()}');
+    }
+  }
+
+  Future<void> _savePresetName() async {
+    if (_panasonicService == null) return;
+    try {
+      final response = await _panasonicService!.savePresetName(_selectedPresetNum, _presetName);
+      setState(() => _panasonicResponse = 'Name saved: $response');
+    } catch (e) {
+      setState(() => _panasonicResponse = 'Error: ${e.toString()}');
+    }
+  }
+
+  Future<void> _connectRoland() async {
+    if (_rolandConnected) {
       _rolandService?.disconnect();
       setState(() {
-        _isConnected = false;
+        _rolandConnected = false;
         _rolandService = null;
-        _connectionError = '';
+        _rolandConnectionError = '';
       });
       return;
     }
 
     setState(() {
-      _isConnecting = true;
-      _connectionError = '';
+      _rolandConnecting = true;
+      _rolandConnectionError = '';
     });
 
-    final service = RolandService(host: _ipController.text);
+    final service = RolandService(host: _rolandIpController.text);
     try {
       await service.connect();
       setState(() {
         _rolandService = service;
-        _isConnected = true;
-        _isConnecting = false;
-        _connectionError = '';
+        _rolandConnected = true;
+        _rolandConnecting = false;
+        _rolandConnectionError = '';
       });
 
       service.responseStream.listen((data) {
         setState(() {
-          _lastResponse = data.toString();
+          _rolandResponse = data.toString();
         });
       });
 
     } catch (e) {
       setState(() {
-        _isConnecting = false;
-        _connectionError = e.toString();
+        _rolandConnecting = false;
+        _rolandConnectionError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _connectPanasonic() async {
+    if (_panasonicConnected) {
+      setState(() {
+        _panasonicConnected = false;
+        _panasonicService = null;
+        _panasonicConnectionError = '';
+      });
+      return;
+    }
+
+    setState(() {
+      _panasonicConnecting = true;
+      _panasonicConnectionError = '';
+    });
+
+    try {
+      final service = PanasonicService(ipAddress: _panasonicIpController.text);
+      setState(() {
+        _panasonicService = service;
+        _panasonicConnected = true;
+        _panasonicConnecting = false;
+        _panasonicConnectionError = '';
+      });
+    } catch (e) {
+      setState(() {
+        _panasonicConnecting = false;
+        _panasonicConnectionError = e.toString();
       });
     }
   }
@@ -147,25 +221,28 @@ class _RolandControlPageState extends State<RolandControlPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Roland Connection
+                  const Text('Roland V-160HD', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
                         child: TextField(
-                          controller: _ipController,
+                          controller: _rolandIpController,
                           decoration: const InputDecoration(
                             labelText: 'IP Address',
                             border: OutlineInputBorder(),
                           ),
-                          enabled: !_isConnected && !_isConnecting,
+                          enabled: !_rolandConnected && !_rolandConnecting,
                         ),
                       ),
                       const SizedBox(width: 16),
                       FilledButton(
-                        onPressed: _isConnecting ? null : _connect,
+                        onPressed: _rolandConnecting ? null : _connectRoland,
                         style: FilledButton.styleFrom(
-                          backgroundColor: _isConnected ? Colors.red : null,
+                          backgroundColor: _rolandConnected ? Colors.red : null,
                         ),
-                        child: _isConnecting
+                        child: _rolandConnecting
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
@@ -174,11 +251,69 @@ class _RolandControlPageState extends State<RolandControlPage> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(_isConnected ? 'Disconnect' : 'Connect'),
+                            : Text(_rolandConnected ? 'Disconnect' : 'Connect'),
                       ),
                     ],
                   ),
-                  if (_connectionError.isNotEmpty) ...[
+                  if (_rolandConnectionError.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline, color: Colors.red.shade700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Connection failed. Check IP address and try again.',
+                              style: TextStyle(color: Colors.red.shade700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  // Panasonic Connection
+                  const Text('Panasonic Camera', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _panasonicIpController,
+                          decoration: const InputDecoration(
+                            labelText: 'IP Address',
+                            border: OutlineInputBorder(),
+                          ),
+                          enabled: !_panasonicConnected && !_panasonicConnecting,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      FilledButton(
+                        onPressed: _panasonicConnecting ? null : _connectPanasonic,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _panasonicConnected ? Colors.red : null,
+                        ),
+                        child: _panasonicConnecting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(_panasonicConnected ? 'Disconnect' : 'Connect'),
+                      ),
+                    ],
+                  ),
+                  if (_panasonicConnectionError.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -208,7 +343,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
               tabs: [
                 Tab(text: 'Basic'),
                 Tab(text: 'PinP'),
-                Tab(text: 'Camera'),
+                Tab(text: 'Panasonic'),
               ],
             ),
             Expanded(
@@ -216,13 +351,13 @@ class _RolandControlPageState extends State<RolandControlPage> {
                 children: [
                   _buildBasicTab(),
                   _buildPinPTab(),
-                  _buildCameraTab(),
+                  _buildPanasonicPresetsTab(),
                 ],
               ),
             ),
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text('Last Response: $_lastResponse', style: Theme.of(context).textTheme.bodySmall),
+              child: Text('Last Roland Response: $_rolandResponse', style: Theme.of(context).textTheme.bodySmall),
             ),
           ],
         ),
@@ -231,7 +366,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Widget _buildBasicTab() {
-    if (!_isConnected) return const Center(child: Text('Connect to device first'));
+    if (!_rolandConnected) return const Center(child: Text('Connect to Roland device first'));
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -311,7 +446,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Widget _buildPinPTab() {
-    if (!_isConnected) return const Center(child: Text('Connect to device first'));
+    if (!_rolandConnected) return const Center(child: Text('Connect to Roland device first'));
     final sources = ['HDMI1', 'HDMI2', 'HDMI3', 'HDMI4', 'HDMI5', 'HDMI6', 'HDMI7', 'HDMI8', 'SDI1', 'SDI2', 'SDI3', 'SDI4', 'SDI5', 'SDI6', 'SDI7', 'SDI8', 'STILL1', 'STILL2', 'STILL3', 'STILL4', 'STILL5', 'STILL6', 'STILL7', 'STILL8', 'STILL9', 'STILL10', 'STILL11', 'STILL12', 'STILL13', 'STILL14', 'STILL15', 'STILL16', 'INPUT1', 'INPUT2', 'INPUT3', 'INPUT4', 'INPUT5', 'INPUT6', 'INPUT7', 'INPUT8', 'INPUT9', 'INPUT10', 'INPUT11', 'INPUT12', 'INPUT13', 'INPUT14', 'INPUT15', 'INPUT16', 'INPUT17', 'INPUT18', 'INPUT19', 'INPUT20'];
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -396,121 +531,156 @@ class _RolandControlPageState extends State<RolandControlPage> {
     );
   }
 
-  Widget _buildCameraTab() {
-    if (!_isConnected) return const Center(child: Text('Connect to device first'));
+  Widget _buildPanasonicPresetsTab() {
+    if (!_panasonicConnected) {
+      return const Center(child: Text('Connect to Panasonic camera first'));
+    }
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Camera Control', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Panasonic Preset Control', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
+            
+            // Preset Selection
             Row(
               children: [
-                const Text('Camera: '),
-                DropdownButton<int>(
-                  value: _selectedCamera,
-                  items: List.generate(16, (i) => DropdownMenuItem(value: i+1, child: Text('Camera${i+1}'))),
-                  onChanged: (v) => setState(() => _selectedCamera = v!),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text('Pan/Tilt'),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(onPressed: () => _setPanTilt(PanDirection.left, TiltDirection.stop), child: const Text('LEFT')),
-                const SizedBox(width: 8),
-                Column(
-                  children: [
-                    ElevatedButton(onPressed: () => _setPanTilt(PanDirection.stop, TiltDirection.up), child: const Text('UP')),
-                    ElevatedButton(onPressed: () => _setPanTilt(PanDirection.stop, TiltDirection.stop), child: const Text('STOP')),
-                    ElevatedButton(onPressed: () => _setPanTilt(PanDirection.stop, TiltDirection.down), child: const Text('DOWN')),
-                  ],
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setPanTilt(PanDirection.right, TiltDirection.stop), child: const Text('RIGHT')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Speed: '),
-                Expanded(
-                  child: Slider(
-                    value: _panTiltSpeed.toDouble(),
-                    min: 1,
-                    max: 24,
-                    label: '$_panTiltSpeed',
-                    onChanged: (v) => setState(() => _panTiltSpeed = v.toInt()),
+                const Text('Preset Number: '),
+                SizedBox(
+                  width: 100,
+                  child: TextField(
+                    keyboardType: TextInputType.number,
+                    onChanged: (value) {
+                      final num = int.tryParse(value);
+                      if (num != null && num >= 0 && num <= 99) {
+                        setState(() => _selectedPresetNum = num);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      border: const OutlineInputBorder(),
+                      hintText: '$_selectedPresetNum',
+                    ),
                   ),
                 ),
-                ElevatedButton(onPressed: _setPanTiltSpeed, child: const Text('Set')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: _getPanTiltSpeed, child: const Text('Get')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text('Zoom'),
-            Row(
-              children: [
-                ElevatedButton(onPressed: () => _setZoom(ZoomDirection.wideFast), child: const Text('WIDE FAST')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setZoom(ZoomDirection.stop), child: const Text('STOP')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setZoom(ZoomDirection.teleFast), child: const Text('TELE FAST')),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(onPressed: _resetZoom, child: const Text('Reset Zoom')),
-            const SizedBox(height: 16),
-            const Text('Focus'),
-            Row(
-              children: [
-                ElevatedButton(onPressed: () => _setFocus(FocusDirection.near), child: const Text('NEAR')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setFocus(FocusDirection.stop), child: const Text('STOP')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: () => _setFocus(FocusDirection.far), child: const Text('FAR')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Auto Focus: '),
-                Switch(value: _autoFocus, onChanged: (v) => setState(() => _autoFocus = v)),
                 const SizedBox(width: 16),
-                ElevatedButton(onPressed: _setAutoFocus, child: const Text('Set')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: _getAutoFocus, child: const Text('Get')),
-              ],
-            ),
-            Row(
-              children: [
-                const Text('Auto Exposure: '),
-                Switch(value: _autoExposure, onChanged: (v) => setState(() => _autoExposure = v)),
-                const SizedBox(width: 16),
-                ElevatedButton(onPressed: _setAutoExposure, child: const Text('Set')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: _getAutoExposure, child: const Text('Get')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Preset: '),
-                DropdownButton<int>(
-                  value: _preset,
-                  items: List.generate(20, (i) => DropdownMenuItem(value: i+1, child: Text('Preset${i+1}'))),
-                  onChanged: (v) => setState(() => _preset = v!),
+                Expanded(
+                  child: Slider(
+                    value: _selectedPresetNum.toDouble(),
+                    min: 0,
+                    max: 99,
+                    divisions: 99,
+                    label: '$_selectedPresetNum',
+                    onChanged: (v) => setState(() => _selectedPresetNum = v.toInt()),
+                  ),
                 ),
-                const SizedBox(width: 16),
-                ElevatedButton(onPressed: _recallPreset, child: const Text('Recall')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: _getCurrentPreset, child: const Text('Get Current')),
               ],
+            ),
+            const SizedBox(height: 24),
+
+            // Preset Name
+            const Text('Preset Name', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    onChanged: (v) => setState(() => _presetName = v),
+                    decoration: const InputDecoration(
+                      labelText: 'Name (max 15 chars)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _savePresetName,
+                  child: const Text('Save Name'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Preset Speed
+            const Text('Preset Speed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    onChanged: (v) => setState(() => _presetSpeed = v),
+                    controller: TextEditingController(text: _presetSpeed),
+                    decoration: const InputDecoration(
+                      labelText: 'Speed (001-999)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _setPresetSpeed,
+                  child: const Text('Set Speed'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Preset Actions
+            const Text('Preset Actions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _recallPreset,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Recall'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _savePreset,
+                  icon: const Icon(Icons.save),
+                  label: const Text('Save'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _deletePreset,
+                  icon: const Icon(Icons.delete),
+                  label: const Text('Delete'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Response Display
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Response:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(_panasonicResponse.isEmpty ? 'Waiting for command...' : _panasonicResponse),
+                ],
+              ),
             ),
           ],
         ),
