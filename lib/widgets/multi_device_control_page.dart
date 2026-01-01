@@ -8,8 +8,7 @@ import 'pinp_tab.dart';
 import 'panasonic_presets_tab.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
-  final String panasonicIp;
-  const MultiDeviceControlPage({super.key, this.panasonicIp = '10.0.1.10'});
+  const MultiDeviceControlPage({super.key});
 
   @override
   State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();

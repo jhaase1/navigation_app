@@ -11,14 +11,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Roland V-60HD Controller',
+      title: 'Multi-device controller',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const MultiDeviceControlPage(
-        panasonicIp: '10.0.1.21',
-      ),
+      home: const MultiDeviceControlPage(),
     );
   }
 }
