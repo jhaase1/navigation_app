@@ -198,6 +198,46 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Check if any device is connected
+    final isConnected = _mockMode || _rolandConnected.value || _panasonicCameras.any((c) => c.isConnected.value);
+
+    if (!isConnected) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Multi-device control app'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () => _showSettingsDialog(context),
+            ),
+          ],
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.devices, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              const Text(
+                'No devices connected',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Please connect to Roland and/or Panasonic devices.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => _showSettingsDialog(context),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Roland V-160HD Control'),
@@ -225,6 +265,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 children: [
                   UnifiedControlWidget(
                     rolandService: _rolandService,
+                    rolandConnected: _rolandConnected,
                     cameras: _panasonicCameras,
                     onResponse: (response) => setState(() => _unifiedResponse = response),
                   ),

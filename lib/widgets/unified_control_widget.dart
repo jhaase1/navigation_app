@@ -5,12 +5,14 @@ import '../services/abstract/roland_service_abstract.dart';
 
 class UnifiedControlWidget extends StatefulWidget {
   final RolandServiceAbstract? rolandService;
+  final ValueNotifier<bool>? rolandConnected;
   final List<PanasonicCameraConfig> cameras;
   final ValueChanged<String> onResponse;
 
   const UnifiedControlWidget({
     super.key,
     required this.rolandService,
+    required this.rolandConnected,
     required this.cameras,
     required this.onResponse,
   });
@@ -41,8 +43,8 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
   }
 
   Future<void> _executeRolandMacro(int macro) async {
-    if (widget.rolandService == null) {
-      widget.onResponse('Roland service not available');
+    if (widget.rolandService == null || widget.rolandConnected?.value != true) {
+      widget.onResponse('Roland not connected');
       return;
     }
     try {
@@ -95,7 +97,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
   }
 
   Future<void> _fetchMacroNames() async {
-    if (widget.rolandService == null) return;
+    if (widget.rolandService == null || widget.rolandConnected?.value != true) return;
     await _fetchNames(
       fetcher: (i) => widget.rolandService!.getMacroName(i + 1),
       namesMap: _macroNames,
@@ -206,7 +208,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           textStyle: const TextStyle(fontSize: 12),
                         ),
-                        onPressed: () => _executeRolandMacro(macro),
+                        onPressed: widget.rolandConnected?.value == true ? () => _executeRolandMacro(macro) : null,
                         child: Text(name ?? '$macro'),
                       ),
                     );
@@ -228,32 +230,38 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                 ],
               ),
               const SizedBox(height: 8),
-              Expanded(
-                child: GridView.count(
-                  crossAxisCount: 5,
-                  childAspectRatio: 3.0,
-                  mainAxisSpacing: 4,
-                  crossAxisSpacing: 4,
-                  children: List.generate(maxItems, (i) {
-                    final preset = i + 1;
-                    final name = _presetNames[preset];
-                    return Tooltip(
-                      message: name ?? '$preset',
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8.0),
+              Builder(
+                builder: (context) {
+                  final cameraIndex = _selectedDeviceIndex - 1;
+                  final camera = widget.cameras[cameraIndex];
+                  return Expanded(
+                    child: GridView.count(
+                      crossAxisCount: 5,
+                      childAspectRatio: 3.0,
+                      mainAxisSpacing: 4,
+                      crossAxisSpacing: 4,
+                      children: List.generate(maxItems, (i) {
+                        final preset = i + 1;
+                        final name = _presetNames[preset];
+                        return Tooltip(
+                          message: name ?? '$preset',
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                              ),
+                              padding: EdgeInsets.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: const TextStyle(fontSize: 12),
+                            ),
+                            onPressed: camera.isConnected.value ? () => _executeCameraPreset(preset) : null,
+                            child: Text(name ?? '$preset'),
                           ),
-                          padding: EdgeInsets.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          textStyle: const TextStyle(fontSize: 12),
-                        ),
-                        onPressed: () => _executeCameraPreset(preset),
-                        child: Text(name ?? '$preset'),
-                      ),
-                    );
-                  }),
-                ),
+                        );
+                      }),
+                    ),
+                  );
+                },
               ),
             ],
           ],
