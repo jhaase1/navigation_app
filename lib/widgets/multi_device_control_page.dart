@@ -214,15 +214,20 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           children: [
             const TabBar(
               tabs: [
+                Tab(text: 'Unified'),
                 Tab(text: 'Basic'),
                 Tab(text: 'PinP'),
                 Tab(text: 'Panasonic'),
-                Tab(text: 'Unified'),
               ],
             ),
             Expanded(
               child: TabBarView(
                 children: [
+                  UnifiedControlWidget(
+                    rolandService: _rolandService,
+                    cameras: _panasonicCameras,
+                    onResponse: (response) => setState(() => _unifiedResponse = response),
+                  ),
                   BasicTab(
                     rolandConnected: _rolandConnected,
                     onRolandResponse: (response) => setState(() => _rolandResponse = response),
@@ -237,11 +242,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     panasonicCameras: _panasonicCameras,
                     onPanasonicResponse: (response) => setState(() => _panasonicResponse = response),
                     panasonicResponse: _panasonicResponse,
-                  ),
-                  UnifiedControlWidget(
-                    rolandService: _rolandService,
-                    cameras: _panasonicCameras,
-                    onResponse: (response) => setState(() => _unifiedResponse = response),
                   ),
                 ],
               ),
