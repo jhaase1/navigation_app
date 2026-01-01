@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../services/roland_service.dart';
 import '../services/panasonic_service.dart';
+import '../services/abstract/roland_service_abstract.dart';
+import '../services/mock/mock_roland_service.dart';
+import '../services/mock/mock_panasonic_service.dart';
 import 'settings_dialog.dart';
 import 'basic_tab.dart';
 import 'pinp_tab.dart';
@@ -20,11 +23,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   // Roland
   final TextEditingController _rolandIpController = TextEditingController(text: '10.0.1.20');
-  RolandService? _rolandService;
-  ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
-  ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
+  RolandServiceAbstract _rolandService = MockRolandService();
+  final ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
+  final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
   String _rolandResponse = '';
-  ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
+  final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
 
   // Panasonic - Multiple cameras
   final List<PanasonicCameraConfig> _panasonicCameras = [];
@@ -43,7 +46,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   void dispose() {
-    _rolandService?.disconnect();
+    _rolandService.disconnect();
     _rolandIpController.dispose();
     for (var camera in _panasonicCameras) {
       camera.ipController.dispose();
@@ -53,10 +56,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   Future<void> _connectRoland() async {
     if (_rolandConnected.value) {
-      _rolandService?.disconnect();
+      await _rolandService.disconnect();
       setState(() {
         _rolandConnected.value = false;
-        _rolandService = null;
+        _rolandService = MockRolandService();
         _rolandConnectionError.value = '';
       });
       return;
@@ -71,6 +74,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       // Mock connection - simulate successful connection
       await Future.delayed(const Duration(milliseconds: 500));
       setState(() {
+        _rolandService = MockRolandService();
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
@@ -111,7 +115,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (camera.isConnected.value) {
       setState(() {
         camera.isConnected.value = false;
-        camera.service = null;
+        camera.service = MockPanasonicService();
         camera.connectionError.value = '';
       });
       return;
@@ -126,6 +130,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       // Mock connection - simulate successful connection
       await Future.delayed(const Duration(milliseconds: 500));
       setState(() {
+        camera.service = MockPanasonicService();
         camera.isConnected.value = true;
         camera.isConnecting.value = false;
         camera.connectionError.value = '';
@@ -162,14 +167,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 _mockMode = value;
                 // Disconnect all when switching modes
                 if (_rolandConnected.value) {
-                  _rolandService?.disconnect();
+                  _rolandService.disconnect();
                   _rolandConnected.value = false;
-                  _rolandService = null;
+                  _rolandService = MockRolandService();
                 }
                 for (var camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
-                    camera.service = null;
+                    camera.service = MockPanasonicService();
                   }
                 }
               });
@@ -215,17 +220,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 children: [
                   BasicTab(
                     rolandConnected: _rolandConnected,
-                    mockMode: _mockMode,
                     onRolandResponse: (response) => setState(() => _rolandResponse = response),
+                    rolandService: _rolandService,
                   ),
                   PinPTab(
                     rolandConnected: _rolandConnected,
-                    mockMode: _mockMode,
                     onRolandResponse: (response) => setState(() => _rolandResponse = response),
+                    rolandService: _rolandService,
                   ),
                   PanasonicPresetsTab(
                     panasonicCameras: _panasonicCameras,
-                    mockMode: _mockMode,
                     onPanasonicResponse: (response) => setState(() => _panasonicResponse = response),
                     panasonicResponse: _panasonicResponse,
                   ),

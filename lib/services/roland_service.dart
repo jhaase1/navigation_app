@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'dart:developer' as dev;
+import 'abstract/roland_service_abstract.dart';
 
 /// Custom exception for Roland service errors.
 class RolandException implements Exception {
@@ -1161,7 +1162,7 @@ mixin GraphicsCommands {
 /// await service.setFaderLevel(1024); // Set fader to mid-level
 /// service.disconnect();
 /// ```
-class RolandService with
+class RolandService extends RolandServiceAbstract with
   VideoCommands,
   PinPCommands,
   DskCommands,
@@ -1425,7 +1426,8 @@ class RolandService with
   }
 
   /// Disconnects from the Roland device.
-  void disconnect() {
+  @override
+  Future<void> disconnect() async {
     dev.log('Disconnecting');
     _socket?.close();
     _socket = null;

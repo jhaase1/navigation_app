@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import '../services/abstract/roland_service_abstract.dart';
 
 class BasicTab extends StatefulWidget {
   final ValueNotifier<bool> rolandConnected;
-  final bool mockMode;
   final ValueChanged<String> onRolandResponse;
+  final RolandServiceAbstract? rolandService;
 
   const BasicTab({
     super.key,
     required this.rolandConnected,
-    required this.mockMode,
     required this.onRolandResponse,
+    required this.rolandService,
   });
 
   @override
@@ -45,11 +46,14 @@ class _BasicTabState extends State<BasicTab> {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () {
-                    if (widget.mockMode) {
-                      widget.onRolandResponse('Mock: CUT executed');
-                    } else {
-                      // TODO: Implement real CUT command
+                  onPressed: () async {
+                    if (widget.rolandService != null) {
+                      try {
+                        await widget.rolandService!.cut();
+                        widget.onRolandResponse('CUT executed');
+                      } catch (e) {
+                        widget.onRolandResponse('Error: ${e.toString()}');
+                      }
                     }
                   },
                   style: ElevatedButton.styleFrom(
@@ -62,11 +66,14 @@ class _BasicTabState extends State<BasicTab> {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () {
-                    if (widget.mockMode) {
-                      widget.onRolandResponse('Mock: AUTO transition executed');
-                    } else {
-                      // TODO: Implement real AUTO command
+                  onPressed: () async {
+                    if (widget.rolandService != null) {
+                      try {
+                        await widget.rolandService!.auto();
+                        widget.onRolandResponse('AUTO transition executed');
+                      } catch (e) {
+                        widget.onRolandResponse('Error: ${e.toString()}');
+                      }
                     }
                   },
                   style: ElevatedButton.styleFrom(
@@ -88,11 +95,14 @@ class _BasicTabState extends State<BasicTab> {
             children: List.generate(8, (index) {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
-                onPressed: () {
-                  if (widget.mockMode) {
-                    widget.onRolandResponse('Mock: Set Program to INPUT${index + 1}');
-                  } else {
-                    // TODO: Implement real program select
+                onPressed: () async {
+                  if (widget.rolandService != null) {
+                    try {
+                      await widget.rolandService!.setProgram('INPUT${index + 1}');
+                      widget.onRolandResponse('Set Program to INPUT${index + 1}');
+                    } catch (e) {
+                      widget.onRolandResponse('Error: ${e.toString()}');
+                    }
                   }
                 },
               );
@@ -108,11 +118,14 @@ class _BasicTabState extends State<BasicTab> {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
                 backgroundColor: Colors.green.shade50,
-                onPressed: () {
-                  if (widget.mockMode) {
-                    widget.onRolandResponse('Mock: Set Preview to INPUT${index + 1}');
-                  } else {
-                    // TODO: Implement real preview select
+                onPressed: () async {
+                  if (widget.rolandService != null) {
+                    try {
+                      await widget.rolandService!.setPreview('INPUT${index + 1}');
+                      widget.onRolandResponse('Set Preview to INPUT${index + 1}');
+                    } catch (e) {
+                      widget.onRolandResponse('Error: ${e.toString()}');
+                    }
                   }
                 },
               );
@@ -126,11 +139,14 @@ class _BasicTabState extends State<BasicTab> {
             runSpacing: 8,
             children: List.generate(8, (index) {
               return ElevatedButton(
-                onPressed: () {
-                  if (widget.mockMode) {
-                    widget.onRolandResponse('Mock: Executed Macro ${index + 1}');
-                  } else {
-                    // TODO: Implement real macro execution
+                onPressed: () async {
+                  if (widget.rolandService != null) {
+                    try {
+                      await widget.rolandService!.executeMacro(index + 1);
+                      widget.onRolandResponse('Executed Macro ${index + 1}');
+                    } catch (e) {
+                      widget.onRolandResponse('Error: ${e.toString()}');
+                    }
                   }
                 },
                 child: Text('Macro ${index + 1}'),

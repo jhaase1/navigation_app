@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import '../services/abstract/roland_service_abstract.dart';
 
 class PinPTab extends StatefulWidget {
   final ValueNotifier<bool> rolandConnected;
-  final bool mockMode;
   final ValueChanged<String> onRolandResponse;
+  final RolandServiceAbstract? rolandService;
 
   const PinPTab({
     super.key,
     required this.rolandConnected,
-    required this.mockMode,
     required this.onRolandResponse,
+    required this.rolandService,
   });
 
   @override
@@ -38,67 +39,91 @@ class _PinPTabState extends State<PinPTab> {
 
   void _update() => setState(() {});
 
-  void _setPinPSource() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: Set PinP${_selectedPinP + 1} source to $_pinpSource');
-    } else {
-      // TODO: Implement real PinP source set
+  void _setPinPSource() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.setPinPSource('PinP$_selectedPinP', _pinpSource);
+        widget.onRolandResponse('Set PinP$_selectedPinP source to $_pinpSource');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _getPinPSource() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: PinP${_selectedPinP + 1} source = $_pinpSource');
-    } else {
-      // TODO: Implement real PinP source get
+  void _getPinPSource() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.getPinPSource('PinP$_selectedPinP');
+        widget.onRolandResponse('Requested PinP$_selectedPinP source');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _setPinPPosition() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: Set PinP${_selectedPinP + 1} position H=${_pinpH.toInt()} V=${_pinpV.toInt()}');
-    } else {
-      // TODO: Implement real PinP position set
+  void _setPinPPosition() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.setPinPPosition('PinP$_selectedPinP', _pinpH.toInt(), _pinpV.toInt());
+        widget.onRolandResponse('Set PinP$_selectedPinP position H=${_pinpH.toInt()} V=${_pinpV.toInt()}');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _getPinPPosition() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: PinP${_selectedPinP + 1} position H=${_pinpH.toInt()} V=${_pinpV.toInt()}');
-    } else {
-      // TODO: Implement real PinP position get
+  void _getPinPPosition() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.getPinPPosition('PinP$_selectedPinP');
+        widget.onRolandResponse('Requested PinP$_selectedPinP position');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _setPinPPgm() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: Set PinP${_selectedPinP + 1} PGM = $_pinpPgm');
-    } else {
-      // TODO: Implement real PinP PGM set
+  void _setPinPPgm() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.setPinPPgm('PinP$_selectedPinP', _pinpPgm);
+        widget.onRolandResponse('Set PinP$_selectedPinP PGM = $_pinpPgm');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _getPinPPgm() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: PinP${_selectedPinP + 1} PGM = $_pinpPgm');
-    } else {
-      // TODO: Implement real PinP PGM get
+  void _getPinPPgm() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.getPinPPgm('PinP$_selectedPinP');
+        widget.onRolandResponse('Requested PinP$_selectedPinP PGM');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _setPinPPvw() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: Set PinP${_selectedPinP + 1} PVW = $_pinpPvw');
-    } else {
-      // TODO: Implement real PinP PVW set
+  void _setPinPPvw() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.setPinPPvw('PinP$_selectedPinP', _pinpPvw);
+        widget.onRolandResponse('Set PinP$_selectedPinP PVW = $_pinpPvw');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 
-  void _getPinPPvw() {
-    if (widget.mockMode) {
-      widget.onRolandResponse('Mock: PinP${_selectedPinP + 1} PVW = $_pinpPvw');
-    } else {
-      // TODO: Implement real PinP PVW get
+  void _getPinPPvw() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.getPinPPvw('PinP$_selectedPinP');
+        widget.onRolandResponse('Requested PinP$_selectedPinP PVW');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
     }
   }
 

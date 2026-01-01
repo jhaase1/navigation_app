@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:developer';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'abstract/panasonic_service_abstract.dart';
 
 /// Custom exception for camera-related errors.
 class CameraException implements Exception {
@@ -248,7 +249,7 @@ class NotificationManager {
 /// - v1.2: Enhanced notification parsing for position changes.
 /// - v1.2: Added stricter response validation.
 /// - v1.2: Added query methods for current settings.
-class PanasonicService {
+class PanasonicService extends PanasonicServiceAbstract {
   static const String ptzEndpoint = 'aw_ptz';
   static const String camEndpoint = 'aw_cam';
   static const Duration defaultPtzCommandDelay = Duration(milliseconds: 40);
@@ -766,6 +767,7 @@ class PanasonicService {
   ///
   /// Throws [ArgumentError] if preset number is out of range.
   /// Throws [CameraException] on communication error.
+  @override
   Future<String> recallPreset(int presetNum) async {
     if (presetNum < 0 || presetNum > 99) {
       throw ArgumentError('Preset number must be 0-99');
@@ -782,6 +784,7 @@ class PanasonicService {
   ///
   /// Throws [ArgumentError] if preset number is out of range.
   /// Throws [CameraException] on communication error.
+  @override
   Future<String> savePreset(int presetNum) async {
     if (presetNum < 0 || presetNum > 99) {
       throw ArgumentError('Preset number must be 0-99');
@@ -798,6 +801,7 @@ class PanasonicService {
   ///
   /// Throws [ArgumentError] if preset number is out of range.
   /// Throws [CameraException] on communication error.
+  @override
   Future<String> deletePreset(int presetNum) async {
     if (presetNum < 0 || presetNum > 99) {
       throw ArgumentError('Preset number must be 0-99');
@@ -814,6 +818,7 @@ class PanasonicService {
   ///
   /// Throws [ArgumentError] if speed is invalid.
   /// Throws [CameraException] on communication error.
+  @override
   Future<String> setPresetSpeed(String speed) async {
     if (!RegExp(r'^\d{3}$').hasMatch(speed) || int.parse(speed) < 1 || int.parse(speed) > 999) {
       throw ArgumentError('Preset speed must be 001-999');
@@ -830,6 +835,7 @@ class PanasonicService {
   ///
   /// Throws [ArgumentError] if parameters are invalid.
   /// Throws [CameraException] on communication error.
+  @override
   Future<String> savePresetName(int presetNum, String name) async {
     if (presetNum < 0 || presetNum > 99) {
       throw ArgumentError('Preset number must be 0-99');

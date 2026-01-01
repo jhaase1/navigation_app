@@ -3,14 +3,12 @@ import '../models/panasonic_camera_config.dart';
 
 class PanasonicPresetsTab extends StatefulWidget {
   final List<PanasonicCameraConfig> panasonicCameras;
-  final bool mockMode;
   final ValueChanged<String> onPanasonicResponse;
   final String panasonicResponse;
 
   const PanasonicPresetsTab({
     super.key,
     required this.panasonicCameras,
-    required this.mockMode,
     required this.onPanasonicResponse,
     required this.panasonicResponse,
   });
@@ -50,14 +48,10 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   PanasonicCameraConfig? get _selectedCamera =>
       widget.panasonicCameras.isEmpty ? null : widget.panasonicCameras[_selectedCameraIndex];
 
-  bool get _panasonicConnected => _selectedCamera?.isConnected.value ?? false;
+  bool get _panasonicConnected => (_selectedCamera?.isConnected.value ?? false) && (_selectedCamera?.service != null);
 
   Future<void> _recallPreset() async {
-    if (widget.mockMode) {
-      widget.onPanasonicResponse('Mock: Recalled preset $_selectedPresetNum on ${_selectedCamera?.name}');
-      return;
-    }
-    if (_selectedCamera?.service == null) return;
+    if (_selectedCamera == null || !_panasonicConnected) return;
     try {
       final response = await _selectedCamera!.service!.recallPreset(_selectedPresetNum);
       widget.onPanasonicResponse('Recall: $response');
@@ -67,11 +61,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   }
 
   Future<void> _savePreset() async {
-    if (widget.mockMode) {
-      widget.onPanasonicResponse('Mock: Saved preset $_selectedPresetNum on ${_selectedCamera?.name}');
-      return;
-    }
-    if (_selectedCamera?.service == null) return;
+    if (_selectedCamera == null || !_panasonicConnected) return;
     try {
       final response = await _selectedCamera!.service!.savePreset(_selectedPresetNum);
       widget.onPanasonicResponse('Saved: $response');
@@ -81,11 +71,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   }
 
   Future<void> _deletePreset() async {
-    if (widget.mockMode) {
-      widget.onPanasonicResponse('Mock: Deleted preset $_selectedPresetNum on ${_selectedCamera?.name}');
-      return;
-    }
-    if (_selectedCamera?.service == null) return;
+    if (_selectedCamera == null || !_panasonicConnected) return;
     try {
       final response = await _selectedCamera!.service!.deletePreset(_selectedPresetNum);
       widget.onPanasonicResponse('Deleted: $response');
@@ -95,11 +81,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   }
 
   Future<void> _setPresetSpeed() async {
-    if (widget.mockMode) {
-      widget.onPanasonicResponse('Mock: Set preset speed to $_presetSpeed on ${_selectedCamera?.name}');
-      return;
-    }
-    if (_selectedCamera?.service == null) return;
+    if (_selectedCamera == null || !_panasonicConnected) return;
     try {
       final response = await _selectedCamera!.service!.setPresetSpeed(_presetSpeed);
       widget.onPanasonicResponse('Speed set: $response');
@@ -109,11 +91,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   }
 
   Future<void> _savePresetName() async {
-    if (widget.mockMode) {
-      widget.onPanasonicResponse('Mock: Saved preset name "$_presetName" for preset $_selectedPresetNum on ${_selectedCamera?.name}');
-      return;
-    }
-    if (_selectedCamera?.service == null) return;
+    if (_selectedCamera == null || !_panasonicConnected) return;
     try {
       final response = await _selectedCamera!.service!.savePresetName(_selectedPresetNum, _presetName);
       widget.onPanasonicResponse('Name saved: $response');
