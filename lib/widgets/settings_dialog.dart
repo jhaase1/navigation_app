@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 
-class SettingsDialog extends StatefulWidget {
+class SettingsDialog extends StatelessWidget {
   final bool mockMode;
   final ValueChanged<bool> onMockModeChanged;
   final TextEditingController rolandIpController;
@@ -26,11 +26,6 @@ class SettingsDialog extends StatefulWidget {
   });
 
   @override
-  State<SettingsDialog> createState() => _SettingsDialogState();
-}
-
-class _SettingsDialogState extends State<SettingsDialog> {
-  @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Device Settings'),
@@ -45,15 +40,15 @@ class _SettingsDialogState extends State<SettingsDialog> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: widget.mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
+                  color: mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: widget.mockMode ? Colors.orange.shade200 : Colors.blue.shade200),
+                  border: Border.all(color: mockMode ? Colors.orange.shade200 : Colors.blue.shade200),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      widget.mockMode ? Icons.visibility : Icons.wifi,
-                      color: widget.mockMode ? Colors.orange : Colors.blue,
+                      mockMode ? Icons.visibility : Icons.wifi,
+                      color: mockMode ? Colors.orange : Colors.blue,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -61,27 +56,27 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.mockMode ? 'Demo Mode Active' : 'Live Mode',
+                            mockMode ? 'Demo Mode Active' : 'Live Mode',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: widget.mockMode ? Colors.orange.shade900 : Colors.blue.shade900,
+                              color: mockMode ? Colors.orange.shade900 : Colors.blue.shade900,
                             ),
                           ),
                           Text(
-                            widget.mockMode
+                            mockMode
                                 ? 'UI preview without real devices'
                                 : 'Connecting to actual hardware',
                             style: TextStyle(
                               fontSize: 12,
-                              color: widget.mockMode ? Colors.orange.shade700 : Colors.blue.shade700,
+                              color: mockMode ? Colors.orange.shade700 : Colors.blue.shade700,
                             ),
                           ),
                         ],
                       ),
                     ),
                     Switch(
-                      value: widget.mockMode,
-                      onChanged: widget.onMockModeChanged,
+                      value: mockMode,
+                      onChanged: onMockModeChanged,
                     ),
                   ],
                 ),
@@ -96,31 +91,31 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     height: 12,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: widget.rolandConnected ? Colors.green : Colors.grey,
+                      color: rolandConnected ? Colors.green : Colors.grey,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: widget.rolandIpController,
+                controller: rolandIpController,
                 decoration: const InputDecoration(
                   labelText: 'IP Address',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.router),
                 ),
-                enabled: !widget.rolandConnected && !widget.rolandConnecting,
+                enabled: !rolandConnected && !rolandConnecting,
               ),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: widget.rolandConnecting ? null : () {
-                  widget.onConnectRoland();
+                onPressed: rolandConnecting ? null : () {
+                  onConnectRoland();
                   Navigator.of(context).pop();
                 },
                 style: FilledButton.styleFrom(
-                  backgroundColor: widget.rolandConnected ? Colors.red : null,
+                  backgroundColor: rolandConnected ? Colors.red : null,
                 ),
-                child: widget.rolandConnecting
+                child: rolandConnecting
                     ? const SizedBox(
                         width: 20,
                         height: 20,
@@ -129,9 +124,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           color: Colors.white,
                         ),
                       )
-                    : Text(widget.rolandConnected ? 'Disconnect' : 'Connect'),
+                    : Text(rolandConnected ? 'Disconnect' : 'Connect'),
               ),
-              if (widget.rolandConnectionError.isNotEmpty) ...[
+              if (rolandConnectionError.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -151,8 +146,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
               // Panasonic Cameras Section
               const Text('Panasonic Cameras', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              ...List.generate(widget.panasonicCameras.length, (index) {
-                final camera = widget.panasonicCameras[index];
+              ...List.generate(panasonicCameras.length, (index) {
+                final camera = panasonicCameras[index];
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -184,7 +179,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     const SizedBox(height: 8),
                     FilledButton(
                       onPressed: camera.isConnecting ? null : () {
-                        widget.onConnectPanasonic(index);
+                        onConnectPanasonic(index);
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: camera.isConnected ? Colors.red : null,

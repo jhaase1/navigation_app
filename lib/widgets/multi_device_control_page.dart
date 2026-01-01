@@ -154,32 +154,34 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return SettingsDialog(
-          mockMode: _mockMode,
-          onMockModeChanged: (value) {
-            setState(() {
-              _mockMode = value;
-              // Disconnect all when switching modes
-              if (_rolandConnected) {
-                _rolandService?.disconnect();
-                _rolandConnected = false;
-                _rolandService = null;
-              }
-              for (var camera in _panasonicCameras) {
-                if (camera.isConnected) {
-                  camera.isConnected = false;
-                  camera.service = null;
+        return StatefulBuilder(
+          builder: (context, setState) => SettingsDialog(
+            mockMode: _mockMode,
+            onMockModeChanged: (value) {
+              setState(() {
+                _mockMode = value;
+                // Disconnect all when switching modes
+                if (_rolandConnected) {
+                  _rolandService?.disconnect();
+                  _rolandConnected = false;
+                  _rolandService = null;
                 }
-              }
-            });
-          },
-          rolandIpController: _rolandIpController,
-          rolandConnected: _rolandConnected,
-          rolandConnecting: _rolandConnecting,
-          rolandConnectionError: _rolandConnectionError,
-          onConnectRoland: _connectRoland,
-          panasonicCameras: _panasonicCameras,
-          onConnectPanasonic: _connectPanasonic,
+                for (var camera in _panasonicCameras) {
+                  if (camera.isConnected) {
+                    camera.isConnected = false;
+                    camera.service = null;
+                  }
+                }
+              });
+            },
+            rolandIpController: _rolandIpController,
+            rolandConnected: _rolandConnected,
+            rolandConnecting: _rolandConnecting,
+            rolandConnectionError: _rolandConnectionError,
+            onConnectRoland: _connectRoland,
+            panasonicCameras: _panasonicCameras,
+            onConnectPanasonic: _connectPanasonic,
+          ),
         );
       },
     );
