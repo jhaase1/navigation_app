@@ -6,9 +6,9 @@ class PanasonicCameraConfig {
   final String name;
   final TextEditingController ipController;
   PanasonicService? service;
-  bool isConnected = false;
-  bool isConnecting = false;
-  String connectionError = '';
+  ValueNotifier<bool> isConnected = ValueNotifier(false);
+  ValueNotifier<bool> isConnecting = ValueNotifier(false);
+  ValueNotifier<String> connectionError = ValueNotifier('');
   
   PanasonicCameraConfig({
     required this.name,

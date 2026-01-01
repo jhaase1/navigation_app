@@ -21,10 +21,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   // Roland
   final TextEditingController _rolandIpController = TextEditingController(text: '10.0.1.20');
   RolandService? _rolandService;
-  bool _rolandConnected = false;
-  bool _rolandConnecting = false;
+  ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
+  ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
   String _rolandResponse = '';
-  String _rolandConnectionError = '';
+  ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
 
   // Panasonic - Multiple cameras
   final List<PanasonicCameraConfig> _panasonicCameras = [];
@@ -52,28 +52,28 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   }
 
   Future<void> _connectRoland() async {
-    if (_rolandConnected) {
+    if (_rolandConnected.value) {
       _rolandService?.disconnect();
       setState(() {
-        _rolandConnected = false;
+        _rolandConnected.value = false;
         _rolandService = null;
-        _rolandConnectionError = '';
+        _rolandConnectionError.value = '';
       });
       return;
     }
 
     setState(() {
-      _rolandConnecting = true;
-      _rolandConnectionError = '';
+      _rolandConnecting.value = true;
+      _rolandConnectionError.value = '';
     });
 
     if (_mockMode) {
       // Mock connection - simulate successful connection
       await Future.delayed(const Duration(milliseconds: 500));
       setState(() {
-        _rolandConnected = true;
-        _rolandConnecting = false;
-        _rolandConnectionError = '';
+        _rolandConnected.value = true;
+        _rolandConnecting.value = false;
+        _rolandConnectionError.value = '';
         _rolandResponse = 'Mock Roland V-160HD Connected';
       });
       return;
@@ -84,9 +84,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       await service.connect();
       setState(() {
         _rolandService = service;
-        _rolandConnected = true;
-        _rolandConnecting = false;
-        _rolandConnectionError = '';
+        _rolandConnected.value = true;
+        _rolandConnecting.value = false;
+        _rolandConnectionError.value = '';
       });
 
       service.responseStream.listen((data) {
@@ -97,8 +97,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     } catch (e) {
       setState(() {
-        _rolandConnecting = false;
-        _rolandConnectionError = e.toString();
+        _rolandConnecting.value = false;
+        _rolandConnectionError.value = e.toString();
       });
     }
   }
@@ -108,27 +108,27 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     final camera = _panasonicCameras[cameraIndex];
 
-    if (camera.isConnected) {
+    if (camera.isConnected.value) {
       setState(() {
-        camera.isConnected = false;
+        camera.isConnected.value = false;
         camera.service = null;
-        camera.connectionError = '';
+        camera.connectionError.value = '';
       });
       return;
     }
 
     setState(() {
-      camera.isConnecting = true;
-      camera.connectionError = '';
+      camera.isConnecting.value = true;
+      camera.connectionError.value = '';
     });
 
     if (_mockMode) {
       // Mock connection - simulate successful connection
       await Future.delayed(const Duration(milliseconds: 500));
       setState(() {
-        camera.isConnected = true;
-        camera.isConnecting = false;
-        camera.connectionError = '';
+        camera.isConnected.value = true;
+        camera.isConnecting.value = false;
+        camera.connectionError.value = '';
         _panasonicResponse = 'Mock ${camera.name} Connected';
       });
       return;
@@ -138,14 +138,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       final service = PanasonicService(ipAddress: camera.ipController.text);
       setState(() {
         camera.service = service;
-        camera.isConnected = true;
-        camera.isConnecting = false;
-        camera.connectionError = '';
+        camera.isConnected.value = true;
+        camera.isConnecting.value = false;
+        camera.connectionError.value = '';
       });
     } catch (e) {
       setState(() {
-        camera.isConnecting = false;
-        camera.connectionError = e.toString();
+        camera.isConnecting.value = false;
+        camera.connectionError.value = e.toString();
       });
     }
   }
@@ -161,14 +161,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               setState(() {
                 _mockMode = value;
                 // Disconnect all when switching modes
-                if (_rolandConnected) {
+                if (_rolandConnected.value) {
                   _rolandService?.disconnect();
-                  _rolandConnected = false;
+                  _rolandConnected.value = false;
                   _rolandService = null;
                 }
                 for (var camera in _panasonicCameras) {
-                  if (camera.isConnected) {
-                    camera.isConnected = false;
+                  if (camera.isConnected.value) {
+                    camera.isConnected.value = false;
                     camera.service = null;
                   }
                 }

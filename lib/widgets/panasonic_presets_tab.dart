@@ -25,10 +25,32 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   String _presetName = '';
   String _presetSpeed = '100';
 
+  @override
+  void initState() {
+    super.initState();
+    for (var camera in widget.panasonicCameras) {
+      camera.isConnected.addListener(_update);
+      camera.isConnecting.addListener(_update);
+      camera.connectionError.addListener(_update);
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var camera in widget.panasonicCameras) {
+      camera.isConnected.removeListener(_update);
+      camera.isConnecting.removeListener(_update);
+      camera.connectionError.removeListener(_update);
+    }
+    super.dispose();
+  }
+
+  void _update() => setState(() {});
+
   PanasonicCameraConfig? get _selectedCamera =>
       widget.panasonicCameras.isEmpty ? null : widget.panasonicCameras[_selectedCameraIndex];
 
-  bool get _panasonicConnected => _selectedCamera?.isConnected ?? false;
+  bool get _panasonicConnected => _selectedCamera?.isConnected.value ?? false;
 
   Future<void> _recallPreset() async {
     if (widget.mockMode) {
@@ -103,7 +125,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   @override
   Widget build(BuildContext context) {
     // Check if any camera is connected
-    final hasConnectedCamera = widget.panasonicCameras.any((c) => c.isConnected);
+    final hasConnectedCamera = widget.panasonicCameras.any((c) => c.isConnected.value);
 
     if (!hasConnectedCamera) {
       return const Center(child: Text('Connect to a Panasonic camera first'));
@@ -134,7 +156,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
                           Icon(
                             Icons.circle,
                             size: 12,
-                            color: camera.isConnected ? Colors.green : Colors.grey,
+                            color: camera.isConnected.value ? Colors.green : Colors.grey,
                           ),
                           const SizedBox(width: 8),
                           Text(camera.name),

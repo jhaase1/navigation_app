@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class BasicTab extends StatelessWidget {
-  final bool rolandConnected;
+class BasicTab extends StatefulWidget {
+  final ValueNotifier<bool> rolandConnected;
   final bool mockMode;
   final ValueChanged<String> onRolandResponse;
 
@@ -13,8 +13,27 @@ class BasicTab extends StatelessWidget {
   });
 
   @override
+  State<BasicTab> createState() => _BasicTabState();
+}
+
+class _BasicTabState extends State<BasicTab> {
+  @override
+  void initState() {
+    super.initState();
+    widget.rolandConnected.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    widget.rolandConnected.removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
-    if (!rolandConnected) return const Center(child: Text('Connect to Roland device first'));
+    if (!widget.rolandConnected.value) return const Center(child: Text('Connect to Roland device first'));
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -27,8 +46,8 @@ class BasicTab extends StatelessWidget {
               Expanded(
                 child: ElevatedButton(
                   onPressed: () {
-                    if (mockMode) {
-                      onRolandResponse('Mock: CUT executed');
+                    if (widget.mockMode) {
+                      widget.onRolandResponse('Mock: CUT executed');
                     } else {
                       // TODO: Implement real CUT command
                     }
@@ -44,8 +63,8 @@ class BasicTab extends StatelessWidget {
               Expanded(
                 child: ElevatedButton(
                   onPressed: () {
-                    if (mockMode) {
-                      onRolandResponse('Mock: AUTO transition executed');
+                    if (widget.mockMode) {
+                      widget.onRolandResponse('Mock: AUTO transition executed');
                     } else {
                       // TODO: Implement real AUTO command
                     }
@@ -70,8 +89,8 @@ class BasicTab extends StatelessWidget {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
                 onPressed: () {
-                  if (mockMode) {
-                    onRolandResponse('Mock: Set Program to INPUT${index + 1}');
+                  if (widget.mockMode) {
+                    widget.onRolandResponse('Mock: Set Program to INPUT${index + 1}');
                   } else {
                     // TODO: Implement real program select
                   }
@@ -90,8 +109,8 @@ class BasicTab extends StatelessWidget {
                 label: Text('Input ${index + 1}'),
                 backgroundColor: Colors.green.shade50,
                 onPressed: () {
-                  if (mockMode) {
-                    onRolandResponse('Mock: Set Preview to INPUT${index + 1}');
+                  if (widget.mockMode) {
+                    widget.onRolandResponse('Mock: Set Preview to INPUT${index + 1}');
                   } else {
                     // TODO: Implement real preview select
                   }
@@ -108,8 +127,8 @@ class BasicTab extends StatelessWidget {
             children: List.generate(8, (index) {
               return ElevatedButton(
                 onPressed: () {
-                  if (mockMode) {
-                    onRolandResponse('Mock: Executed Macro ${index + 1}');
+                  if (widget.mockMode) {
+                    widget.onRolandResponse('Mock: Executed Macro ${index + 1}');
                   } else {
                     // TODO: Implement real macro execution
                   }

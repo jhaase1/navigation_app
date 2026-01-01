@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class PinPTab extends StatefulWidget {
-  final bool rolandConnected;
+  final ValueNotifier<bool> rolandConnected;
   final bool mockMode;
   final ValueChanged<String> onRolandResponse;
 
@@ -23,6 +23,20 @@ class _PinPTabState extends State<PinPTab> {
   double _pinpV = 0.0;
   bool _pinpPgm = false;
   bool _pinpPvw = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.rolandConnected.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    widget.rolandConnected.removeListener(_update);
+    super.dispose();
+  }
+
+  void _update() => setState(() {});
 
   void _setPinPSource() {
     if (widget.mockMode) {
@@ -90,7 +104,7 @@ class _PinPTabState extends State<PinPTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.rolandConnected) return const Center(child: Text('Connect to Roland device first'));
+    if (!widget.rolandConnected.value) return const Center(child: Text('Connect to Roland device first'));
     final sources = ['HDMI1', 'HDMI2', 'HDMI3', 'HDMI4', 'HDMI5', 'HDMI6', 'HDMI7', 'HDMI8', 'SDI1', 'SDI2', 'SDI3', 'SDI4', 'SDI5', 'SDI6', 'SDI7', 'SDI8', 'STILL1', 'STILL2', 'STILL3', 'STILL4', 'STILL5', 'STILL6', 'STILL7', 'STILL8', 'STILL9', 'STILL10', 'STILL11', 'STILL12', 'STILL13', 'STILL14', 'STILL15', 'STILL16', 'INPUT1', 'INPUT2', 'INPUT3', 'INPUT4', 'INPUT5', 'INPUT6', 'INPUT7', 'INPUT8', 'INPUT9', 'INPUT10', 'INPUT11', 'INPUT12', 'INPUT13', 'INPUT14', 'INPUT15', 'INPUT16', 'INPUT17', 'INPUT18', 'INPUT19', 'INPUT20'];
     return Padding(
       padding: const EdgeInsets.all(16.0),
