@@ -210,7 +210,12 @@ class _RolandControlPageState extends State<RolandControlPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Roland V-160HD Control'),
-
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => _showSettingsDialog(context),
+          ),
+        ],
       ),
       body: DefaultTabController(
         length: 3,
@@ -218,124 +223,11 @@ class _RolandControlPageState extends State<RolandControlPage> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  // Roland Connection
-                  const Text('Roland V-160HD', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _rolandIpController,
-                          decoration: const InputDecoration(
-                            labelText: 'IP Address',
-                            border: OutlineInputBorder(),
-                          ),
-                          enabled: !_rolandConnected && !_rolandConnecting,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      FilledButton(
-                        onPressed: _rolandConnecting ? null : _connectRoland,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _rolandConnected ? Colors.red : null,
-                        ),
-                        child: _rolandConnecting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(_rolandConnected ? 'Disconnect' : 'Connect'),
-                      ),
-                    ],
-                  ),
-                  if (_rolandConnectionError.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline, color: Colors.red.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Connection failed. Check IP address and try again.',
-                              style: TextStyle(color: Colors.red.shade700),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  // Panasonic Connection
-                  const Text('Panasonic Camera', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _panasonicIpController,
-                          decoration: const InputDecoration(
-                            labelText: 'IP Address',
-                            border: OutlineInputBorder(),
-                          ),
-                          enabled: !_panasonicConnected && !_panasonicConnecting,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      FilledButton(
-                        onPressed: _panasonicConnecting ? null : _connectPanasonic,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _panasonicConnected ? Colors.red : null,
-                        ),
-                        child: _panasonicConnecting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(_panasonicConnected ? 'Disconnect' : 'Connect'),
-                      ),
-                    ],
-                  ),
-                  if (_panasonicConnectionError.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline, color: Colors.red.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Connection failed. Check IP address and try again.',
-                              style: TextStyle(color: Colors.red.shade700),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  _buildConnectionStatus('Roland V-160HD', _rolandConnected, Colors.blue),
+                  _buildConnectionStatus('Panasonic Camera', _panasonicConnected, Colors.orange),
                 ],
               ),
             ),
@@ -528,6 +420,150 @@ class _RolandControlPageState extends State<RolandControlPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildConnectionStatus(String deviceName, bool connected, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: connected ? Colors.green : Colors.grey,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          deviceName,
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            color: connected ? color : Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showSettingsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Device Settings'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Roland V-160HD', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _rolandIpController,
+                    decoration: const InputDecoration(
+                      labelText: 'IP Address',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.router),
+                    ),
+                    enabled: !_rolandConnected && !_rolandConnecting,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _rolandConnecting ? null : () {
+                      _connectRoland();
+                      Navigator.of(context).pop();
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _rolandConnected ? Colors.red : null,
+                    ),
+                    child: _rolandConnecting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(_rolandConnected ? 'Disconnect' : 'Connect'),
+                  ),
+                  if (_rolandConnectionError.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(
+                        'Connection failed. Check IP address.',
+                        style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  const Text('Panasonic Camera', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _panasonicIpController,
+                    decoration: const InputDecoration(
+                      labelText: 'IP Address',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.videocam),
+                    ),
+                    enabled: !_panasonicConnected && !_panasonicConnecting,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _panasonicConnecting ? null : () {
+                      _connectPanasonic();
+                      Navigator.of(context).pop();
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _panasonicConnected ? Colors.red : null,
+                    ),
+                    child: _panasonicConnecting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(_panasonicConnected ? 'Disconnect' : 'Connect'),
+                  ),
+                  if (_panasonicConnectionError.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(
+                        'Connection failed. Check IP address.',
+                        style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 
