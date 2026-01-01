@@ -39,6 +39,9 @@ abstract class RolandServiceAbstract {
   /// Gets PinP on preview status
   Future<void> getPinPPvw(String pinp);
 
+  /// Gets a macro name
+  Future<String> getMacroName(int macro);
+
   /// Disconnects from the device
   Future<void> disconnect();
 }

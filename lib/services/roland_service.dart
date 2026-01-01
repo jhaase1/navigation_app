@@ -1990,6 +1990,12 @@ class RolandService extends RolandServiceAbstract with
     return null;
   }
 
+  @override
+  Future<String> getMacroName(int macro) async {
+    // Roland V-160HD doesn't seem to have a command to get macro names via API
+    return 'Macro $macro';
+  }
+
   /// Disposes the service, closing streams and disconnecting.
   void dispose() {
     disconnect();

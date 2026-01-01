@@ -290,6 +290,7 @@ class PanasonicService extends PanasonicServiceAbstract {
   static const String deletePresetCmd = '#C';
   static const String setPresetSpeedCmd = '#UPVS';
   static const String savePresetNameCmd = 'OSJ:35:';
+  static const String getPresetNameCmd = 'QSJ:35:';
   static const String setGainCmd = 'OGU:';
   static const String setShutterModeCmd = 'OSJ:03:';
   static const String setShutterSpeedCmd = 'OSJ:06:';
@@ -844,6 +845,28 @@ class PanasonicService extends PanasonicServiceAbstract {
       throw ArgumentError('Name must be up to 15 ASCII characters');
     }
     return await _sendCommand(camEndpoint, 'OSJ:35:$presetNum:$name');
+  }
+
+  /// Retrieves the name of a preset.
+  ///
+  /// [presetNum] The preset number (0-99).
+  ///
+  /// Returns the preset name.
+  ///
+  /// Throws [ArgumentError] if preset number is invalid.
+  /// Throws [CameraException] on communication error.
+  @override
+  Future<String> getPresetName(int presetNum) async {
+    if (presetNum < 0 || presetNum > 99) {
+      throw ArgumentError('Preset number must be 0-99');
+    }
+    final response = await _sendCommand(camEndpoint, 'QSJ:35:${presetNum.toString().padLeft(2, '0')}');
+    // Response format: qsj:35:nn:name
+    final parts = response.split(':');
+    if (parts.length >= 4) {
+      return parts.sublist(3).join(':');
+    }
+    return response;
   }
 
   // Exposure Control

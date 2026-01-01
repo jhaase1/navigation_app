@@ -14,4 +14,7 @@ abstract class PanasonicServiceAbstract {
 
   /// Saves preset name
   Future<String> savePresetName(int preset, String name);
+
+  /// Gets preset name
+  Future<String> getPresetName(int preset);
 }

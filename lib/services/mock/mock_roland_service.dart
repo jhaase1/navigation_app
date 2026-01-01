@@ -5,12 +5,12 @@ class MockRolandService extends RolandServiceAbstract {
   @override
   Future<void> cut() async {
     // Simulate network delay
-    await Future.delayed(const Duration(milliseconds: 100));
+    // await Future.delayed(const Duration(milliseconds: 100));
   }
 
   @override
   Future<void> auto({String? input, int? time}) async {
-    await Future.delayed(const Duration(milliseconds: 100));
+    // await Future.delayed(const Duration(milliseconds: 100));
   }
 
   @override
@@ -66,6 +66,13 @@ class MockRolandService extends RolandServiceAbstract {
   @override
   Future<void> getPinPPvw(String pinp) async {
     await Future.delayed(const Duration(milliseconds: 50));
+  }
+
+  @override
+  Future<String> getMacroName(int macro) async {
+    // Remove delay for tests to avoid timer issues
+    // await Future.delayed(const Duration(milliseconds: 50));
+    return 'Macro $macro';
   }
 
   @override

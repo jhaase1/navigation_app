@@ -4,31 +4,37 @@ import '../abstract/panasonic_service_abstract.dart';
 class MockPanasonicService extends PanasonicServiceAbstract {
   @override
   Future<String> recallPreset(int preset) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    // await Future.delayed(const Duration(milliseconds: 200));
     return 'Mock: Recalled preset $preset';
   }
 
   @override
   Future<String> savePreset(int preset) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    // await Future.delayed(const Duration(milliseconds: 200));
     return 'Mock: Saved preset $preset';
   }
 
   @override
   Future<String> deletePreset(int preset) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    // await Future.delayed(const Duration(milliseconds: 200));
     return 'Mock: Deleted preset $preset';
   }
 
   @override
   Future<String> setPresetSpeed(String speed) async {
-    await Future.delayed(const Duration(milliseconds: 100));
+    // await Future.delayed(const Duration(milliseconds: 100));
     return 'Mock: Set preset speed to $speed';
   }
 
   @override
   Future<String> savePresetName(int preset, String name) async {
-    await Future.delayed(const Duration(milliseconds: 150));
+    // await Future.delayed(const Duration(milliseconds: 150));
     return 'Mock: Saved preset name "$name" for preset $preset';
+  }
+
+  @override
+  Future<String> getPresetName(int preset) async {
+    // await Future.delayed(const Duration(milliseconds: 100));
+    return 'Preset $preset';
   }
 }

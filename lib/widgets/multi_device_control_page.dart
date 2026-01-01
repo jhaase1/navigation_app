@@ -9,6 +9,7 @@ import 'settings_dialog.dart';
 import 'basic_tab.dart';
 import 'pinp_tab.dart';
 import 'panasonic_presets_tab.dart';
+import 'unified_control_widget.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
   const MultiDeviceControlPage({super.key});
@@ -32,6 +33,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   // Panasonic - Multiple cameras
   final List<PanasonicCameraConfig> _panasonicCameras = [];
   String _panasonicResponse = '';
+
+  // Unified control
+  String _unifiedResponse = '';
 
   @override
   void initState() {
@@ -205,7 +209,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         ],
       ),
       body: DefaultTabController(
-        length: 3,
+        length: 4,
         child: Column(
           children: [
             const TabBar(
@@ -213,6 +217,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 Tab(text: 'Basic'),
                 Tab(text: 'PinP'),
                 Tab(text: 'Panasonic'),
+                Tab(text: 'Unified'),
               ],
             ),
             Expanded(
@@ -233,12 +238,23 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     onPanasonicResponse: (response) => setState(() => _panasonicResponse = response),
                     panasonicResponse: _panasonicResponse,
                   ),
+                  UnifiedControlWidget(
+                    rolandService: _rolandService,
+                    cameras: _panasonicCameras,
+                    onResponse: (response) => setState(() => _unifiedResponse = response),
+                  ),
                 ],
               ),
             ),
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text('Last Roland Response: $_rolandResponse', style: Theme.of(context).textTheme.bodySmall),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Last Roland Response: $_rolandResponse', style: Theme.of(context).textTheme.bodySmall),
+                  Text('Last Unified Response: $_unifiedResponse', style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
             ),
           ],
         ),
