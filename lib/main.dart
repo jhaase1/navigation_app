@@ -251,33 +251,6 @@ class _RolandControlPageState extends State<RolandControlPage> {
         length: 3,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildConnectionStatus('Roland V-160HD', _rolandConnected, Colors.blue),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.center,
-                    children: List.generate(_panasonicCameras.length, (index) {
-                      final camera = _panasonicCameras[index];
-                      return _buildConnectionStatus(
-                        camera.name,
-                        camera.isConnected,
-                        _selectedCameraIndex == index ? Colors.orange : Colors.grey,
-                      );
-                    }),
-                  ),
-                ],
-              ),
-            ),
             const TabBar(
               tabs: [
                 Tab(text: 'Basic'),
@@ -470,29 +443,6 @@ class _RolandControlPageState extends State<RolandControlPage> {
     );
   }
 
-  Widget _buildConnectionStatus(String deviceName, bool connected, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: connected ? Colors.green : Colors.grey,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          deviceName,
-          style: TextStyle(
-            fontWeight: FontWeight.w500,
-            color: connected ? color : Colors.grey,
-          ),
-        ),
-      ],
-    );
-  }
-
   void _showSettingsDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -506,7 +456,20 @@ class _RolandControlPageState extends State<RolandControlPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('Roland V-160HD', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Row(
+                    children: [
+                      const Text('Roland V-160HD', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 12),
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _rolandConnected ? Colors.green : Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _rolandIpController,
@@ -563,7 +526,20 @@ class _RolandControlPageState extends State<RolandControlPage> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         if (index > 0) const SizedBox(height: 16),
-                        Text(camera.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Row(
+                          children: [
+                            Text(camera.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            const SizedBox(width: 12),
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: camera.isConnected ? Colors.green : Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: camera.ipController,

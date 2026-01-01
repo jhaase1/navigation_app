@@ -1,5 +1,15 @@
 # GitHub Copilot Instructions for Navigation App
 
+## ⚠️ MANDATORY REQUIREMENTS ⚠️
+**Before completing ANY task, you MUST:**
+1. Run `flutter analyze` and fix ALL errors and warnings
+2. Run `flutter test` and fix ALL test failures
+3. Verify both commands complete with zero issues
+
+**No task is complete until both commands pass successfully.**
+
+---
+
 ## Project Overview
 This is a Flutter application for controlling Roland V-160HD video switchers and Panasonic PTZ cameras. The app provides a unified control interface for video production workflows.
 
@@ -64,18 +74,23 @@ void _newRolandCommand() => _rolandService?.commandName(parameters);
 
 ## Testing & Quality
 
-### Before Completing Any Task
-**CRITICAL**: Always run both `flutter analyze` and `flutter test` and fix all errors before considering work complete.
+### ⚠️ MANDATORY: Before Completing Any Task
+**CRITICAL**: You MUST run both `flutter analyze` AND `flutter test` and fix ALL errors before considering work complete.
 
-Steps:
+**Required Steps (NO EXCEPTIONS):**
 1. Make your code changes
 2. Run `flutter analyze`
-3. Address all errors and warnings
-4. Re-run `flutter analyze` to verify
+3. Fix ALL errors and warnings (if any)
+4. Re-run `flutter analyze` until it shows "No issues found!"
 5. Run `flutter test`
-6. Address all errors and warnings
-7. Re-run `flutter test` to verify
-8. Only then is the task complete
+6. Fix ALL test failures and errors (if any)
+7. Re-run `flutter test` until all tests pass
+8. **Only then is the task complete**
+
+**Exit Codes to Check:**
+- `flutter analyze` must exit with code 0
+- `flutter test` must exit with code 0
+- Any non-zero exit code means there are issues that MUST be fixed
 
 ### Common Analyzer Issues
 - Missing `@override` annotations
@@ -122,4 +137,4 @@ Check `pubspec.yaml` for current dependencies. When adding new packages:
 
 ---
 
-**Remember**: Run `flutter analyze` after every change and fix all issues before submitting work.
+**Remember**: Run `flutter analyze` and `flutter test` after every change and fix all issues before submitting work.
