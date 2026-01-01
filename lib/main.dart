@@ -6,6 +6,21 @@ void main() {
   runApp(const MyApp());
 }
 
+// Configuration class for Panasonic cameras
+class PanasonicCameraConfig {
+  final String name;
+  final TextEditingController ipController;
+  PanasonicService? service;
+  bool isConnected = false;
+  bool isConnecting = false;
+  String connectionError = '';
+  
+  PanasonicCameraConfig({
+    required this.name,
+    required String ipAddress,
+  }) : ipController = TextEditingController(text: ipAddress);
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -41,20 +56,29 @@ class _RolandControlPageState extends State<RolandControlPage> {
   String _rolandResponse = '';
   String _rolandConnectionError = '';
 
-  // Panasonic
-  final TextEditingController _panasonicIpController = TextEditingController(text: '10.0.1.10');
-  PanasonicService? _panasonicService;
-  bool _panasonicConnected = false;
-  bool _panasonicConnecting = false;
+  // Panasonic - Multiple cameras
+  final List<PanasonicCameraConfig> _panasonicCameras = [];
+  int _selectedCameraIndex = 0;
   String _panasonicResponse = '';
-  String _panasonicConnectionError = '';
   int _selectedPresetNum = 1;
   String _presetName = '';
   String _presetSpeed = '100';
+  
+  // Getters for selected camera
+  PanasonicCameraConfig? get _selectedCamera => 
+      _panasonicCameras.isEmpty ? null : _panasonicCameras[_selectedCameraIndex];
+  PanasonicService? get _panasonicService => _selectedCamera?.service;
+  bool get _panasonicConnected => _selectedCamera?.isConnected ?? false;
 
   @override
   void initState() {
     super.initState();
+    // Initialize with 3 default cameras
+    _panasonicCameras.addAll([
+      PanasonicCameraConfig(name: 'Camera 1', ipAddress: '10.0.1.10'),
+      PanasonicCameraConfig(name: 'Camera 2', ipAddress: '10.0.1.11'),
+      PanasonicCameraConfig(name: 'Camera 3', ipAddress: '10.0.1.12'),
+    ]);
   }
 
   // PinP state
@@ -69,7 +93,9 @@ class _RolandControlPageState extends State<RolandControlPage> {
   void dispose() {
     _rolandService?.disconnect();
     _rolandIpController.dispose();
-    _panasonicIpController.dispose();
+    for (var camera in _panasonicCameras) {
+      camera.ipController.dispose();
+    }
     super.dispose();
   }
 
@@ -174,33 +200,37 @@ class _RolandControlPageState extends State<RolandControlPage> {
     }
   }
 
-  Future<void> _connectPanasonic() async {
-    if (_panasonicConnected) {
+  Future<void> _connectPanasonic(int cameraIndex) async {
+    if (cameraIndex >= _panasonicCameras.length) return;
+    
+    final camera = _panasonicCameras[cameraIndex];
+    
+    if (camera.isConnected) {
       setState(() {
-        _panasonicConnected = false;
-        _panasonicService = null;
-        _panasonicConnectionError = '';
+        camera.isConnected = false;
+        camera.service = null;
+        camera.connectionError = '';
       });
       return;
     }
 
     setState(() {
-      _panasonicConnecting = true;
-      _panasonicConnectionError = '';
+      camera.isConnecting = true;
+      camera.connectionError = '';
     });
 
     try {
-      final service = PanasonicService(ipAddress: _panasonicIpController.text);
+      final service = PanasonicService(ipAddress: camera.ipController.text);
       setState(() {
-        _panasonicService = service;
-        _panasonicConnected = true;
-        _panasonicConnecting = false;
-        _panasonicConnectionError = '';
+        camera.service = service;
+        camera.isConnected = true;
+        camera.isConnecting = false;
+        camera.connectionError = '';
       });
     } catch (e) {
       setState(() {
-        _panasonicConnecting = false;
-        _panasonicConnectionError = e.toString();
+        camera.isConnecting = false;
+        camera.connectionError = e.toString();
       });
     }
   }
@@ -223,11 +253,28 @@ class _RolandControlPageState extends State<RolandControlPage> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              child: Column(
                 children: [
-                  _buildConnectionStatus('Roland V-160HD', _rolandConnected, Colors.blue),
-                  _buildConnectionStatus('Panasonic Camera', _panasonicConnected, Colors.orange),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildConnectionStatus('Roland V-160HD', _rolandConnected, Colors.blue),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: List.generate(_panasonicCameras.length, (index) {
+                      final camera = _panasonicCameras[index];
+                      return _buildConnectionStatus(
+                        camera.name,
+                        camera.isConnected,
+                        _selectedCameraIndex == index ? Colors.orange : Colors.grey,
+                      );
+                    }),
+                  ),
                 ],
               ),
             ),
@@ -506,52 +553,64 @@ class _RolandControlPageState extends State<RolandControlPage> {
                     ),
                   ],
                   const SizedBox(height: 24),
-                  const Text('Panasonic Camera', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  
+                  // Panasonic Cameras Section
+                  const Text('Panasonic Cameras', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _panasonicIpController,
-                    decoration: const InputDecoration(
-                      labelText: 'IP Address',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.videocam),
-                    ),
-                    enabled: !_panasonicConnected && !_panasonicConnecting,
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: _panasonicConnecting ? null : () {
-                      _connectPanasonic();
-                      Navigator.of(context).pop();
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _panasonicConnected ? Colors.red : null,
-                    ),
-                    child: _panasonicConnecting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                  ...List.generate(_panasonicCameras.length, (index) {
+                    final camera = _panasonicCameras[index];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (index > 0) const SizedBox(height: 16),
+                        Text(camera.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: camera.ipController,
+                          decoration: const InputDecoration(
+                            labelText: 'IP Address',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.videocam),
+                          ),
+                          enabled: !camera.isConnected && !camera.isConnecting,
+                        ),
+                        const SizedBox(height: 8),
+                        FilledButton(
+                          onPressed: camera.isConnecting ? null : () {
+                            _connectPanasonic(index);
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: camera.isConnected ? Colors.red : null,
+                          ),
+                          child: camera.isConnecting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(camera.isConnected ? 'Disconnect' : 'Connect'),
+                        ),
+                        if (camera.connectionError.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.red.shade200),
                             ),
-                          )
-                        : Text(_panasonicConnected ? 'Disconnect' : 'Connect'),
-                  ),
-                  if (_panasonicConnectionError.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red.shade200),
-                      ),
-                      child: Text(
-                        'Connection failed. Check IP address.',
-                        style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-                      ),
-                    ),
-                  ],
+                            child: Text(
+                              'Connection failed. Check IP address.',
+                              style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  }),
                 ],
               ),
             ),
@@ -568,8 +627,11 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Widget _buildPanasonicPresetsTab() {
-    if (!_panasonicConnected) {
-      return const Center(child: Text('Connect to Panasonic camera first'));
+    // Check if any camera is connected
+    final hasConnectedCamera = _panasonicCameras.any((c) => c.isConnected);
+    
+    if (!hasConnectedCamera) {
+      return const Center(child: Text('Connect to a Panasonic camera first'));
     }
 
     return Padding(
@@ -581,6 +643,54 @@ class _RolandControlPageState extends State<RolandControlPage> {
             const Text('Panasonic Preset Control', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             
+            // Camera Selection
+            Row(
+              children: [
+                const Text('Select Camera: '),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  value: _selectedCameraIndex,
+                  items: List.generate(_panasonicCameras.length, (index) {
+                    final camera = _panasonicCameras[index];
+                    return DropdownMenuItem(
+                      value: index,
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.circle,
+                            size: 12,
+                            color: camera.isConnected ? Colors.green : Colors.grey,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(camera.name),
+                        ],
+                      ),
+                    );
+                  }),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _selectedCameraIndex = value);
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            if (!_panasonicConnected)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Text(
+                  'Selected camera "${_selectedCamera?.name}" is not connected.',
+                  style: TextStyle(color: Colors.orange.shade900),
+                ),
+              )
+            else ...[
             // Preset Selection
             Row(
               children: [
@@ -702,6 +812,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
             const SizedBox(height: 24),
 
             // Response Display
+            // Response Display
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -718,6 +829,7 @@ class _RolandControlPageState extends State<RolandControlPage> {
                 ],
               ),
             ),
+            ],
           ],
         ),
       ),

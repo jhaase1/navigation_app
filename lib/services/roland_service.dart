@@ -1265,7 +1265,6 @@ class RolandService with
   int _commandId = 0;
   bool _isProcessing = false;
   bool _isConnected = false;
-  bool _isAuthenticated = false;
   final StringBuffer _responseBuffer = StringBuffer();
   int _pendingCount = 0;
   static const int maxConcurrentCommands = 5;
