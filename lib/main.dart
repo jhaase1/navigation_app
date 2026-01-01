@@ -48,6 +48,9 @@ class RolandControlPage extends StatefulWidget {
 }
 
 class _RolandControlPageState extends State<RolandControlPage> {
+  // Mock mode
+  bool _mockMode = false;
+  
   // Roland
   final TextEditingController _rolandIpController = TextEditingController(text: '10.0.1.20');
   RolandService? _rolandService;
@@ -100,17 +103,69 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   // PinP methods
-  void _setPinPSource() => _rolandService?.setPinPSource('PinP${_selectedPinP + 1}', _pinpSource);
-  void _getPinPSource() => _rolandService?.getPinPSource('PinP${_selectedPinP + 1}');
-  void _setPinPPosition() => _rolandService?.setPinPPosition('PinP${_selectedPinP + 1}', _pinpH.toInt(), _pinpV.toInt());
-  void _getPinPPosition() => _rolandService?.getPinPPosition('PinP${_selectedPinP + 1}');
-  void _setPinPPgm() => _rolandService?.setPinPPgm('PinP${_selectedPinP + 1}', _pinpPgm);
-  void _getPinPPgm() => _rolandService?.getPinPPgm('PinP${_selectedPinP + 1}');
-  void _setPinPPvw() => _rolandService?.setPinPPvw('PinP${_selectedPinP + 1}', _pinpPvw);
-  void _getPinPPvw() => _rolandService?.getPinPPvw('PinP${_selectedPinP + 1}');
+  void _setPinPSource() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: Set PinP${_selectedPinP + 1} source to $_pinpSource');
+      return;
+    }
+    _rolandService?.setPinPSource('PinP${_selectedPinP + 1}', _pinpSource);
+  }
+  void _getPinPSource() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: PinP${_selectedPinP + 1} source = $_pinpSource');
+      return;
+    }
+    _rolandService?.getPinPSource('PinP${_selectedPinP + 1}');
+  }
+  void _setPinPPosition() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: Set PinP${_selectedPinP + 1} position H=${_pinpH.toInt()} V=${_pinpV.toInt()}');
+      return;
+    }
+    _rolandService?.setPinPPosition('PinP${_selectedPinP + 1}', _pinpH.toInt(), _pinpV.toInt());
+  }
+  void _getPinPPosition() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: PinP${_selectedPinP + 1} position H=${_pinpH.toInt()} V=${_pinpV.toInt()}');
+      return;
+    }
+    _rolandService?.getPinPPosition('PinP${_selectedPinP + 1}');
+  }
+  void _setPinPPgm() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: Set PinP${_selectedPinP + 1} PGM = $_pinpPgm');
+      return;
+    }
+    _rolandService?.setPinPPgm('PinP${_selectedPinP + 1}', _pinpPgm);
+  }
+  void _getPinPPgm() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: PinP${_selectedPinP + 1} PGM = $_pinpPgm');
+      return;
+    }
+    _rolandService?.getPinPPgm('PinP${_selectedPinP + 1}');
+  }
+  void _setPinPPvw() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: Set PinP${_selectedPinP + 1} PVW = $_pinpPvw');
+      return;
+    }
+    _rolandService?.setPinPPvw('PinP${_selectedPinP + 1}', _pinpPvw);
+  }
+  void _getPinPPvw() {
+    if (_mockMode) {
+      setState(() => _rolandResponse = 'Mock: PinP${_selectedPinP + 1} PVW = $_pinpPvw');
+      return;
+    }
+    _rolandService?.getPinPPvw('PinP${_selectedPinP + 1}');
+  }
 
   // Panasonic Preset Methods
   Future<void> _recallPreset() async {
+    if (_mockMode) {
+      setState(() => _panasonicResponse = 'Mock: Recalled preset $_selectedPresetNum on ${_selectedCamera?.name}');
+      return;
+    }
     if (_panasonicService == null) return;
     try {
       final response = await _panasonicService!.recallPreset(_selectedPresetNum);
@@ -121,6 +176,10 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Future<void> _savePreset() async {
+    if (_mockMode) {
+      setState(() => _panasonicResponse = 'Mock: Saved preset $_selectedPresetNum on ${_selectedCamera?.name}');
+      return;
+    }
     if (_panasonicService == null) return;
     try {
       final response = await _panasonicService!.savePreset(_selectedPresetNum);
@@ -131,6 +190,10 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Future<void> _deletePreset() async {
+    if (_mockMode) {
+      setState(() => _panasonicResponse = 'Mock: Deleted preset $_selectedPresetNum on ${_selectedCamera?.name}');
+      return;
+    }
     if (_panasonicService == null) return;
     try {
       final response = await _panasonicService!.deletePreset(_selectedPresetNum);
@@ -141,6 +204,10 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Future<void> _setPresetSpeed() async {
+    if (_mockMode) {
+      setState(() => _panasonicResponse = 'Mock: Set preset speed to $_presetSpeed on ${_selectedCamera?.name}');
+      return;
+    }
     if (_panasonicService == null) return;
     try {
       final response = await _panasonicService!.setPresetSpeed(_presetSpeed);
@@ -151,6 +218,10 @@ class _RolandControlPageState extends State<RolandControlPage> {
   }
 
   Future<void> _savePresetName() async {
+    if (_mockMode) {
+      setState(() => _panasonicResponse = 'Mock: Saved preset name "$_presetName" for preset $_selectedPresetNum on ${_selectedCamera?.name}');
+      return;
+    }
     if (_panasonicService == null) return;
     try {
       final response = await _panasonicService!.savePresetName(_selectedPresetNum, _presetName);
@@ -175,6 +246,18 @@ class _RolandControlPageState extends State<RolandControlPage> {
       _rolandConnecting = true;
       _rolandConnectionError = '';
     });
+
+    if (_mockMode) {
+      // Mock connection - simulate successful connection
+      await Future.delayed(const Duration(milliseconds: 500));
+      setState(() {
+        _rolandConnected = true;
+        _rolandConnecting = false;
+        _rolandConnectionError = '';
+        _rolandResponse = 'Mock Roland V-160HD Connected';
+      });
+      return;
+    }
 
     final service = RolandService(host: _rolandIpController.text);
     try {
@@ -218,6 +301,18 @@ class _RolandControlPageState extends State<RolandControlPage> {
       camera.isConnecting = true;
       camera.connectionError = '';
     });
+
+    if (_mockMode) {
+      // Mock connection - simulate successful connection
+      await Future.delayed(const Duration(milliseconds: 500));
+      setState(() {
+        camera.isConnected = true;
+        camera.isConnecting = false;
+        camera.connectionError = '';
+        _panasonicResponse = 'Mock ${camera.name} Connected';
+      });
+      return;
+    }
 
     try {
       final service = PanasonicService(ipAddress: camera.ipController.text);
@@ -290,7 +385,13 @@ class _RolandControlPageState extends State<RolandControlPage> {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () => _rolandService?.cut(),
+                  onPressed: () {
+                    if (_mockMode) {
+                      setState(() => _rolandResponse = 'Mock: CUT executed');
+                    } else {
+                      _rolandService?.cut();
+                    }
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red.shade100,
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -301,7 +402,13 @@ class _RolandControlPageState extends State<RolandControlPage> {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () => _rolandService?.auto(),
+                  onPressed: () {
+                    if (_mockMode) {
+                      setState(() => _rolandResponse = 'Mock: AUTO transition executed');
+                    } else {
+                      _rolandService?.auto();
+                    }
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade100,
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -321,7 +428,13 @@ class _RolandControlPageState extends State<RolandControlPage> {
             children: List.generate(8, (index) {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
-                onPressed: () => _rolandService?.setProgram('INPUT${index + 1}'),
+                onPressed: () {
+                  if (_mockMode) {
+                    setState(() => _rolandResponse = 'Mock: Set Program to INPUT${index + 1}');
+                  } else {
+                    _rolandService?.setProgram('INPUT${index + 1}');
+                  }
+                },
               );
             }),
           ),
@@ -335,7 +448,13 @@ class _RolandControlPageState extends State<RolandControlPage> {
               return ActionChip(
                 label: Text('Input ${index + 1}'),
                 backgroundColor: Colors.green.shade50,
-                onPressed: () => _rolandService?.setPreview('INPUT${index + 1}'),
+                onPressed: () {
+                  if (_mockMode) {
+                    setState(() => _rolandResponse = 'Mock: Set Preview to INPUT${index + 1}');
+                  } else {
+                    _rolandService?.setPreview('INPUT${index + 1}');
+                  }
+                },
               );
             }),
           ),
@@ -347,7 +466,13 @@ class _RolandControlPageState extends State<RolandControlPage> {
             runSpacing: 8,
             children: List.generate(8, (index) {
               return ElevatedButton(
-                onPressed: () => _rolandService?.executeMacro(index + 1),
+                onPressed: () {
+                  if (_mockMode) {
+                    setState(() => _rolandResponse = 'Mock: Executed Macro ${index + 1}');
+                  } else {
+                    _rolandService?.executeMacro(index + 1);
+                  }
+                },
                 child: Text('Macro ${index + 1}'),
               );
             }),
@@ -456,6 +581,68 @@ class _RolandControlPageState extends State<RolandControlPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Mock Mode Toggle
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _mockMode ? Colors.orange.shade200 : Colors.blue.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _mockMode ? Icons.visibility : Icons.wifi,
+                          color: _mockMode ? Colors.orange : Colors.blue,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _mockMode ? 'Demo Mode Active' : 'Live Mode',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: _mockMode ? Colors.orange.shade900 : Colors.blue.shade900,
+                                ),
+                              ),
+                              Text(
+                                _mockMode
+                                    ? 'UI preview without real devices'
+                                    : 'Connecting to actual hardware',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _mockMode ? Colors.orange.shade700 : Colors.blue.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _mockMode,
+                          onChanged: (value) {
+                            setState(() {
+                              _mockMode = value;
+                              // Disconnect all when switching modes
+                              if (_rolandConnected) {
+                                _rolandService?.disconnect();
+                                _rolandConnected = false;
+                                _rolandService = null;
+                              }
+                              for (var camera in _panasonicCameras) {
+                                if (camera.isConnected) {
+                                  camera.isConnected = false;
+                                  camera.service = null;
+                                }
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   Row(
                     children: [
                       const Text('Roland V-160HD', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
