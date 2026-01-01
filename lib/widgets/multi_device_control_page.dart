@@ -7,15 +7,15 @@ import 'basic_tab.dart';
 import 'pinp_tab.dart';
 import 'panasonic_presets_tab.dart';
 
-class RolandControlPage extends StatefulWidget {
+class MultiDeviceControlPage extends StatefulWidget {
   final String panasonicIp;
-  const RolandControlPage({super.key, this.panasonicIp = '10.0.1.10'});
+  const MultiDeviceControlPage({super.key, this.panasonicIp = '10.0.1.10'});
 
   @override
-  State<RolandControlPage> createState() => _RolandControlPageState();
+  State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();
 }
 
-class _RolandControlPageState extends State<RolandControlPage> {
+class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   // Mock mode
   bool _mockMode = false;
 

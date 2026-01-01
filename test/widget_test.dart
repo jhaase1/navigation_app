@@ -8,14 +8,14 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:navigation_app/main.dart';
-import 'package:navigation_app/widgets/roland_control_page.dart';
+import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
 void main() {
   testWidgets('App builds successfully', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
 
-    // Verify that the RolandControlPage is present.
-    expect(find.byType(RolandControlPage), findsOneWidget);
+    // Verify that the MultiDeviceControlPage is present.
+    expect(find.byType(MultiDeviceControlPage), findsOneWidget);
   });
 }

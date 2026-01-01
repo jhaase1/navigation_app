@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'widgets/roland_control_page.dart';
+import 'widgets/multi_device_control_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,7 +16,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const RolandControlPage(
+      home: const MultiDeviceControlPage(
         panasonicIp: '10.0.1.21',
       ),
     );
