@@ -24,7 +24,8 @@ class UnifiedControlWidget extends StatefulWidget {
 class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
   static const int maxItems = 100;
   int _selectedDeviceIndex = 0; // 0 = Roland, 1+ = cameras
-  final Map<int, String> _presetNames = {};
+  final Map<int, Map<int, String>> _cameraPresetNames = {}; // cameraIndex -> {presetNum -> name}
+  final Map<int, Map<int, bool>> _cameraPresetAvailability = {}; // cameraIndex -> {presetNum -> available}
   final Map<int, String> _macroNames = {};
   bool _loadingPresets = false;
   bool _loadingMacros = false;
@@ -124,18 +125,39 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     }
   }
 
-  Future<void> _fetchPresetNames() async {
+  Future<void> _fetchPresetData() async {
     final cameraIndex = _selectedDeviceIndex - 1;
     if (cameraIndex < 0 || cameraIndex >= widget.cameras.length) return;
 
     final camera = widget.cameras[cameraIndex];
     if (camera.service == null) return;
 
-    await _fetchNames(
-      fetcher: (i) => camera.service!.getPresetName(i),
-      namesMap: _presetNames,
-      setLoading: (bool value) => setState(() => _loadingPresets = value),
-    );
+    setState(() => _loadingPresets = true);
+
+    try {
+      // Fetch preset names
+      final presetNames = <int, String>{};
+      await _fetchNames(
+        fetcher: (i) => camera.service!.getPresetName(i),
+        namesMap: presetNames,
+        setLoading: (bool value) {}, // Don't change loading state here
+      );
+
+      // Fetch preset availability
+      final availability = await camera.service!.getAllPresetStatuses();
+      if (mounted) {
+        setState(() {
+          _cameraPresetNames[cameraIndex] = presetNames;
+          _cameraPresetAvailability[cameraIndex] = Map.from(availability);
+        });
+      }
+    } catch (e) {
+      widget.onResponse('Error fetching preset data: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loadingPresets = false);
+      }
+    }
   }
 
   @override
@@ -164,7 +186,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                 if (index == 0) {
                   _fetchMacroNames();
                 } else {
-                  _fetchPresetNames();
+                  _fetchPresetData();
                 }
               },
               children: deviceOptions.map((name) => Padding(
@@ -234,31 +256,50 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                 builder: (context) {
                   final cameraIndex = _selectedDeviceIndex - 1;
                   final camera = widget.cameras[cameraIndex];
+                  final presetNames = _cameraPresetNames[cameraIndex] ?? {};
+                  final presetAvailability = _cameraPresetAvailability[cameraIndex] ?? {};
+                  final availablePresets = presetAvailability.entries
+                      .where((entry) => entry.value)
+                      .toList();
+
+                  if (availablePresets.isEmpty && !_loadingPresets) {
+                    return const Expanded(
+                      child: Center(
+                        child: Text(
+                          'No saved presets available',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    );
+                  }
+
                   return Expanded(
                     child: GridView.count(
                       crossAxisCount: 5,
                       childAspectRatio: 3.0,
                       mainAxisSpacing: 4,
                       crossAxisSpacing: 4,
-                      children: List.generate(maxItems, (i) {
-                        final preset = i + 1;
-                        final name = _presetNames[preset];
-                        return Tooltip(
-                          message: name ?? '$preset',
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8.0),
+                      children: availablePresets
+                          .map((entry) {
+                            final preset = entry.key + 1; // Convert 0-based to 1-based for display
+                            final name = presetNames[preset];
+                            return Tooltip(
+                              message: name ?? '$preset',
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8.0),
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  textStyle: const TextStyle(fontSize: 12),
+                                ),
+                                onPressed: camera.isConnected.value ? () => _executeCameraPreset(preset) : null,
+                                child: Text(name ?? '$preset'),
                               ),
-                              padding: EdgeInsets.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              textStyle: const TextStyle(fontSize: 12),
-                            ),
-                            onPressed: camera.isConnected.value ? () => _executeCameraPreset(preset) : null,
-                            child: Text(name ?? '$preset'),
-                          ),
-                        );
-                      }),
+                            );
+                          })
+                          .toList(),
                     ),
                   );
                 },
