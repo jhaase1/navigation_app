@@ -1996,6 +1996,16 @@ class RolandService extends RolandServiceAbstract with
     return 'Macro $macro';
   }
 
+  @override
+  Future<bool> macroExists(int macro) async {
+    try {
+      await getMacroStatus(macro);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Disposes the service, closing streams and disconnecting.
   void dispose() {
     disconnect();

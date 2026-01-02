@@ -76,6 +76,12 @@ class MockRolandService extends RolandServiceAbstract {
   }
 
   @override
+  Future<bool> macroExists(int macro) async {
+    // For mock, assume macros 1-10 exist
+    return macro >= 1 && macro <= 10;
+  }
+
+  @override
   Future<void> disconnect() async {
   }
 }

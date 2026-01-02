@@ -56,34 +56,34 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     }
   }
 
-  Future<void> _fetchNames({
-    required Future<String> Function(int) fetcher,
-    required Map<int, String> namesMap,
-    required void Function(bool) setLoading,
-  }) async {
-    setLoading(true);
-    namesMap.clear();
+
+
+  Future<void> _fetchMacroNames() async {
+    if (widget.rolandService == null || widget.rolandConnected?.value != true) return;
+    setState(() => _loadingMacros = true);
+    _macroNames.clear();
     const int maxRetries = 3;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        final futures = List.generate(maxItems, (i) => fetcher(i));
-        final names = await Future.wait(futures);
+        final futures = List.generate(maxItems, (i) => widget.rolandService!.macroExists(i + 1));
+        final existsList = await Future.wait(futures);
+        for (int i = 0; i < existsList.length; i++) {
+          if (existsList[i]) {
+            _macroNames[i + 1] = 'Macro ${i + 1}';
+          }
+        }
         if (mounted) {
-          setState(() {
-            for (int i = 0; i < names.length; i++) {
-              namesMap[i + 1] = names[i];
-            }
-          });
+          setState(() {});
         }
         return; // Success, exit
       } catch (e) {
         String errorMessage;
         if (e is TimeoutException) {
-          errorMessage = 'Network timeout while fetching names (attempt $attempt/$maxRetries)';
+          errorMessage = 'Network timeout while checking macro existence (attempt $attempt/$maxRetries)';
         } else if (e.toString().contains('connection') || e.toString().contains('socket')) {
-          errorMessage = 'Connection error while fetching names (attempt $attempt/$maxRetries)';
+          errorMessage = 'Connection error while checking macro existence (attempt $attempt/$maxRetries)';
         } else {
-          errorMessage = 'Device error while fetching names: $e (attempt $attempt/$maxRetries)';
+          errorMessage = 'Device error while checking macro existence: $e (attempt $attempt/$maxRetries)';
         }
         if (attempt == maxRetries) {
           widget.onResponse(errorMessage);
@@ -93,17 +93,8 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       }
     }
     if (mounted) {
-      setLoading(false);
+      setState(() => _loadingMacros = false);
     }
-  }
-
-  Future<void> _fetchMacroNames() async {
-    if (widget.rolandService == null || widget.rolandConnected?.value != true) return;
-    await _fetchNames(
-      fetcher: (i) => widget.rolandService!.getMacroName(i + 1),
-      namesMap: _macroNames,
-      setLoading: (bool value) => setState(() => _loadingMacros = value),
-    );
   }
 
   Future<void> _executeCameraPreset(int preset) async {
@@ -238,25 +229,27 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                   childAspectRatio: 3.0,
                   mainAxisSpacing: 4,
                   crossAxisSpacing: 4,
-                  children: List.generate(maxItems, (i) {
-                    final macro = i + 1;
-                    final name = _macroNames[macro];
-                    return Tooltip(
-                      message: name ?? '$macro',
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8.0),
+                  children: _macroNames.entries
+                      .map((entry) {
+                        final macro = entry.key;
+                        final name = entry.value;
+                        return Tooltip(
+                          message: name,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                              ),
+                              padding: EdgeInsets.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: const TextStyle(fontSize: 12),
+                            ),
+                            onPressed: widget.rolandConnected?.value == true ? () => _executeRolandMacro(macro) : null,
+                            child: Text(name),
                           ),
-                          padding: EdgeInsets.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          textStyle: const TextStyle(fontSize: 12),
-                        ),
-                        onPressed: widget.rolandConnected?.value == true ? () => _executeRolandMacro(macro) : null,
-                        child: Text(name ?? '$macro'),
-                      ),
-                    );
-                  }),
+                        );
+                      })
+                      .toList(),
                 ),
               ),
             ] else ...[

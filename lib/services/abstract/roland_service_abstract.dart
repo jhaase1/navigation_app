@@ -42,6 +42,9 @@ abstract class RolandServiceAbstract {
   /// Gets a macro name
   Future<String> getMacroName(int macro);
 
+  /// Checks if a macro exists
+  Future<bool> macroExists(int macro);
+
   /// Disconnects from the device
   Future<void> disconnect();
 }
