@@ -19,6 +19,12 @@ void main() {
           return http.Response('"pS50"', 200);
         } else if (request.url.toString().contains('aw_ptz') && request.url.toString().contains('%23PTV')) {
           return http.Response('"pTV80008000800800800"', 200);
+        } else if (request.url.toString().contains('aw_ptz') && request.url.toString().contains('%23PE00')) {
+          return http.Response('"pE00AAAAAAAAAA"', 200);
+        } else if (request.url.toString().contains('aw_ptz') && request.url.toString().contains('%23PE01')) {
+          return http.Response('"pE015555555555"', 200);
+        } else if (request.url.toString().contains('aw_ptz') && request.url.toString().contains('%23PE02')) {
+          return http.Response('"pE02FFFFF00000"', 200);
         } else if (request.url.toString().contains('aw_cam') && request.url.toString().contains('OAW:0')) {
           return http.Response('"OAW0"', 200);
         } else if (request.url.toString().contains('aw_cam') && request.url.toString().contains('OGU:10')) {
@@ -176,6 +182,33 @@ void main() {
       final serviceNoData = PanasonicService(ipAddress: '192.168.1.100', client: mockClientNoData);
       expect(() async => await serviceNoData.getCurrentShutterMode(), throwsA(isA<CameraException>()));
       serviceNoData.dispose();
+    });
+
+    test('getPresetEntries sends correct command and returns preset status', () async {
+      final result = await service.getPresetEntries(0);
+      expect(result, 'AAAAAAAAAA');
+    });
+
+    test('getPresetEntries throws on invalid range', () async {
+      expect(() async => await service.getPresetEntries(-1), throwsArgumentError);
+      expect(() async => await service.getPresetEntries(3), throwsArgumentError);
+    });
+
+    test('getAllPresetStatuses returns status map for all presets', () async {
+      final result = await service.getAllPresetStatuses();
+      expect(result, isA<Map<int, bool>>());
+      expect(result.length, 100);
+      // Check some specific values based on mock data
+      // Range 0: AAAAAAAA = 1010 1010 1010 1010 1010 1010 1010 1010 (alternating bits)
+      // For nibble A (1010): bit0=0, bit1=1, bit2=0, bit3=1
+      expect(result[0], false);  // bit 0 of first nibble (LSB)
+      expect(result[1], true);   // bit 1 of first nibble
+      expect(result[2], false);  // bit 2 of first nibble
+      expect(result[3], true);   // bit 3 of first nibble (MSB)
+      // Range 2: FFFFF00000 = first 20 bits set (presets 80-99)
+      expect(result[80], true);
+      expect(result[99], true);
+      expect(result[79], false); // Before range 2
     });
   });
 }

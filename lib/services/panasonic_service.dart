@@ -288,6 +288,7 @@ class PanasonicService extends PanasonicServiceAbstract {
   static const String recallPresetCmd = '#R';
   static const String savePresetCmd = '#M';
   static const String deletePresetCmd = '#C';
+  static const String getPresetEntriesCmd = '#PE';
   static const String setPresetSpeedCmd = '#UPVS';
   static const String savePresetNameCmd = 'OSJ:35:';
   static const String getPresetNameCmd = 'QSJ:35:';
@@ -314,6 +315,7 @@ class PanasonicService extends PanasonicServiceAbstract {
   static const String irisResponsePrefix = 'gi';
   static const String errorResponsePrefix = 'rER';
   static const String lensPositionPrefix = 'lPI';
+  static const String presetEntriesResponsePrefix = 'pE';
 
   // Position ranges
   static const String minPosition = '555';
@@ -867,6 +869,87 @@ class PanasonicService extends PanasonicServiceAbstract {
       return parts.sublist(3).join(':');
     }
     return response;
+  }
+
+  /// Checks which presets have been saved.
+  ///
+  /// [range] The range selector (0-2, each representing 40 presets).
+  ///   - 0: Presets 001-040
+  ///   - 1: Presets 041-080
+  ///   - 2: Presets 081-100 (last 20 bits used)
+  ///
+  /// Returns a 40-bit hex string (10 characters) indicating which presets are saved.
+  /// Each bit represents a preset (0=No Entry, 1=Entry).
+  /// bit0 = PRESET No.(range×40 + 1), bit1 = PRESET No.(range×40 + 2), etc.
+  ///
+  /// Throws [ArgumentError] if range is out of range.
+  /// Throws [CameraException] on communication error.
+  @override
+  Future<String> getPresetEntries(int range) async {
+    if (range < 0 || range > 2) {
+      throw ArgumentError('Range must be 0-2');
+    }
+    final data1 = range.toRadixString(16).padLeft(2, '0').toUpperCase();
+    final response = await _sendCommand(ptzEndpoint, '$getPresetEntriesCmd$data1', isPtz: true);
+    // Response format: pE[data1][data2] where data1 is 2 chars, data2 is 10 chars
+    if (response.startsWith(presetEntriesResponsePrefix) && response.length == 14) {
+      // Extract the 10-character hex string (data2) starting after "pE" + 2 chars for data1
+      return response.substring(4, 14);
+    }
+    throw ProtocolException('Invalid preset entries response: $response');
+  }
+
+  /// Gets the status of all presets (0-99) indicating which ones are saved.
+  ///
+  /// Returns a Map where the key is the preset number (0-99) and the value is true
+  /// if the preset is saved, false otherwise.
+  ///
+  /// This method queries all three ranges (0-2) and combines the results.
+  ///
+  /// Throws [CameraException] on communication error.
+  @override
+  Future<Map<int, bool>> getAllPresetStatuses() async {
+    final Map<int, bool> presetStatuses = {};
+
+    for (int range = 0; range < 3; range++) {
+      final hexString = await getPresetEntries(range);
+      final bits = _hexStringToBits(hexString);
+
+      // Each range covers 40 presets, but range 2 only has 20 valid presets
+      final maxBits = range == 2 ? 20 : 40;
+
+      for (int bitIndex = 0; bitIndex < maxBits; bitIndex++) {
+        final presetNumber = range * 40 + bitIndex;
+        presetStatuses[presetNumber] = bits[bitIndex];
+      }
+    }
+
+    return presetStatuses;
+  }
+
+  /// Converts a 10-character hex string to a list of 40 boolean values.
+  ///
+  /// Each character represents 4 bits, so 10 chars = 40 bits.
+  /// The bits are ordered from least significant to most significant within each nibble,
+  /// and nibbles are ordered from left to right in the string.
+  List<bool> _hexStringToBits(String hexString) {
+    if (hexString.length != 10) {
+      throw ArgumentError('Hex string must be exactly 10 characters');
+    }
+
+    final List<bool> bits = [];
+
+    for (int charIndex = 0; charIndex < hexString.length; charIndex++) {
+      final char = hexString[charIndex];
+      final nibble = int.parse(char, radix: 16);
+
+      // Extract 4 bits from the nibble (bit 0 is LSB)
+      for (int bit = 0; bit < 4; bit++) {
+        bits.add((nibble & (1 << bit)) != 0);
+      }
+    }
+
+    return bits;
   }
 
   // Exposure Control

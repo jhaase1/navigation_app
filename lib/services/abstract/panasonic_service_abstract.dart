@@ -17,4 +17,14 @@ abstract class PanasonicServiceAbstract {
 
   /// Gets preset name
   Future<String> getPresetName(int preset);
+
+  /// Checks which presets have been saved
+  /// [range] The range selector (0-2, each representing 40 presets)
+  /// Returns a 40-bit hex string indicating which presets are saved
+  Future<String> getPresetEntries(int range);
+
+  /// Gets the status of all presets (0-99) indicating which ones are saved
+  /// Returns a Map where the key is the preset number (0-99) and the value is true
+  /// if the preset is saved, false otherwise
+  Future<Map<int, bool>> getAllPresetStatuses();
 }
