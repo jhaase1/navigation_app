@@ -135,16 +135,38 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     setState(() => _loadingPresets = true);
 
     try {
-      // Fetch preset names
-      final presetNames = <int, String>{};
-      await _fetchNames(
-        fetcher: (i) => camera.service!.getPresetName(i),
-        namesMap: presetNames,
-        setLoading: (bool value) {}, // Don't change loading state here
-      );
-
-      // Fetch preset availability
+      // Fetch preset availability first
       final availability = await camera.service!.getAllPresetStatuses();
+
+      // Fetch preset names only for available presets
+      final presetNames = <int, String>{};
+      const int maxRetries = 3;
+      for (final entry in availability.entries) {
+        if (!entry.value) continue; // Skip unavailable presets
+        final presetIndex = entry.key;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            final name = await camera.service!.getPresetName(presetIndex);
+            presetNames[presetIndex] = name;
+            break; // Success, exit retry loop
+          } catch (e) {
+            String errorMessage;
+            if (e is TimeoutException) {
+              errorMessage = 'Network timeout while fetching preset name for $presetIndex (attempt $attempt/$maxRetries)';
+            } else if (e.toString().contains('connection') || e.toString().contains('socket')) {
+              errorMessage = 'Connection error while fetching preset name for $presetIndex (attempt $attempt/$maxRetries)';
+            } else {
+              errorMessage = 'Device error while fetching preset name for $presetIndex: $e (attempt $attempt/$maxRetries)';
+            }
+            if (attempt == maxRetries) {
+              widget.onResponse(errorMessage);
+            } else {
+              await Future.delayed(const Duration(seconds: 1)); // Wait before retry
+            }
+          }
+        }
+      }
+
       if (mounted) {
         setState(() {
           _cameraPresetNames[cameraIndex] = presetNames;
