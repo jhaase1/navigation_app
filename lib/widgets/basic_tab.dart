@@ -35,7 +35,9 @@ class _BasicTabState extends State<BasicTab> {
   @override
   Widget build(BuildContext context) {
     if (!widget.rolandConnected.value)
+    {
       return const Center(child: Text('Connect to Roland device first'));
+    }
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(

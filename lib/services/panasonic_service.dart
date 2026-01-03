@@ -175,7 +175,9 @@ class NotificationManager {
     while (true) {
       final index = buffer.indexOf(13); // \r
       if (index == -1 || index + 1 >= buffer.length || buffer[index + 1] != 10)
+      {
         break; // \n
+      }
       final messageBytes = buffer.sublist(0, index);
       buffer.removeRange(0, index + 2);
       final notification = String.fromCharCodes(messageBytes).trim();

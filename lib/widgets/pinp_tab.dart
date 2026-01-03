@@ -169,7 +169,9 @@ class _PinPTabState extends State<PinPTab> {
   @override
   Widget build(BuildContext context) {
     if (!widget.rolandConnected.value)
+    {
       return const Center(child: Text('Connect to Roland device first'));
+    }
     final sources = [
       'HDMI1',
       'HDMI2',

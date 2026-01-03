@@ -93,7 +93,9 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
 
   Future<void> _fetchMacroNames() async {
     if (widget.rolandService == null || widget.rolandConnected?.value != true)
+    {
       return;
+    }
     setState(() => _loadingMacros = true);
     _macroNames.clear();
     const int maxRetries = 3;
