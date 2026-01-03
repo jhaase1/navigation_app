@@ -191,20 +191,16 @@ class _PinPTabState extends State<PinPTab> {
             Row(
               children: [
                 const Text('PGM: '),
-                Switch(value: _pinpPgm, onChanged: (v) => setState(() => _pinpPgm = v)),
+                Switch(value: _pinpPgm, onChanged: (v) { setState(() => _pinpPgm = v); _setPinPPgm(); }),
                 const SizedBox(width: 16),
-                ElevatedButton(onPressed: _setPinPPgm, child: const Text('Set')),
-                const SizedBox(width: 8),
                 ElevatedButton(onPressed: _getPinPPgm, child: const Text('Get')),
               ],
             ),
             Row(
               children: [
                 const Text('PVW: '),
-                Switch(value: _pinpPvw, onChanged: (v) => setState(() => _pinpPvw = v)),
+                Switch(value: _pinpPvw, onChanged: (v) { setState(() => _pinpPvw = v); _setPinPPvw; }),
                 const SizedBox(width: 16),
-                ElevatedButton(onPressed: _setPinPPvw, child: const Text('Set')),
-                const SizedBox(width: 8),
                 ElevatedButton(onPressed: _getPinPPvw, child: const Text('Get')),
               ],
             ),
