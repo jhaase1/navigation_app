@@ -29,6 +29,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
   final Map<int, String> _macroNames = {};
   bool _loadingPresets = false;
   bool _loadingMacros = false;
+  final List<VoidCallback> _cameraListeners = [];
 
   @override
   void initState() {
@@ -36,11 +37,42 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     if (_selectedDeviceIndex == 0) {
       _fetchMacroNames();
     }
+    widget.rolandConnected?.addListener(_onRolandConnectionChanged);
+    _setupCameraListeners();
   }
 
   @override
   void dispose() {
+    widget.rolandConnected?.removeListener(_onRolandConnectionChanged);
+    _removeCameraListeners();
     super.dispose();
+  }
+
+  void _setupCameraListeners() {
+    _cameraListeners.clear();
+    for (int i = 0; i < widget.cameras.length; i++) {
+      _cameraListeners.add(() => _onCameraConnectionChanged(i));
+      widget.cameras[i].isConnected.addListener(_cameraListeners[i]);
+    }
+  }
+
+  void _removeCameraListeners() {
+    for (int i = 0; i < widget.cameras.length; i++) {
+      widget.cameras[i].isConnected.removeListener(_cameraListeners[i]);
+    }
+    _cameraListeners.clear();
+  }
+
+  void _onRolandConnectionChanged() {
+    if (widget.rolandConnected?.value == true && _selectedDeviceIndex == 0) {
+      _fetchMacroNames();
+    }
+  }
+
+  void _onCameraConnectionChanged(int cameraIndex) {
+    if (widget.cameras[cameraIndex].isConnected.value && _selectedDeviceIndex == cameraIndex + 1) {
+      _fetchPresetData();
+    }
   }
 
   Future<void> _executeRolandMacro(int macro) async {
@@ -73,7 +105,9 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
           }
         }
         if (mounted) {
-          setState(() {});
+          setState(() {
+            _loadingMacros = false;
+          });
         }
         return; // Success, exit
       } catch (e) {
@@ -121,7 +155,10 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     if (cameraIndex < 0 || cameraIndex >= widget.cameras.length) return;
 
     final camera = widget.cameras[cameraIndex];
-    if (camera.service == null) return;
+    if (camera.service == null) {
+      setState(() => _loadingPresets = false);
+      return;
+    }
 
     setState(() => _loadingPresets = true);
 
