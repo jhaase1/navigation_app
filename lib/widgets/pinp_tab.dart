@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/roland_service.dart';
 
 class PinPTab extends StatefulWidget {
   final ValueNotifier<bool> rolandConnected;
@@ -25,16 +27,45 @@ class _PinPTabState extends State<PinPTab> {
   bool _pinpPgm = false;
   bool _pinpPvw = false;
 
+  StreamSubscription<dynamic>? _responseSubscription;
+
   @override
   void initState() {
     super.initState();
     widget.rolandConnected.addListener(_update);
+    _responseSubscription = (widget.rolandService is RolandService) 
+        ? (widget.rolandService as RolandService).responseStream.listen((response) {
+            if (response is PinPProgramResponse && response.pinp == 'PinP$_selectedPinP') {
+              setState(() => _pinpPgm = response.status == 'ON');
+            } else if (response is PinPPreviewResponse && response.pinp == 'PinP$_selectedPinP') {
+              setState(() => _pinpPvw = response.status == 'ON');
+            }
+          })
+        : null;
+    _startPolling();
   }
 
   @override
   void dispose() {
     widget.rolandConnected.removeListener(_update);
+    _responseSubscription?.cancel();
+    _stopPolling();
     super.dispose();
+  }
+
+  Timer? _pollTimer;
+
+  void _startPolling() {
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (widget.rolandConnected.value && widget.rolandService != null) {
+        _getPinPPgm();
+        _getPinPPvw();
+      }
+    });
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
   }
 
   void _update() => setState(() {});
@@ -192,16 +223,12 @@ class _PinPTabState extends State<PinPTab> {
               children: [
                 const Text('PGM: '),
                 Switch(value: _pinpPgm, onChanged: (v) { setState(() => _pinpPgm = v); _setPinPPgm(); }),
-                const SizedBox(width: 16),
-                ElevatedButton(onPressed: _getPinPPgm, child: const Text('Get')),
               ],
             ),
             Row(
               children: [
                 const Text('PVW: '),
-                Switch(value: _pinpPvw, onChanged: (v) { setState(() => _pinpPvw = v); _setPinPPvw; }),
-                const SizedBox(width: 16),
-                ElevatedButton(onPressed: _getPinPPvw, child: const Text('Get')),
+                Switch(value: _pinpPvw, onChanged: (v) { setState(() => _pinpPvw = v); _setPinPPvw(); }),
               ],
             ),
           ],
