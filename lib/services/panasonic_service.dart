@@ -52,17 +52,24 @@ class CameraPosition {
 
 /// Enums for various camera modes.
 enum FocusMode { manual, auto }
+
 enum IrisMode { manual, auto }
+
 enum WhiteBalanceMode { atw, awcA, awcB, k3200, k5600, variable }
+
 enum ShutterMode { off, step, synchro, elc }
+
 enum NdFilter { through, quarter, sixteenth, sixtyFourth }
+
 enum GainMode { manual, agc }
+
 enum SceneFile { none, scene1, scene2, scene3, scene4, scene5 }
 
 /// Manages a queue for PTZ commands to enforce delays between executions.
 class CommandQueue {
   final Duration delay;
-  final Queue<Future<String> Function()> _queue = Queue<Future<String> Function()>();
+  final Queue<Future<String> Function()> _queue =
+      Queue<Future<String> Function()>();
   bool _isProcessing = false;
   DateTime? _lastCommandTime;
 
@@ -116,28 +123,34 @@ class NotificationManager {
   final Duration _timeout;
   final bool _useHttps;
 
-  NotificationManager(this._httpClient, this._ipAddress, this._timeout, {bool useHttps = false}) : _useHttps = useHttps;
+  NotificationManager(this._httpClient, this._ipAddress, this._timeout,
+      {bool useHttps = false})
+      : _useHttps = useHttps;
 
   /// Starts receiving event notifications via TCP.
   /// Initiates HTTP request to start notifications, then listens on the specified TCP port.
   /// Returns a Stream of notification objects (String for regular, Map for lens positions).
   /// Throws CameraException on error.
-  Future<Stream<Object>> startNotifications(int port, {InternetAddress? bindAddress}) async {
+  Future<Stream<Object>> startNotifications(int port,
+      {InternetAddress? bindAddress}) async {
     await _startNotificationHttp(port);
     return _setupTcpListener(port, bindAddress);
   }
 
   Future<void> _startNotificationHttp(int port) async {
     final protocol = _useHttps ? 'https' : 'http';
-    final url = '$protocol://$_ipAddress/cgi-bin/event?connect=start&my_port=$port&uid=0';
+    final url =
+        '$protocol://$_ipAddress/cgi-bin/event?connect=start&my_port=$port&uid=0';
     final response = await _httpClient.get(Uri.parse(url)).timeout(_timeout);
 
     if (response.statusCode != 204) {
-      throw CameraException('Failed to start notifications: ${response.statusCode}');
+      throw CameraException(
+          'Failed to start notifications: ${response.statusCode}');
     }
   }
 
-  Future<Stream<Object>> _setupTcpListener(int port, InternetAddress? bindAddress) async {
+  Future<Stream<Object>> _setupTcpListener(
+      int port, InternetAddress? bindAddress) async {
     final address = bindAddress ?? InternetAddress.anyIPv4;
     _server = await ServerSocket.bind(address, port);
     _controller = StreamController<Object>();
@@ -151,7 +164,8 @@ class NotificationManager {
     final buffer = <int>[];
     socket.listen(
       (data) => _processTcpData(data, buffer),
-      onError: (error) => _controller!.addError(NetworkException('TCP error: $error')),
+      onError: (error) =>
+          _controller!.addError(NetworkException('TCP error: $error')),
       onDone: () => socket.close(),
     );
   }
@@ -160,7 +174,8 @@ class NotificationManager {
     buffer.addAll(data);
     while (true) {
       final index = buffer.indexOf(13); // \r
-      if (index == -1 || index + 1 >= buffer.length || buffer[index + 1] != 10) break; // \n
+      if (index == -1 || index + 1 >= buffer.length || buffer[index + 1] != 10)
+        break; // \n
       final messageBytes = buffer.sublist(0, index);
       buffer.removeRange(0, index + 2);
       final notification = String.fromCharCodes(messageBytes).trim();
@@ -184,7 +199,8 @@ class NotificationManager {
     } else if (cleaned.startsWith('pTV')) {
       // Handle position change notifications
       try {
-        final ptvRegex = RegExp(r'^pTV([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})$');
+        final ptvRegex = RegExp(
+            r'^pTV([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})$');
         final match = ptvRegex.firstMatch(cleaned);
         if (match != null) {
           return {
@@ -198,7 +214,8 @@ class NotificationManager {
         }
       } catch (e) {
         // Log error but continue
-        log('Error parsing position notification: $e', name: 'NotificationManager');
+        log('Error parsing position notification: $e',
+            name: 'NotificationManager');
       }
       return cleaned;
     } else {
@@ -211,11 +228,13 @@ class NotificationManager {
   /// Throws CameraException on error.
   Future<String> stopNotifications(int port) async {
     final protocol = _useHttps ? 'https' : 'http';
-    final url = '$protocol://$_ipAddress/cgi-bin/event?connect=stop&my_port=$port&uid=0';
+    final url =
+        '$protocol://$_ipAddress/cgi-bin/event?connect=stop&my_port=$port&uid=0';
     final response = await _httpClient.get(Uri.parse(url)).timeout(_timeout);
 
     if (response.statusCode != 204) {
-      throw CameraException('Failed to stop notifications: ${response.statusCode}');
+      throw CameraException(
+          'Failed to stop notifications: ${response.statusCode}');
     }
 
     await _controller?.close();
@@ -236,7 +255,7 @@ class NotificationManager {
 }
 
 /// Service for controlling Panasonic AW-UE100 camera via HTTP API.
-/// 
+///
 /// Changelog:
 /// - v1.0: Initial implementation with basic commands.
 /// - v1.1: Added enhanced error handling with NetworkException and ProtocolException.
@@ -344,9 +363,11 @@ class PanasonicService extends PanasonicServiceAbstract {
     this.useHttps = false,
     Duration ptzCommandDelay = defaultPtzCommandDelay,
     this.maxRetries = defaultMaxRetries,
-  }) : _client = client ?? http.Client(),
-       _ptzCommandQueue = CommandQueue(ptzCommandDelay),
-       _notificationManager = NotificationManager(client ?? http.Client(), ipAddress, requestTimeout, useHttps: useHttps) {
+  })  : _client = client ?? http.Client(),
+        _ptzCommandQueue = CommandQueue(ptzCommandDelay),
+        _notificationManager = NotificationManager(
+            client ?? http.Client(), ipAddress, requestTimeout,
+            useHttps: useHttps) {
     // Validate IP address
     if (!ipRegex.hasMatch(ipAddress)) {
       throw ArgumentError('Invalid IP address format');
@@ -366,13 +387,15 @@ class PanasonicService extends PanasonicServiceAbstract {
   void _validateHexPosition(String position, {bool is4Char = false}) {
     final regex = is4Char ? hex4Regex : hex3Regex;
     if (!regex.hasMatch(position)) {
-      throw ArgumentError('Position must be ${is4Char ? 4 : 3}-character hex string');
+      throw ArgumentError(
+          'Position must be ${is4Char ? 4 : 3}-character hex string');
     }
     final posValue = int.parse(position, radix: 16);
     final minValue = int.parse(minPosition, radix: 16);
     final maxValue = int.parse(maxPosition, radix: 16);
     if (posValue < minValue || posValue > maxValue) {
-      throw ArgumentError('Position must be between $minPosition and $maxPosition');
+      throw ArgumentError(
+          'Position must be between $minPosition and $maxPosition');
     }
   }
 
@@ -387,9 +410,11 @@ class PanasonicService extends PanasonicServiceAbstract {
   }
 
   /// Sends a command to the camera and handles response parsing and errors.
-  Future<String> _sendCommand(String endpoint, String command, {bool isPtz = false}) async {
+  Future<String> _sendCommand(String endpoint, String command,
+      {bool isPtz = false}) async {
     if (isPtz) {
-      return _ptzCommandQueue.addCommand(() => _executeCommand(endpoint, command));
+      return _ptzCommandQueue
+          .addCommand(() => _executeCommand(endpoint, command));
     }
     return _executeCommand(endpoint, command);
   }
@@ -398,13 +423,17 @@ class PanasonicService extends PanasonicServiceAbstract {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
         final protocol = useHttps ? 'https' : 'http';
-        final url = '$protocol://$ipAddress/cgi-bin/$endpoint?cmd=${_encodeCommand(command)}&res=1';
+        final url =
+            '$protocol://$ipAddress/cgi-bin/$endpoint?cmd=${_encodeCommand(command)}&res=1';
         log('Sending command to $url', name: 'PanasonicService');
-        final response = await _client.get(Uri.parse(url)).timeout(requestTimeout);
+        final response =
+            await _client.get(Uri.parse(url)).timeout(requestTimeout);
 
         if (response.statusCode != 200) {
-          log('HTTP error: ${response.statusCode} for command $command', name: 'PanasonicService', level: 900);
-          throw CameraException('HTTP ${response.statusCode}: ${response.body}');
+          log('HTTP error: ${response.statusCode} for command $command',
+              name: 'PanasonicService', level: 900);
+          throw CameraException(
+              'HTTP ${response.statusCode}: ${response.body}');
         }
 
         final body = response.body.trim();
@@ -414,14 +443,17 @@ class PanasonicService extends PanasonicServiceAbstract {
 
         // Validate response format more strictly
         if (!cleanedResponse.contains(RegExp(r'^[a-zA-Z0-9#:\-\.]+$'))) {
-          log('Warning: Response does not match expected format: $cleanedResponse', name: 'PanasonicService', level: 700);
+          log('Warning: Response does not match expected format: $cleanedResponse',
+              name: 'PanasonicService', level: 700);
         }
 
-        log('Received response: $cleanedResponse for command $command', name: 'PanasonicService');
+        log('Received response: $cleanedResponse for command $command',
+            name: 'PanasonicService');
 
         // Check for protocol errors
         if (cleanedResponse.startsWith('ER')) {
-          log('Protocol error: $cleanedResponse', name: 'PanasonicService', level: 900);
+          log('Protocol error: $cleanedResponse',
+              name: 'PanasonicService', level: 900);
           // Special handling for ER2 (busy): retry with delay
           if (cleanedResponse == 'ER2') {
             await Future.delayed(const Duration(milliseconds: 500));
@@ -432,15 +464,20 @@ class PanasonicService extends PanasonicServiceAbstract {
 
         return cleanedResponse;
       } on TimeoutException catch (e) {
-        log('Timeout on attempt ${attempt + 1} for command $command: $e', name: 'PanasonicService', level: 800);
+        log('Timeout on attempt ${attempt + 1} for command $command: $e',
+            name: 'PanasonicService', level: 800);
         if (attempt == maxRetries - 1) {
-          throw NetworkException('Request timed out after $maxRetries attempts: $e');
+          throw NetworkException(
+              'Request timed out after $maxRetries attempts: $e');
         }
-        await Future.delayed(Duration(milliseconds: 500 * (attempt + 1))); // Exponential backoff
+        await Future.delayed(
+            Duration(milliseconds: 500 * (attempt + 1))); // Exponential backoff
       } on SocketException catch (e) {
-        log('Network error on attempt ${attempt + 1} for command $command: $e', name: 'PanasonicService', level: 800);
+        log('Network error on attempt ${attempt + 1} for command $command: $e',
+            name: 'PanasonicService', level: 800);
         if (attempt == maxRetries - 1) {
-          throw NetworkException('Network error after $maxRetries attempts: $e');
+          throw NetworkException(
+              'Network error after $maxRetries attempts: $e');
         }
         await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
       }
@@ -535,7 +572,8 @@ class PanasonicService extends PanasonicServiceAbstract {
     if (panSpeed < 1 || panSpeed > 99 || tiltSpeed < 1 || tiltSpeed > 99) {
       throw ArgumentError('Pan and tilt speeds must be between 1 and 99');
     }
-    final cmd = '$setPanTiltSpeedCmd${panSpeed.toString().padLeft(2, '0')}${tiltSpeed.toString().padLeft(2, '0')}';
+    final cmd =
+        '$setPanTiltSpeedCmd${panSpeed.toString().padLeft(2, '0')}${tiltSpeed.toString().padLeft(2, '0')}';
     return await _sendCommand(ptzEndpoint, cmd, isPtz: true);
   }
 
@@ -566,13 +604,15 @@ class PanasonicService extends PanasonicServiceAbstract {
   ///
   /// Throws [ArgumentError] if parameters are invalid.
   /// Throws [CameraException] on communication error.
-  Future<String> setAbsolutePositionWithSpeed(String panPos, String tiltPos, int speed, int speedTable) async {
+  Future<String> setAbsolutePositionWithSpeed(
+      String panPos, String tiltPos, int speed, int speedTable) async {
     _validateHexPosition(panPos, is4Char: true);
     _validateHexPosition(tiltPos, is4Char: true);
     if (speed < 1 || speed > 30 || speedTable < 0 || speedTable > 2) {
       throw ArgumentError('Speed must be 1-30, speedTable 0-2');
     }
-    final cmd = '#APS$panPos$tiltPos${speed.toString().padLeft(2, '0')}$speedTable';
+    final cmd =
+        '#APS$panPos$tiltPos${speed.toString().padLeft(2, '0')}$speedTable';
     return await _sendCommand(ptzEndpoint, cmd, isPtz: true);
   }
 
@@ -636,10 +676,13 @@ class PanasonicService extends PanasonicServiceAbstract {
   /// Throws [ArgumentError] if magnification is invalid.
   /// Throws [CameraException] on communication error.
   Future<String> setDigitalZoomMagnification(String magnification) async {
-    if (!RegExp(r'^\d{4}$').hasMatch(magnification) || int.parse(magnification) < 100 || int.parse(magnification) > 9999) {
+    if (!RegExp(r'^\d{4}$').hasMatch(magnification) ||
+        int.parse(magnification) < 100 ||
+        int.parse(magnification) > 9999) {
       throw ArgumentError('Magnification must be 0100-9999');
     }
-    return await _sendCommand(camEndpoint, '$setDigitalZoomMagnificationCmd$magnification');
+    return await _sendCommand(
+        camEndpoint, '$setDigitalZoomMagnificationCmd$magnification');
   }
 
   // Focus Control
@@ -823,7 +866,9 @@ class PanasonicService extends PanasonicServiceAbstract {
   /// Throws [CameraException] on communication error.
   @override
   Future<String> setPresetSpeed(String speed) async {
-    if (!RegExp(r'^\d{3}$').hasMatch(speed) || int.parse(speed) < 1 || int.parse(speed) > 999) {
+    if (!RegExp(r'^\d{3}$').hasMatch(speed) ||
+        int.parse(speed) < 1 ||
+        int.parse(speed) > 999) {
       throw ArgumentError('Preset speed must be 001-999');
     }
     return await _sendCommand(ptzEndpoint, '#UPVS$speed', isPtz: true);
@@ -862,7 +907,8 @@ class PanasonicService extends PanasonicServiceAbstract {
     if (presetNum < 0 || presetNum > 99) {
       throw ArgumentError('Preset number must be 0-99');
     }
-    final response = await _sendCommand(camEndpoint, 'QSJ:35:${presetNum.toString().padLeft(2, '0')}');
+    final response = await _sendCommand(
+        camEndpoint, 'QSJ:35:${presetNum.toString().padLeft(2, '0')}');
     // Response format: qsj:35:nn:name
     final parts = response.split(':');
     if (parts.length >= 4) {
@@ -890,9 +936,12 @@ class PanasonicService extends PanasonicServiceAbstract {
       throw ArgumentError('Range must be 0-2');
     }
     final data1 = range.toRadixString(16).padLeft(2, '0').toUpperCase();
-    final response = await _sendCommand(ptzEndpoint, '$getPresetEntriesCmd$data1', isPtz: true);
+    final response = await _sendCommand(
+        ptzEndpoint, '$getPresetEntriesCmd$data1',
+        isPtz: true);
     // Response format: pE[data1][data2] where data1 is 2 chars, data2 is 10 chars
-    if (response.startsWith(presetEntriesResponsePrefix) && response.length == 14) {
+    if (response.startsWith(presetEntriesResponsePrefix) &&
+        response.length == 14) {
       // Extract the 10-character hex string (data2) starting after "pE" + 2 chars for data1
       return response.substring(4, 14);
     }
@@ -1073,7 +1122,8 @@ class PanasonicService extends PanasonicServiceAbstract {
     if (tempValue < 0x7D0 || tempValue > 0x3A98) {
       throw ArgumentError('Temp must be between 007D0 and 03A98');
     }
-    return await _sendCommand(camEndpoint, '$setColorTemperatureCmd$temp:$status');
+    return await _sendCommand(
+        camEndpoint, '$setColorTemperatureCmd$temp:$status');
   }
 
   /// Sets R gain.
@@ -1181,7 +1231,8 @@ class PanasonicService extends PanasonicServiceAbstract {
 
   // Status Query Commands
   CameraPosition _parsePtvResponse(String response) {
-    final ptvRegex = RegExp(r'^pTV([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})$');
+    final ptvRegex = RegExp(
+        r'^pTV([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})([0-9A-Fa-f]{3})$');
     final match = ptvRegex.firstMatch(response);
     if (match == null) {
       throw ProtocolException('Invalid PTV response format: $response');
@@ -1220,7 +1271,11 @@ class PanasonicService extends PanasonicServiceAbstract {
     final zoom = await getZoomPosition();
     final focus = await getFocusPosition();
     final iris = await getIrisPosition();
-    return {'zoom': zoom, 'focus': focus.split(':')[0], 'iris': iris.split(':')[0]};
+    return {
+      'zoom': zoom,
+      'focus': focus.split(':')[0],
+      'iris': iris.split(':')[0]
+    };
   }
 
   /// Gets zoom position.
@@ -1372,8 +1427,10 @@ class PanasonicService extends PanasonicServiceAbstract {
   /// Call stopEventNotifications to stop.
   ///
   /// Throws [CameraException] on error.
-  Future<Stream<Object>> startEventNotifications(int port, {InternetAddress? bindAddress}) async {
-    return await _notificationManager.startNotifications(port, bindAddress: bindAddress);
+  Future<Stream<Object>> startEventNotifications(int port,
+      {InternetAddress? bindAddress}) async {
+    return await _notificationManager.startNotifications(port,
+        bindAddress: bindAddress);
   }
 
   /// Stops receiving event notifications.

@@ -34,13 +34,15 @@ class _BasicTabState extends State<BasicTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.rolandConnected.value) return const Center(child: Text('Connect to Roland device first'));
+    if (!widget.rolandConnected.value)
+      return const Center(child: Text('Connect to Roland device first'));
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Transitions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text('Transitions',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -60,7 +62,9 @@ class _BasicTabState extends State<BasicTab> {
                     backgroundColor: Colors.red.shade100,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  child: const Text('CUT', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  child: const Text('CUT',
+                      style: TextStyle(
+                          color: Colors.red, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(width: 16),
@@ -80,14 +84,16 @@ class _BasicTabState extends State<BasicTab> {
                     backgroundColor: Colors.green.shade100,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  child: const Text('AUTO', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  child: const Text('AUTO',
+                      style: TextStyle(
+                          color: Colors.green, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
           ),
-          
           const SizedBox(height: 24),
-          const Text('Program Select (PGM)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text('Program Select (PGM)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -98,8 +104,10 @@ class _BasicTabState extends State<BasicTab> {
                 onPressed: () async {
                   if (widget.rolandService != null) {
                     try {
-                      await widget.rolandService!.setProgram('INPUT${index + 1}');
-                      widget.onRolandResponse('Set Program to INPUT${index + 1}');
+                      await widget.rolandService!
+                          .setProgram('INPUT${index + 1}');
+                      widget
+                          .onRolandResponse('Set Program to INPUT${index + 1}');
                     } catch (e) {
                       widget.onRolandResponse('Error: ${e.toString()}');
                     }
@@ -109,7 +117,8 @@ class _BasicTabState extends State<BasicTab> {
             }),
           ),
           const SizedBox(height: 24),
-          const Text('Preview Select (PST)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text('Preview Select (PST)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -121,8 +130,10 @@ class _BasicTabState extends State<BasicTab> {
                 onPressed: () async {
                   if (widget.rolandService != null) {
                     try {
-                      await widget.rolandService!.setPreview('INPUT${index + 1}');
-                      widget.onRolandResponse('Set Preview to INPUT${index + 1}');
+                      await widget.rolandService!
+                          .setPreview('INPUT${index + 1}');
+                      widget
+                          .onRolandResponse('Set Preview to INPUT${index + 1}');
                     } catch (e) {
                       widget.onRolandResponse('Error: ${e.toString()}');
                     }
@@ -132,7 +143,8 @@ class _BasicTabState extends State<BasicTab> {
             }),
           ),
           const SizedBox(height: 24),
-          const Text('Macros', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text('Macros',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,

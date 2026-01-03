@@ -23,7 +23,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   bool _mockMode = false;
 
   // Roland
-  final TextEditingController _rolandIpController = TextEditingController(text: '10.0.1.20');
+  final TextEditingController _rolandIpController =
+      TextEditingController(text: '10.0.1.20');
   RolandServiceAbstract _rolandService = MockRolandService();
   final ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
   final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
@@ -102,7 +103,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           _rolandResponse = data.toString();
         });
       });
-
     } catch (e) {
       setState(() {
         _rolandConnecting.value = false;
@@ -199,7 +199,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   @override
   Widget build(BuildContext context) {
     // Check if any device is connected
-    final isConnected = _mockMode || _rolandConnected.value || _panasonicCameras.any((c) => c.isConnected.value);
+    final isConnected = _mockMode ||
+        _rolandConnected.value ||
+        _panasonicCameras.any((c) => c.isConnected.value);
 
     if (!isConnected) {
       return Scaffold(
@@ -267,21 +269,25 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
                     cameras: _panasonicCameras,
-                    onResponse: (response) => setState(() => _unifiedResponse = response),
+                    onResponse: (response) =>
+                        setState(() => _unifiedResponse = response),
                   ),
                   BasicTab(
                     rolandConnected: _rolandConnected,
-                    onRolandResponse: (response) => setState(() => _rolandResponse = response),
+                    onRolandResponse: (response) =>
+                        setState(() => _rolandResponse = response),
                     rolandService: _rolandService,
                   ),
                   PinPTab(
                     rolandConnected: _rolandConnected,
-                    onRolandResponse: (response) => setState(() => _rolandResponse = response),
+                    onRolandResponse: (response) =>
+                        setState(() => _rolandResponse = response),
                     rolandService: _rolandService,
                   ),
                   PanasonicPresetsTab(
                     panasonicCameras: _panasonicCameras,
-                    onPanasonicResponse: (response) => setState(() => _panasonicResponse = response),
+                    onPanasonicResponse: (response) =>
+                        setState(() => _panasonicResponse = response),
                     panasonicResponse: _panasonicResponse,
                   ),
                 ],
@@ -292,8 +298,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Last Roland Response: $_rolandResponse', style: Theme.of(context).textTheme.bodySmall),
-                  Text('Last Unified Response: $_unifiedResponse', style: Theme.of(context).textTheme.bodySmall),
+                  Text('Last Roland Response: $_rolandResponse',
+                      style: Theme.of(context).textTheme.bodySmall),
+                  Text('Last Unified Response: $_unifiedResponse',
+                      style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),

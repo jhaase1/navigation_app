@@ -6,7 +6,8 @@ void main() {
     late RolandService service;
 
     setUp(() {
-      service = RolandService(host: '127.0.0.1', port: 12345); // Mock server needed
+      service =
+          RolandService(host: '127.0.0.1', port: 12345); // Mock server needed
     });
 
     test('constants are correct', () {
@@ -18,8 +19,10 @@ void main() {
     });
 
     test('host validation', () {
-      expect(() => RolandService(host: ''), throwsA(isA<ValidationException>()));
-      expect(() => RolandService(host: 'invalid@host'), throwsA(isA<ValidationException>()));
+      expect(
+          () => RolandService(host: ''), throwsA(isA<ValidationException>()));
+      expect(() => RolandService(host: 'invalid@host'),
+          throwsA(isA<ValidationException>()));
       expect(() => RolandService(host: '192.168.1.1'), isNotNull);
     });
 
@@ -31,8 +34,10 @@ void main() {
       expect(() => service.setProgram('INVALID'), throwsArgumentError);
       expect(() => service.setProgram('HDMI9'), throwsArgumentError);
       // Valid ones should throw ConnectionException since not connected
-      expect(() => service.setProgram('HDMI1'), throwsA(isA<ConnectionException>()));
-      expect(() => service.setProgram('INPUT1'), throwsA(isA<ConnectionException>()));
+      expect(() => service.setProgram('HDMI1'),
+          throwsA(isA<ConnectionException>()));
+      expect(() => service.setProgram('INPUT1'),
+          throwsA(isA<ConnectionException>()));
     });
 
     test('setFaderLevel validates level', () {
@@ -41,21 +46,29 @@ void main() {
     });
 
     test('setAudioInputLevel validates level', () {
-      expect(() => service.setAudioInputLevel('XLR1', -801), throwsArgumentError);
-      expect(() => service.setAudioInputLevel('XLR1', 101), throwsArgumentError);
+      expect(
+          () => service.setAudioInputLevel('XLR1', -801), throwsArgumentError);
+      expect(
+          () => service.setAudioInputLevel('XLR1', 101), throwsArgumentError);
     });
 
     test('setSplitPositions validates ranges', () {
-      expect(() => service.setSplitPositions('SPLIT1', -501, 0), throwsArgumentError);
-      expect(() => service.setSplitPositions('SPLIT1', 0, 501), throwsArgumentError);
-      expect(() => service.setSplitPositions('SPLIT1', 0, 0, center: 501), throwsArgumentError);
+      expect(() => service.setSplitPositions('SPLIT1', -501, 0),
+          throwsArgumentError);
+      expect(() => service.setSplitPositions('SPLIT1', 0, 501),
+          throwsArgumentError);
+      expect(() => service.setSplitPositions('SPLIT1', 0, 0, center: 501),
+          throwsArgumentError);
     });
 
     test('setPanTilt validates directions', () {
-      expect(() => service.setPanTilt('CAMERA1', 'INVALID', 'STOP'), throwsArgumentError);
-      expect(() => service.setPanTilt('CAMERA1', 'LEFT', 'INVALID'), throwsArgumentError);
+      expect(() => service.setPanTilt('CAMERA1', 'INVALID', 'STOP'),
+          throwsArgumentError);
+      expect(() => service.setPanTilt('CAMERA1', 'LEFT', 'INVALID'),
+          throwsArgumentError);
       // Valid call would require connection, but validation passes
-      expect(() => service.setPanTilt('CAMERA1', 'LEFT', 'STOP'), throwsA(isA<ConnectionException>()));
+      expect(() => service.setPanTilt('CAMERA1', 'LEFT', 'STOP'),
+          throwsA(isA<ConnectionException>()));
     });
 
     test('disconnect handles gracefully', () {
@@ -103,7 +116,8 @@ void main() {
     });
 
     test('parseResponse throws on invalid int', () {
-      expect(() => service.parseResponseForTest('VFL:abc;ACK;'), throwsA(isA<InvalidParameterException>()));
+      expect(() => service.parseResponseForTest('VFL:abc;ACK;'),
+          throwsA(isA<InvalidParameterException>()));
     });
   });
 }

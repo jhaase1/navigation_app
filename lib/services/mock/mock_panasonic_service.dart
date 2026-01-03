@@ -62,7 +62,10 @@ class MockPanasonicService extends PanasonicServiceAbstract {
     final Map<int, bool> statuses = {};
     for (int i = 0; i < 100; i++) {
       // Mock: presets 0-9, 20-29, 50-59, 80-89 are saved
-      statuses[i] = (i < 10) || (i >= 20 && i < 30) || (i >= 50 && i < 60) || (i >= 80 && i < 90);
+      statuses[i] = (i < 10) ||
+          (i >= 20 && i < 30) ||
+          (i >= 50 && i < 60) ||
+          (i >= 80 && i < 90);
     }
     return statuses;
   }

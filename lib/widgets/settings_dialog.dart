@@ -42,7 +42,10 @@ class SettingsDialog extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: mockMode ? Colors.orange.shade200 : Colors.blue.shade200),
+                  border: Border.all(
+                      color: mockMode
+                          ? Colors.orange.shade200
+                          : Colors.blue.shade200),
                 ),
                 child: Row(
                   children: [
@@ -59,7 +62,9 @@ class SettingsDialog extends StatelessWidget {
                             mockMode ? 'Demo Mode Active' : 'Live Mode',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: mockMode ? Colors.orange.shade900 : Colors.blue.shade900,
+                              color: mockMode
+                                  ? Colors.orange.shade900
+                                  : Colors.blue.shade900,
                             ),
                           ),
                           Text(
@@ -68,7 +73,9 @@ class SettingsDialog extends StatelessWidget {
                                 : 'Connecting to actual hardware',
                             style: TextStyle(
                               fontSize: 12,
-                              color: mockMode ? Colors.orange.shade700 : Colors.blue.shade700,
+                              color: mockMode
+                                  ? Colors.orange.shade700
+                                  : Colors.blue.shade700,
                             ),
                           ),
                         ],
@@ -84,23 +91,29 @@ class SettingsDialog extends StatelessWidget {
               const SizedBox(height: 24),
               ValueListenableBuilder<bool>(
                 valueListenable: rolandConnected,
-                builder: (context, rolandConnectedValue, child) => ValueListenableBuilder<bool>(
+                builder: (context, rolandConnectedValue, child) =>
+                    ValueListenableBuilder<bool>(
                   valueListenable: rolandConnecting,
-                  builder: (context, rolandConnectingValue, child) => ValueListenableBuilder<String>(
+                  builder: (context, rolandConnectingValue, child) =>
+                      ValueListenableBuilder<String>(
                     valueListenable: rolandConnectionError,
                     builder: (context, rolandErrorValue, child) => Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Row(
                           children: [
-                            const Text('Roland V-160HD', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            const Text('Roland V-160HD',
+                                style: TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.bold)),
                             const SizedBox(width: 12),
                             Container(
                               width: 12,
                               height: 12,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: rolandConnectedValue ? Colors.green : Colors.grey,
+                                color: rolandConnectedValue
+                                    ? Colors.green
+                                    : Colors.grey,
                               ),
                             ),
                           ],
@@ -113,15 +126,19 @@ class SettingsDialog extends StatelessWidget {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.router),
                           ),
-                          enabled: !rolandConnectedValue && !rolandConnectingValue,
+                          enabled:
+                              !rolandConnectedValue && !rolandConnectingValue,
                         ),
                         const SizedBox(height: 12),
                         FilledButton(
-                          onPressed: rolandConnectingValue ? null : () {
-                            onConnectRoland();
-                          },
+                          onPressed: rolandConnectingValue
+                              ? null
+                              : () {
+                                  onConnectRoland();
+                                },
                           style: FilledButton.styleFrom(
-                            backgroundColor: rolandConnectedValue ? Colors.red : null,
+                            backgroundColor:
+                                rolandConnectedValue ? Colors.red : null,
                           ),
                           child: rolandConnectingValue
                               ? const SizedBox(
@@ -132,7 +149,9 @@ class SettingsDialog extends StatelessWidget {
                                     color: Colors.white,
                                   ),
                                 )
-                              : Text(rolandConnectedValue ? 'Disconnect' : 'Connect'),
+                              : Text(rolandConnectedValue
+                                  ? 'Disconnect'
+                                  : 'Connect'),
                         ),
                         if (rolandErrorValue.isNotEmpty) ...[
                           const SizedBox(height: 8),
@@ -145,7 +164,8 @@ class SettingsDialog extends StatelessWidget {
                             ),
                             child: Text(
                               'Connection failed. Check IP address.',
-                              style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                              style: TextStyle(
+                                  color: Colors.red.shade700, fontSize: 12),
                             ),
                           ),
                         ],
@@ -155,17 +175,20 @@ class SettingsDialog extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              
+
               // Panasonic Cameras Section
-              const Text('Panasonic Cameras', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Panasonic Cameras',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               ...List.generate(panasonicCameras.length, (index) {
                 final camera = panasonicCameras[index];
                 return ValueListenableBuilder<bool>(
                   valueListenable: camera.isConnected,
-                  builder: (context, isConnectedValue, child) => ValueListenableBuilder<bool>(
+                  builder: (context, isConnectedValue, child) =>
+                      ValueListenableBuilder<bool>(
                     valueListenable: camera.isConnecting,
-                    builder: (context, isConnectingValue, child) => ValueListenableBuilder<String>(
+                    builder: (context, isConnectingValue, child) =>
+                        ValueListenableBuilder<String>(
                       valueListenable: camera.connectionError,
                       builder: (context, connectionErrorValue, child) => Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -173,14 +196,19 @@ class SettingsDialog extends StatelessWidget {
                           if (index > 0) const SizedBox(height: 16),
                           Row(
                             children: [
-                              Text(camera.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                              Text(camera.name,
+                                  style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600)),
                               const SizedBox(width: 12),
                               Container(
                                 width: 12,
                                 height: 12,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: isConnectedValue ? Colors.green : Colors.grey,
+                                  color: isConnectedValue
+                                      ? Colors.green
+                                      : Colors.grey,
                                 ),
                               ),
                             ],
@@ -197,11 +225,14 @@ class SettingsDialog extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           FilledButton(
-                            onPressed: isConnectingValue ? null : () {
-                              onConnectPanasonic(index);
-                            },
+                            onPressed: isConnectingValue
+                                ? null
+                                : () {
+                                    onConnectPanasonic(index);
+                                  },
                             style: FilledButton.styleFrom(
-                              backgroundColor: isConnectedValue ? Colors.red : null,
+                              backgroundColor:
+                                  isConnectedValue ? Colors.red : null,
                             ),
                             child: isConnectingValue
                                 ? const SizedBox(
@@ -212,7 +243,9 @@ class SettingsDialog extends StatelessWidget {
                                       color: Colors.white,
                                     ),
                                   )
-                                : Text(isConnectedValue ? 'Disconnect' : 'Connect'),
+                                : Text(isConnectedValue
+                                    ? 'Disconnect'
+                                    : 'Connect'),
                           ),
                           if (connectionErrorValue.isNotEmpty) ...[
                             const SizedBox(height: 8),
@@ -225,7 +258,8 @@ class SettingsDialog extends StatelessWidget {
                               ),
                               child: Text(
                                 'Connection failed. Check IP address.',
-                                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                                style: TextStyle(
+                                    color: Colors.red.shade700, fontSize: 12),
                               ),
                             ),
                           ],
