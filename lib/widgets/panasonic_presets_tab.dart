@@ -187,15 +187,16 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                Expanded(
-                  child: Slider(
-                    value: _selectedPresetNum.toDouble(),
-                    min: 0,
-                    max: 99,
-                    divisions: 99,
-                    label: '$_selectedPresetNum',
-                    onChanged: (v) => setState(() => _selectedPresetNum = v.toInt()),
-                  ),
+                IconButton(
+                  onPressed: _selectedPresetNum > 0 ? () => setState(() => _selectedPresetNum--) : null,
+                  icon: const Icon(Icons.remove),
+                  tooltip: 'Decrement preset number',
+                ),
+                Text('$_selectedPresetNum', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                IconButton(
+                  onPressed: _selectedPresetNum < 99 ? () => setState(() => _selectedPresetNum++) : null,
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Increment preset number',
                 ),
               ],
             ),
