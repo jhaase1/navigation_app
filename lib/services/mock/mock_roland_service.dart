@@ -56,6 +56,18 @@ class MockRolandService extends RolandServiceAbstract {
   }
 
   @override
+  Future<void> setPinPSize(String pinp, int size) async {
+    await Future.delayed(const Duration(milliseconds: 50));
+  }
+
+  @override
+  Future<void> getPinPSize(String pinp) async {
+    await Future.delayed(const Duration(milliseconds: 50));
+    // Emit mock response with default size
+    _responseController.add(PinPSizeResponse(pinp, 25));
+  }
+
+  @override
   Future<void> setPinPPgm(String pinp, bool on) async {
     await Future.delayed(const Duration(milliseconds: 50));
   }

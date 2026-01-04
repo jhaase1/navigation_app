@@ -27,6 +27,12 @@ abstract class RolandServiceAbstract {
   /// Gets the PinP position
   Future<void> getPinPPosition(String pinp);
 
+  /// Sets the PinP size
+  Future<void> setPinPSize(String pinp, int size);
+
+  /// Gets the PinP size
+  Future<void> getPinPSize(String pinp);
+
   /// Sets PinP on program
   Future<void> setPinPPgm(String pinp, bool on);
 

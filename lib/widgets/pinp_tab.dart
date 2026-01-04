@@ -25,6 +25,7 @@ class _PinPTabState extends State<PinPTab> {
   String _pinpSource = 'HDMI1';
   double _pinpH = 0.0;
   double _pinpV = 0.0;
+  double _pinpSize = 25.0; // Default size percentage
   bool _pinpPgm = false;
   bool _pinpPvw = false;
 
@@ -49,6 +50,11 @@ class _PinPTabState extends State<PinPTab> {
               setState(() {
                 _pinpH = response.h.toDouble();
                 _pinpV = response.v.toDouble();
+              });
+            } else if (response is PinPSizeResponse &&
+                response.pinp == 'PinP$_selectedPinP') {
+              setState(() {
+                _pinpSize = response.size.toDouble();
               });
             }
           })
@@ -123,6 +129,29 @@ class _PinPTabState extends State<PinPTab> {
       try {
         await widget.rolandService!.getPinPPosition('PinP$_selectedPinP');
         widget.onRolandResponse('Requested PinP$_selectedPinP position');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
+    }
+  }
+
+  void _setPinPSize() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.setPinPSize('PinP$_selectedPinP', _pinpSize.toInt());
+        widget.onRolandResponse(
+            'Set PinP$_selectedPinP size = ${_pinpSize.toInt()}%');
+      } catch (e) {
+        widget.onRolandResponse('Error: ${e.toString()}');
+      }
+    }
+  }
+
+  void _getPinPSize() async {
+    if (widget.rolandService != null) {
+      try {
+        await widget.rolandService!.getPinPSize('PinP$_selectedPinP');
+        widget.onRolandResponse('Requested PinP$_selectedPinP size');
       } catch (e) {
         widget.onRolandResponse('Error: ${e.toString()}');
       }
@@ -318,6 +347,15 @@ class _PinPTabState extends State<PinPTab> {
               label: 'V: ${_pinpV.toInt()}',
               onChanged: (v) => setState(() => _pinpV = v),
             ),
+            const SizedBox(height: 16),
+            const Text('Size'),
+            Slider(
+              value: _pinpSize,
+              min: 0,
+              max: 100,
+              label: 'Size: ${_pinpSize.toInt()}%',
+              onChanged: (v) => setState(() => _pinpSize = v),
+            ),
             Row(
               children: [
                 ElevatedButton(
@@ -327,6 +365,14 @@ class _PinPTabState extends State<PinPTab> {
                 ElevatedButton(
                     onPressed: _getPinPPosition,
                     child: const Text('Get Position')),
+                const SizedBox(width: 16),
+                ElevatedButton(
+                    onPressed: _setPinPSize,
+                    child: const Text('Set Size')),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                    onPressed: _getPinPSize,
+                    child: const Text('Get Size')),
               ],
             ),
           ],

@@ -69,6 +69,12 @@ class PinPPositionResponse {
   PinPPositionResponse(this.pinp, this.h, this.v);
 }
 
+class PinPSizeResponse {
+  final String pinp;
+  final int size;
+  PinPSizeResponse(this.pinp, this.size);
+}
+
 class VersionResponse {
   final String model;
   final String version;
@@ -629,6 +635,19 @@ mixin PinPCommands {
   /// Gets the PinP position.
   Future<void> getPinPPosition(String pinp) =>
       _sendCommand(_buildCommand('QPIP', [pinp]));
+
+  /// Sets the PinP size.
+  Future<void> setPinPSize(String pinp, int size) {
+    if (size < 0 || size > 100) {
+      throw ArgumentError('size must be 0 to 100');
+    }
+    return _sendCommand(
+        _buildCommand('PIPSZ', [pinp, size.toString()]));
+  }
+
+  /// Gets the PinP size.
+  Future<void> getPinPSize(String pinp) =>
+      _sendCommand(_buildCommand('QPIPSZ', [pinp]));
 
   /// Sets PinP on program.
   Future<void> setPinPPgm(String pinp, bool on) =>
@@ -1968,6 +1987,12 @@ class RolandService extends RolandServiceAbstract
               params[0], int.parse(params[1]), int.parse(params[2]));
         } catch (e) {
           throw InvalidParameterException('Invalid PIP response: $response');
+        }
+      case 'PIPSZ':
+        try {
+          return PinPSizeResponse(params[0], int.parse(params[1]));
+        } catch (e) {
+          throw InvalidParameterException('Invalid PIPSZ response: $response');
         }
       case 'VISRC':
         try {
