@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/roland_service.dart';
+import '../services/mock/mock_roland_service.dart';
 
 class PinPTab extends StatefulWidget {
   final ValueNotifier<bool> rolandConnected;
@@ -33,8 +34,8 @@ class _PinPTabState extends State<PinPTab> {
   void initState() {
     super.initState();
     widget.rolandConnected.addListener(_update);
-    _responseSubscription = (widget.rolandService is RolandService)
-        ? (widget.rolandService as RolandService)
+    _responseSubscription = (widget.rolandService is RolandService || widget.rolandService is MockRolandService)
+        ? (widget.rolandService! as dynamic)
             .responseStream
             .listen((response) {
             if (response is PinPProgramResponse &&
@@ -43,6 +44,12 @@ class _PinPTabState extends State<PinPTab> {
             } else if (response is PinPPreviewResponse &&
                 response.pinp == 'PinP$_selectedPinP') {
               setState(() => _pinpPvw = response.status == 'ON');
+            } else if (response is PinPPositionResponse &&
+                response.pinp == 'PinP$_selectedPinP') {
+              setState(() {
+                _pinpH = response.h.toDouble();
+                _pinpV = response.v.toDouble();
+              });
             }
           })
         : null;

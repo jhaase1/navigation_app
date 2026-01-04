@@ -1,7 +1,12 @@
+import 'dart:async';
 import '../abstract/roland_service_abstract.dart';
+import '../roland_service.dart';
 
 /// Mock implementation of Roland service for testing and development
 class MockRolandService extends RolandServiceAbstract {
+  final StreamController<dynamic> _responseController = StreamController<dynamic>.broadcast();
+  
+  Stream<dynamic> get responseStream => _responseController.stream;
   @override
   Future<void> cut() async {
     // Simulate network delay
@@ -46,6 +51,8 @@ class MockRolandService extends RolandServiceAbstract {
   @override
   Future<void> getPinPPosition(String pinp) async {
     await Future.delayed(const Duration(milliseconds: 50));
+    // Emit mock response with some default position values
+    _responseController.add(PinPPositionResponse(pinp, 100, 200));
   }
 
   @override
@@ -56,6 +63,8 @@ class MockRolandService extends RolandServiceAbstract {
   @override
   Future<void> getPinPPgm(String pinp) async {
     await Future.delayed(const Duration(milliseconds: 50));
+    // Emit mock response
+    _responseController.add(PinPProgramResponse(pinp, 'ON'));
   }
 
   @override
@@ -66,6 +75,8 @@ class MockRolandService extends RolandServiceAbstract {
   @override
   Future<void> getPinPPvw(String pinp) async {
     await Future.delayed(const Duration(milliseconds: 50));
+    // Emit mock response
+    _responseController.add(PinPPreviewResponse(pinp, 'ON'));
   }
 
   @override
@@ -82,5 +93,7 @@ class MockRolandService extends RolandServiceAbstract {
   }
 
   @override
-  Future<void> disconnect() async {}
+  Future<void> disconnect() async {
+    _responseController.close();
+  }
 }

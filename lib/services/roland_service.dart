@@ -63,9 +63,10 @@ class ProgramResponse {
 }
 
 class PinPPositionResponse {
+  final String pinp;
   final int h;
   final int v;
-  PinPPositionResponse(this.h, this.v);
+  PinPPositionResponse(this.pinp, this.h, this.v);
 }
 
 class VersionResponse {
@@ -1964,7 +1965,7 @@ class RolandService extends RolandServiceAbstract
       case 'PIP':
         try {
           return PinPPositionResponse(
-              int.parse(params[1]), int.parse(params[2]));
+              params[0], int.parse(params[1]), int.parse(params[2]));
         } catch (e) {
           throw InvalidParameterException('Invalid PIP response: $response');
         }
