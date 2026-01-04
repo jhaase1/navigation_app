@@ -11,32 +11,23 @@ void main() {
     setUp(() {
       mockClient = MockClient((request) async {
         // Mock responses based on request
-        if (request.url.toString().contains('aw_ptz') &&
-            request.url.toString().contains('%23O1')) {
+        if (request.url.toString().contains('%23O1')) {
           return http.Response('"p1"', 200);
-        } else if (request.url.toString().contains('aw_cam') &&
-            request.url.toString().contains('QID')) {
+        } else if (request.url.toString().contains('QID')) {
           return http.Response('"OID:AW-UE100"', 200);
-        } else if (request.url.toString().contains('aw_ptz') &&
-            request.url.toString().contains('%23P50')) {
+        } else if (request.url.toString().contains('%23P50')) {
           return http.Response('"pS50"', 200);
-        } else if (request.url.toString().contains('aw_ptz') &&
-            request.url.toString().contains('%23PTV')) {
+        } else if (request.url.toString().contains('%23PTV')) {
           return http.Response('"pTV80008000800800800"', 200);
-        } else if (request.url.toString().contains('aw_ptz') &&
-            request.url.toString().contains('%23PE00')) {
+        } else if (request.url.toString().contains('%23PE00')) {
           return http.Response('"pE00AAAAAAAAAA"', 200);
-        } else if (request.url.toString().contains('aw_ptz') &&
-            request.url.toString().contains('%23PE01')) {
+        } else if (request.url.toString().contains('%23PE01')) {
           return http.Response('"pE015555555555"', 200);
-        } else if (request.url.toString().contains('aw_ptz') &&
-            request.url.toString().contains('%23PE02')) {
+        } else if (request.url.toString().contains('%23PE02')) {
           return http.Response('"pE02FFFFF00000"', 200);
-        } else if (request.url.toString().contains('aw_cam') &&
-            request.url.toString().contains('OAW:0')) {
+        } else if (request.url.toString().contains('OAW:0')) {
           return http.Response('"OAW0"', 200);
-        } else if (request.url.toString().contains('aw_cam') &&
-            request.url.toString().contains('OGU:10')) {
+        } else if (request.url.toString().contains('OGU:10')) {
           return http.Response('"OGU10"', 200);
         }
         return http.Response('ER1', 200);
@@ -232,16 +223,17 @@ void main() {
       expect(result, isA<Map<int, bool>>());
       expect(result.length, 100);
       // Check some specific values based on mock data
-      // Range 0: AAAAAAAA = 1010 1010 1010 1010 1010 1010 1010 1010 (alternating bits)
+      // Range 0: AAAAAAAAAA = 1010 1010 ... (alternating bits)
       // For nibble A (1010): bit0=0, bit1=1, bit2=0, bit3=1
-      expect(result[0], false); // bit 0 of first nibble (LSB)
-      expect(result[1], true); // bit 1 of first nibble
-      expect(result[2], false); // bit 2 of first nibble
-      expect(result[3], true); // bit 3 of first nibble (MSB)
-      // Range 2: FFFFF00000 = first 20 bits set (presets 80-99)
-      expect(result[80], true);
-      expect(result[99], true);
-      expect(result[79], false); // Before range 2
+      // So presets 1,3,5,7... are false, presets 2,4,6,8... are true
+      expect(result[1], false); // bit 0 of first nibble
+      expect(result[2], true);  // bit 1 of first nibble
+      expect(result[3], false); // bit 2 of first nibble
+      expect(result[4], true);  // bit 3 of first nibble
+      // Range 2: FFFFF00000 = first 20 bits set (presets 81-100)
+      expect(result[81], true);
+      expect(result[100], true);
+      expect(result[80], false); // Last in range 1
     });
   });
 }

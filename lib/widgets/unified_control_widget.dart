@@ -152,7 +152,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       return;
     }
     try {
-      final response = await camera.service!.recallPreset(preset);
+      final response = await camera.service!.recallPreset(preset - 1);
       widget.onResponse('Camera ${camera.name}: $response');
     } catch (e) {
       widget.onResponse('Error recalling preset: $e');
@@ -184,7 +184,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             final name = await camera.service!.getPresetName(presetIndex);
-            presetNames[presetIndex] = name;
+            presetNames[presetIndex + 1] = name;
             break; // Success, exit retry loop
           } catch (e) {
             String errorMessage;

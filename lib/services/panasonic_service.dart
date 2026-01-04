@@ -970,7 +970,7 @@ class PanasonicService extends PanasonicServiceAbstract {
       final maxBits = range == 2 ? 20 : 40;
 
       for (int bitIndex = 0; bitIndex < maxBits; bitIndex++) {
-        final presetNumber = range * 40 + bitIndex;
+        final presetNumber = range * 40 + bitIndex + 1;
         presetStatuses[presetNumber] = bits[bitIndex];
       }
     }
