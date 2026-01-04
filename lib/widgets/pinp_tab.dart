@@ -253,24 +253,24 @@ class _PinPTabState extends State<PinPTab> {
               children: [
                 Row(
                   children: [
-                    const Text('PGM: '),
-                    Switch(
-                        value: _pinpPgm,
-                        onChanged: (v) {
-                          setState(() => _pinpPgm = v);
-                          _setPinPPgm();
-                        }),
-                  ],
-                ),
-                const SizedBox(width: 16),
-                Row(
-                  children: [
                     const Text('PVW: '),
                     Switch(
                         value: _pinpPvw,
                         onChanged: (v) {
                           setState(() => _pinpPvw = v);
                           _setPinPPvw();
+                        }),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                Row(
+                  children: [
+                    const Text('PGM: '),
+                    Switch(
+                        value: _pinpPgm,
+                        onChanged: (v) {
+                          setState(() => _pinpPgm = v);
+                          _setPinPPgm();
                         }),
                   ],
                 ),
