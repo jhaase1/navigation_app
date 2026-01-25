@@ -3,6 +3,8 @@ import '../abstract/panasonic_service_abstract.dart';
 /// Mock implementation of Panasonic service for testing and development
 class MockPanasonicService extends PanasonicServiceAbstract {
   @override
+  Future<void> dispose() async {}
+  @override
   Future<String> recallPreset(int preset) async {
     // await Future.delayed(const Duration(milliseconds: 200));
     return 'Mock: Recalled preset $preset';

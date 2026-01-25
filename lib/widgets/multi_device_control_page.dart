@@ -51,9 +51,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   void dispose() {
-    _rolandService.disconnect();
+    _rolandService.dispose();
     _rolandIpController.dispose();
     for (var camera in _panasonicCameras) {
+      camera.service?.dispose();
       camera.ipController.dispose();
     }
     super.dispose();
@@ -61,7 +62,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   Future<void> _connectRoland() async {
     if (_rolandConnected.value) {
-      await _rolandService.disconnect();
+      await _rolandService.dispose();
       setState(() {
         _rolandConnected.value = false;
         _rolandService = MockRolandService();
@@ -117,6 +118,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     final camera = _panasonicCameras[cameraIndex];
 
     if (camera.isConnected.value) {
+      camera.service?.dispose();
       setState(() {
         camera.isConnected.value = false;
         camera.service = MockPanasonicService();
@@ -169,14 +171,15 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onMockModeChanged: (value) {
               setState(() {
                 _mockMode = value;
-                // Disconnect all when switching modes
+                // Disconnect and dispose all when switching modes
                 if (_rolandConnected.value) {
-                  _rolandService.disconnect();
+                  _rolandService.dispose();
                   _rolandConnected.value = false;
                   _rolandService = MockRolandService();
                 }
                 for (var camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
+                    camera.service?.dispose();
                     camera.isConnected.value = false;
                     camera.service = MockPanasonicService();
                   }

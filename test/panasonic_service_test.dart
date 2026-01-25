@@ -25,9 +25,9 @@ void main() {
           return http.Response('"pE015555555555"', 200);
         } else if (request.url.toString().contains('%23PE02')) {
           return http.Response('"pE02FFFFF00000"', 200);
-        } else if (request.url.toString().contains('OAW:0')) {
+        } else if (request.url.toString().contains('OAW%3A0')) {
           return http.Response('"OAW0"', 200);
-        } else if (request.url.toString().contains('OGU:10')) {
+        } else if (request.url.toString().contains('OGU%3A10')) {
           return http.Response('"OGU10"', 200);
         }
         return http.Response('ER1', 200);
@@ -225,15 +225,15 @@ void main() {
       // Check some specific values based on mock data
       // Range 0: AAAAAAAAAA = 1010 1010 ... (alternating bits)
       // For nibble A (1010): bit0=0, bit1=1, bit2=0, bit3=1
-      // So presets 1,3,5,7... are false, presets 2,4,6,8... are true
-      expect(result[1], false); // bit 0 of first nibble
-      expect(result[2], true);  // bit 1 of first nibble
-      expect(result[3], false); // bit 2 of first nibble
-      expect(result[4], true);  // bit 3 of first nibble
-      // Range 2: FFFFF00000 = first 20 bits set (presets 81-100)
-      expect(result[81], true);
-      expect(result[100], true);
-      expect(result[80], false); // Last in range 1
+      // So internal presets 0,2,4,6... are false, presets 1,3,5,7... are true
+      expect(result[0], false); // bit 0 of first nibble
+      expect(result[1], true);  // bit 1 of first nibble
+      expect(result[2], false); // bit 2 of first nibble
+      expect(result[3], true);  // bit 3 of first nibble
+      // Range 2: FFFFF00000 = first 20 bits set (presets 80-99)
+      expect(result[80], true);
+      expect(result[99], true);
+      expect(result[79], false); // Last in range 1
     });
   });
 }

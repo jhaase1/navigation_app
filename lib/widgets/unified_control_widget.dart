@@ -99,16 +99,24 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     setState(() => _loadingMacros = true);
     _macroNames.clear();
     const int maxRetries = 3;
+    const int chunkSize = 10;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        final futures = List.generate(
-            maxItems, (i) => widget.rolandService!.macroExists(i + 1));
-        final existsList = await Future.wait(futures);
-        for (int i = 0; i < existsList.length; i++) {
-          if (existsList[i]) {
-            _macroNames[i + 1] = 'Macro ${i + 1}';
+        for (int i = 0; i < maxItems; i += chunkSize) {
+          final futures = List.generate(
+            i + chunkSize <= maxItems ? chunkSize : maxItems - i,
+            (j) => widget.rolandService!.macroExists(i + j + 1),
+          );
+          final existsList = await Future.wait(futures);
+          for (int j = 0; j < existsList.length; j++) {
+            if (existsList[j]) {
+              _macroNames[i + j + 1] = 'Macro ${i + j + 1}';
+            }
           }
+          // Brief pause to avoid overwhelming device/connection
+          await Future.delayed(const Duration(milliseconds: 50));
         }
+
         if (mounted) {
           setState(() {
             _loadingMacros = false;
@@ -140,7 +148,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     }
   }
 
-  Future<void> _executeCameraPreset(int preset) async {
+  Future<void> _executeCameraPreset(int presetIndex) async {
     final cameraIndex = _selectedDeviceIndex - 1;
     if (cameraIndex < 0 || cameraIndex >= widget.cameras.length) {
       widget.onResponse('No camera selected');
@@ -152,7 +160,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       return;
     }
     try {
-      final response = await camera.service!.recallPreset(preset - 1);
+      final response = await camera.service!.recallPreset(presetIndex);
       widget.onResponse('Camera ${camera.name}: $response');
     } catch (e) {
       widget.onResponse('Error recalling preset: $e');
@@ -184,7 +192,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             final name = await camera.service!.getPresetName(presetIndex);
-            presetNames[presetIndex + 1] = name;
+            presetNames[presetIndex] = name;
             break; // Success, exit retry loop
           } catch (e) {
             String errorMessage;
@@ -351,11 +359,11 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                       mainAxisSpacing: 4,
                       crossAxisSpacing: 4,
                       children: availablePresets.map((entry) {
-                        final preset = entry.key +
-                            1; // Convert 0-based to 1-based for display
-                        final name = presetNames[preset];
+                        final presetIndex = entry.key;
+                        final name = presetNames[presetIndex];
+                        final displayLabel = name ?? 'Preset ${presetIndex + 1}';
                         return Tooltip(
-                          message: name ?? '$preset',
+                          message: displayLabel,
                           child: FilledButton(
                             style: FilledButton.styleFrom(
                               shape: RoundedRectangleBorder(
@@ -366,9 +374,9 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                               textStyle: const TextStyle(fontSize: 12),
                             ),
                             onPressed: camera.isConnected.value
-                                ? () => _executeCameraPreset(preset)
+                                ? () => _executeCameraPreset(presetIndex)
                                 : null,
-                            child: Text(name ?? '$preset'),
+                            child: Text(displayLabel),
                           ),
                         );
                       }).toList(),

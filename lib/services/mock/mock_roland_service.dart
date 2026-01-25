@@ -105,7 +105,10 @@ class MockRolandService extends RolandServiceAbstract {
   }
 
   @override
-  Future<void> disconnect() async {
+  Future<void> disconnect() async {}
+
+  @override
+  Future<void> dispose() async {
     _responseController.close();
   }
 }

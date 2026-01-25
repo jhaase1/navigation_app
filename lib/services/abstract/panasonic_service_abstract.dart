@@ -27,4 +27,7 @@ abstract class PanasonicServiceAbstract {
   /// Returns a Map where the key is the preset number (0-99) and the value is true
   /// if the preset is saved, false otherwise
   Future<Map<int, bool>> getAllPresetStatuses();
+
+  /// Disposes the service
+  Future<void> dispose();
 }

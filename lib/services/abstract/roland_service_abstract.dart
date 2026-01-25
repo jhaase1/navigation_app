@@ -53,4 +53,7 @@ abstract class RolandServiceAbstract {
 
   /// Disconnects from the device
   Future<void> disconnect();
+
+  /// Disposes the service and closes streams
+  Future<void> dispose();
 }

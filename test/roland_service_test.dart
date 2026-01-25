@@ -115,6 +115,18 @@ void main() {
       expect((result as MeterResponse).levels, ['-INF', '-80', '0']);
     });
 
+    test('parseResponse handles semicolon-terminated query responses', () {
+      final result = service.parseResponseForTest('PGM:HDMI1;');
+      expect(result, isA<ProgramResponse>());
+      expect((result as ProgramResponse).source, 'HDMI1');
+    });
+
+    test('parseResponse handles multiple semicolons or ACK correctly', () {
+      final result = service.parseResponseForTest('PGM:HDMI2;ACK;');
+      expect(result, isA<ProgramResponse>());
+      expect((result as ProgramResponse).source, 'HDMI2');
+    });
+
     test('parseResponse throws on invalid int', () {
       expect(() => service.parseResponseForTest('VFL:abc;ACK;'),
           throwsA(isA<InvalidParameterException>()));

@@ -359,25 +359,37 @@ class PanasonicService extends PanasonicServiceAbstract {
   final NotificationManager _notificationManager;
 
   PanasonicService({
-    required this.ipAddress,
+    required String ipAddress,
     http.Client? client,
-    this.requestTimeout = defaultRequestTimeout,
-    this.useHttps = false,
+    Duration requestTimeout = defaultRequestTimeout,
+    bool useHttps = false,
     Duration ptzCommandDelay = defaultPtzCommandDelay,
-    this.maxRetries = defaultMaxRetries,
-  })  : _client = client ?? http.Client(),
+    int maxRetries = defaultMaxRetries,
+  }) : this._internal(
+          ipAddress: ipAddress,
+          client: client ?? http.Client(),
+          requestTimeout: requestTimeout,
+          useHttps: useHttps,
+          ptzCommandDelay: ptzCommandDelay,
+          maxRetries: maxRetries,
+        );
+
+  PanasonicService._internal({
+    required this.ipAddress,
+    required http.Client client,
+    required this.requestTimeout,
+    required this.useHttps,
+    required Duration ptzCommandDelay,
+    required this.maxRetries,
+  })  : _client = client,
         _ptzCommandQueue = CommandQueue(ptzCommandDelay),
         _notificationManager = NotificationManager(
-            client ?? http.Client(), ipAddress, requestTimeout,
+            client, ipAddress, requestTimeout,
             useHttps: useHttps) {
     // Validate IP address
     if (!ipRegex.hasMatch(ipAddress)) {
       throw ArgumentError('Invalid IP address format');
     }
-  }
-
-  String _encodeCommand(String command) {
-    return command.replaceAll('#', '%23');
   }
 
   void _validateSpeed(int speed) {
@@ -424,12 +436,18 @@ class PanasonicService extends PanasonicServiceAbstract {
   Future<String> _executeCommand(String endpoint, String command) async {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        final protocol = useHttps ? 'https' : 'http';
-        final url =
-            '$protocol://$ipAddress/cgi-bin/$endpoint?cmd=${_encodeCommand(command)}&res=1';
-        log('Sending command to $url', name: 'PanasonicService');
+        final uri = Uri(
+          scheme: useHttps ? 'https' : 'http',
+          host: ipAddress,
+          path: '/cgi-bin/$endpoint',
+          queryParameters: {
+            'cmd': command,
+            'res': '1',
+          },
+        );
+        log('Sending command to $uri', name: 'PanasonicService');
         final response =
-            await _client.get(Uri.parse(url)).timeout(requestTimeout);
+            await _client.get(uri).timeout(requestTimeout);
 
         if (response.statusCode != 200) {
           log('HTTP error: ${response.statusCode} for command $command',
@@ -970,7 +988,7 @@ class PanasonicService extends PanasonicServiceAbstract {
       final maxBits = range == 2 ? 20 : 40;
 
       for (int bitIndex = 0; bitIndex < maxBits; bitIndex++) {
-        final presetNumber = range * 40 + bitIndex + 1;
+        final presetNumber = range * 40 + bitIndex;
         presetStatuses[presetNumber] = bits[bitIndex];
       }
     }
@@ -1445,6 +1463,7 @@ class PanasonicService extends PanasonicServiceAbstract {
   }
 
   /// Disposes the HTTP client and closes any open TCP connections.
+  @override
   Future<void> dispose() async {
     _client.close();
     await _notificationManager.dispose();

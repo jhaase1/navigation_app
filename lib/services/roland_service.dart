@@ -1729,7 +1729,6 @@ class RolandService extends RolandServiceAbstract
             _isConnected = false;
             _responseController
                 .addError(ConnectionException('Socket error: $error'));
-            _responseController.close();
           },
           onDone: () {
             dev.log('Socket closed');
@@ -1800,7 +1799,8 @@ class RolandService extends RolandServiceAbstract
     _socket = null;
     _isConnected = false;
     _responseBuffer.clear();
-    _responseController.close();
+    // Do not close _responseController here, we keep it alive for reconnects.
+    // It should only be closed in a dispose() method.
     // Complete any pending acks with error
     while (_ackCompleters.isNotEmpty) {
       _ackCompleters
@@ -1811,6 +1811,13 @@ class RolandService extends RolandServiceAbstract
     if (_autoReconnect && !_isConnected) {
       _attemptReconnect();
     }
+  }
+
+  /// Disposes the Roland service.
+  @override
+  Future<void> dispose() async {
+    await disconnect();
+    await _responseController.close();
   }
 
   /// Attempts to reconnect with retries.
@@ -1851,8 +1858,8 @@ class RolandService extends RolandServiceAbstract
     int currentId = ++_commandId;
     dev.log('Queueing command ID $currentId: $command');
     for (int attempt = 0; attempt <= retryCount; attempt++) {
+      final completer = Completer<void>();
       try {
-        final completer = Completer<void>();
         _ackCompleters.add(completer);
         _commandQueue.add('$currentId:$command');
         await _processQueue();
@@ -1861,6 +1868,7 @@ class RolandService extends RolandServiceAbstract
         dev.log('Command ID $currentId completed successfully');
         return;
       } catch (e) {
+        _ackCompleters.remove(completer);
         dev.log('Command ID $currentId attempt ${attempt + 1} failed: $e');
         if (attempt == retryCount) {
           _pendingCount--;
@@ -1901,27 +1909,15 @@ class RolandService extends RolandServiceAbstract
     }
     String buffer = _responseBuffer.toString();
     int endIndex;
-    while ((endIndex = buffer.indexOf('\n')) != -1) {
+    while ((endIndex = buffer.indexOf(';')) != -1) {
       String response = buffer.substring(0, endIndex).trim();
       buffer = buffer.substring(endIndex + 1);
-      int retryCount = 0;
-      const int maxRetries = 3;
-      bool parsed = false;
-      while (retryCount < maxRetries && !parsed) {
-        try {
-          _processCompleteResponse(response);
-          parsed = true;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= maxRetries) {
-            dev.log(
-                'Failed to parse response after $maxRetries attempts: $response. Error: $e');
-            _responseController.addError(e);
-          } else {
-            dev.log(
-                'Parsing failed with error: $e for response: $response, attempt $retryCount');
-          }
-        }
+      try {
+        _processCompleteResponse(response);
+      } catch (e) {
+        dev.log(
+            'Failed to parse response: $response. Error: $e');
+        _responseController.addError(e);
       }
     }
     _responseBuffer.clear();
@@ -1931,11 +1927,11 @@ class RolandService extends RolandServiceAbstract
   void _processCompleteResponse(String response) {
     dev.log('Received response: $response');
     // Check for ACK completion: either explicit ACK, or query responses without ACK
-    bool shouldCompleteAck = response.endsWith(';ACK;') ||
-        response == 'ACK;' ||
+    bool shouldCompleteAck = response == 'ACK' ||
         (response.contains(':') &&
             !response.contains('NACK') &&
             !response.contains('ERROR') &&
+            !response.contains('ERR') &&
             !_autoTransmitPrefixes
                 .any((prefix) => response.startsWith('$prefix:')));
     if (shouldCompleteAck) {
@@ -1955,7 +1951,9 @@ class RolandService extends RolandServiceAbstract
       if (parsed != null) {
         _responseController.add(parsed);
       }
-    } else if (response.contains('NACK') || response.contains('ERROR')) {
+    } else if (response.contains('NACK') ||
+        response.contains('ERROR') ||
+        response == 'ERR') {
       // Handle errors
       if (_ackCompleters.isNotEmpty) {
         _ackCompleters
@@ -2395,8 +2393,11 @@ class RolandService extends RolandServiceAbstract
   }
 
   dynamic _parseResponse(String response) {
-    // Remove ;ACK;
-    final clean = response.replaceAll(';ACK;', '').replaceAll('ACK;', '');
+    // Remove ;ACK; and trailing semicolon
+    String clean = response.replaceAll(';ACK;', '').replaceAll('ACK;', '');
+    if (clean.endsWith(';')) {
+      clean = clean.substring(0, clean.length - 1);
+    }
     final parts = clean.split(':');
     if (parts.length < 2) return null;
     final cmd = parts[0];
@@ -2441,11 +2442,5 @@ class RolandService extends RolandServiceAbstract
     } catch (e) {
       return false;
     }
-  }
-
-  /// Disposes the service, closing streams and disconnecting.
-  void dispose() {
-    disconnect();
-    _responseController.close();
   }
 }
