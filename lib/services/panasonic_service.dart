@@ -939,8 +939,7 @@ class PanasonicService extends PanasonicServiceAbstract {
     }
     final data1 = range.toRadixString(16).padLeft(2, '0').toUpperCase();
     final response = await _sendCommand(
-        ptzEndpoint, '$getPresetEntriesCmd$data1',
-        isPtz: true);
+        ptzEndpoint, '$getPresetEntriesCmd$data1');
     // Response format: pE[data1][data2] where data1 is 2 chars, data2 is 10 chars
     if (response.startsWith(presetEntriesResponsePrefix) &&
         response.length == 14) {

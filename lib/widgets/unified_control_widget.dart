@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../services/abstract/roland_service_abstract.dart';
@@ -169,52 +170,26 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       return;
     }
 
-    setState(() => _loadingPresets = true);
+    // Show all 100 presets immediately, trim after verification
+    setState(() {
+      _loadingPresets = true;
+      _cameraPresetAvailability[cameraIndex] =
+          {for (int i = 0; i < 100; i++) i: true};
+    });
 
     try {
-      // Fetch preset availability first
-      final availability = await camera.service!.getAllPresetStatuses();
-
-      // Fetch preset names only for available presets
-      final presetNames = <int, String>{};
-      const int maxRetries = 3;
-      for (final entry in availability.entries) {
-        if (!entry.value) continue; // Skip unavailable presets
-        final presetIndex = entry.key;
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            final name = await camera.service!.getPresetName(presetIndex);
-            presetNames[presetIndex] = name;
-            break; // Success, exit retry loop
-          } catch (e) {
-            String errorMessage;
-            if (e is TimeoutException) {
-              errorMessage =
-                  'Network timeout while fetching preset name for $presetIndex (attempt $attempt/$maxRetries)';
-            } else if (e.toString().contains('connection') ||
-                e.toString().contains('socket')) {
-              errorMessage =
-                  'Connection error while fetching preset name for $presetIndex (attempt $attempt/$maxRetries)';
-            } else {
-              errorMessage =
-                  'Device error while fetching preset name for $presetIndex: $e (attempt $attempt/$maxRetries)';
-            }
-            if (attempt == maxRetries) {
-              widget.onResponse(errorMessage);
-            } else {
-              await Future.delayed(
-                  const Duration(seconds: 1)); // Wait before retry
-            }
-          }
-        }
-      }
+      // Verify which presets actually exist using 3 requests
+      final statuses = await camera.service!
+          .getAllPresetStatuses()
+          .timeout(const Duration(seconds: 15));
 
       if (mounted) {
         setState(() {
-          _cameraPresetNames[cameraIndex] = presetNames;
-          _cameraPresetAvailability[cameraIndex] = Map.from(availability);
+          _cameraPresetAvailability[cameraIndex] = statuses;
         });
       }
+    } on TimeoutException {
+      // Camera unreachable — keep all 100 shown
     } catch (e) {
       widget.onResponse('Error fetching preset data: $e');
     } finally {
@@ -365,9 +340,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               textStyle: const TextStyle(fontSize: 12),
                             ),
-                            onPressed: camera.isConnected.value
-                                ? () => _executeCameraPreset(preset)
-                                : null,
+                            onPressed: () => _executeCameraPreset(preset),
                             child: Text(name ?? '$preset'),
                           ),
                         );

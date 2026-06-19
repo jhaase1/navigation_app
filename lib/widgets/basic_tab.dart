@@ -156,7 +156,7 @@ class _BasicTabState extends State<BasicTab> {
                 onPressed: () async {
                   if (widget.rolandService != null) {
                     try {
-                      await widget.rolandService!.executeMacro(index);
+                      await widget.rolandService!.executeMacro(index + 1);
                       widget.onRolandResponse('Executed Macro ${index + 1}');
                     } catch (e) {
                       widget.onRolandResponse('Error: ${e.toString()}');

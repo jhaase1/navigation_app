@@ -145,6 +145,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     try {
       final service = PanasonicService(ipAddress: camera.ipController.text);
+      await service.getCameraInfo();
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
@@ -154,7 +155,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     } catch (e) {
       setState(() {
         camera.isConnecting.value = false;
-        camera.connectionError.value = e.toString();
+        camera.connectionError.value = 'Could not reach camera: ${e.toString()}';
       });
     }
   }

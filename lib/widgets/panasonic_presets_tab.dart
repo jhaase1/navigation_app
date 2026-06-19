@@ -19,7 +19,7 @@ class PanasonicPresetsTab extends StatefulWidget {
 
 class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   int _selectedCameraIndex = 0;
-  int _selectedPresetNum = 1;
+  int _selectedPresetNum = 1; // 1-based display number (1-100)
   String _presetName = '';
   String _presetSpeed = '100';
 
@@ -56,8 +56,8 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   Future<void> _recallPreset() async {
     if (_selectedCamera == null || !_panasonicConnected) return;
     try {
-      final response =
-          await _selectedCamera!.service!.recallPreset(_selectedPresetNum);
+      final response = await _selectedCamera!.service!
+          .recallPreset(_selectedPresetNum - 1); // Convert to 0-based
       widget.onPanasonicResponse('Recall: $response');
     } catch (e) {
       widget.onPanasonicResponse('Error: ${e.toString()}');
@@ -67,8 +67,8 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   Future<void> _savePreset() async {
     if (_selectedCamera == null || !_panasonicConnected) return;
     try {
-      final response =
-          await _selectedCamera!.service!.savePreset(_selectedPresetNum);
+      final response = await _selectedCamera!.service!
+          .savePreset(_selectedPresetNum - 1); // Convert to 0-based
       widget.onPanasonicResponse('Saved: $response');
     } catch (e) {
       widget.onPanasonicResponse('Error: ${e.toString()}');
@@ -78,8 +78,8 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   Future<void> _deletePreset() async {
     if (_selectedCamera == null || !_panasonicConnected) return;
     try {
-      final response =
-          await _selectedCamera!.service!.deletePreset(_selectedPresetNum);
+      final response = await _selectedCamera!.service!
+          .deletePreset(_selectedPresetNum - 1); // Convert to 0-based
       widget.onPanasonicResponse('Deleted: $response');
     } catch (e) {
       widget.onPanasonicResponse('Error: ${e.toString()}');
@@ -100,8 +100,8 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
   Future<void> _savePresetName() async {
     if (_selectedCamera == null || !_panasonicConnected) return;
     try {
-      final response = await _selectedCamera!.service!
-          .savePresetName(_selectedPresetNum, _presetName);
+      final response = await _selectedCamera!.service!.savePresetName(
+          _selectedPresetNum - 1, _presetName); // Convert to 0-based
       widget.onPanasonicResponse('Name saved: $response');
     } catch (e) {
       widget.onPanasonicResponse('Error: ${e.toString()}');
@@ -188,7 +188,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
                       keyboardType: TextInputType.number,
                       onChanged: (value) {
                         final num = int.tryParse(value);
-                        if (num != null && num >= 0 && num <= 99) {
+                        if (num != null && num >= 1 && num <= 100) {
                           setState(() => _selectedPresetNum = num);
                         }
                       },
@@ -200,7 +200,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
                   ),
                   const SizedBox(width: 16),
                   IconButton(
-                    onPressed: _selectedPresetNum > 0
+                    onPressed: _selectedPresetNum > 1
                         ? () => setState(() => _selectedPresetNum--)
                         : null,
                     icon: const Icon(Icons.remove),
@@ -210,7 +210,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold)),
                   IconButton(
-                    onPressed: _selectedPresetNum < 99
+                    onPressed: _selectedPresetNum < 100
                         ? () => setState(() => _selectedPresetNum++)
                         : null,
                     icon: const Icon(Icons.add),
