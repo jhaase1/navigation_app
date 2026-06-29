@@ -104,7 +104,7 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
     await PresetNameStore.save(
         _selectedCamera!.ipController.text, presetIndex, _presetName);
     widget.onPanasonicResponse(
-        'Name "${_presetName}" saved for preset $_selectedPresetNum');
+        'Name "$_presetName" saved for preset $_selectedPresetNum');
   }
 
   @override
