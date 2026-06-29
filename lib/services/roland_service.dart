@@ -2353,9 +2353,9 @@ class RolandService extends RolandServiceAbstract
       String cmd, List<String> params, String response) {
     switch (cmd) {
       case 'MCRST':
-        return MacroStatusResponse(params[0], params[1]);
       case 'QMCRST':
-        return MacroStatusResponse(params[0], params[1]);
+        // Response format: MCRST:MACRO{n},{status}; — params[0]=MACRO{n}, params[1]=status
+        return MacroStatusResponse(params[0], params[1].replaceAll(';', ''));
       case 'SQS':
         return SequencerStatusResponse(params[0]);
       case 'QSEQSW':
@@ -2408,14 +2408,7 @@ class RolandService extends RolandServiceAbstract
   }
 
   @override
-  Future<bool> macroExists(int macro) async {
-    try {
-      await getMacroStatus(macro);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
+  Future<bool> macroExists(int macro) async => true;
 
   /// Disposes the service, closing streams and disconnecting.
   void dispose() {

@@ -887,13 +887,14 @@ class PanasonicService extends PanasonicServiceAbstract {
   /// Throws [CameraException] on communication error.
   @override
   Future<String> savePresetName(int presetNum, String name) async {
-    if (presetNum < 0 || presetNum > 99) {
-      throw ArgumentError('Preset number must be 0-99');
+    if (presetNum < 0 || presetNum > 100) {
+      throw ArgumentError('Preset number must be 0-100');
     }
     if (name.length > 15 || !asciiRegex.hasMatch(name)) {
       throw ArgumentError('Name must be up to 15 ASCII characters');
     }
-    return await _sendCommand(camEndpoint, 'OSJ:35:$presetNum:$name');
+    final cmd = 'OSJ:35:${presetNum.toString().padLeft(2, '0')}:$name';
+    return await _sendCommand(camEndpoint, cmd);
   }
 
   /// Retrieves the name of a preset.
@@ -909,8 +910,8 @@ class PanasonicService extends PanasonicServiceAbstract {
     if (presetNum < 0 || presetNum > 99) {
       throw ArgumentError('Preset number must be 0-99');
     }
-    final response = await _sendCommand(
-        camEndpoint, 'QSJ:35:${presetNum.toString().padLeft(2, '0')}');
+    final cmd = 'QSJ:35:${presetNum.toString().padLeft(2, '0')}';
+    final response = await _sendCommand(camEndpoint, cmd);
     // Response format: qsj:35:nn:name
     final parts = response.split(':');
     if (parts.length >= 4) {

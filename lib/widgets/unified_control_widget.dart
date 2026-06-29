@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/preset_name_store.dart';
 
 class UnifiedControlWidget extends StatefulWidget {
   final RolandServiceAbstract? rolandService;
@@ -102,13 +103,8 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     const int maxRetries = 3;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        final futures = List.generate(
-            maxItems, (i) => widget.rolandService!.macroExists(i + 1));
-        final existsList = await Future.wait(futures);
-        for (int i = 0; i < existsList.length; i++) {
-          if (existsList[i]) {
-            _macroNames[i + 1] = 'Macro ${i + 1}';
-          }
+        for (int i = 1; i <= maxItems; i++) {
+          _macroNames[i] = 'Macro $i';
         }
         if (mounted) {
           setState(() {
@@ -186,6 +182,13 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       if (mounted) {
         setState(() {
           _cameraPresetAvailability[cameraIndex] = statuses;
+        });
+      }
+
+      final names = await PresetNameStore.loadAll(camera.ipController.text);
+      if (mounted) {
+        setState(() {
+          _cameraPresetNames[cameraIndex] = names;
         });
       }
     } on TimeoutException {
