@@ -21,6 +21,14 @@ http://[IP_Address]/cgi-bin/aw_cam?cmd=[Command]&res=1
 200 OK "[Command Response]"
 ```
 
+### Command Type Reference
+- **ptz** — Pan/Tilt control commands (use `/cgi-bin/aw_ptz`)
+- **cam** — Camera control commands (use `/cgi-bin/aw_cam`)
+
+### Data Notation
+- Hexadecimal values are indicated with 'h' suffix (e.g., `00h-99h`)
+- Data ranges shown as `0x[Data]` in responses indicate hexadecimal format
+
 ---
 
 ## 1. Power & System Control
@@ -195,41 +203,330 @@ Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23I50&res=1
 
 ## 6. Preset Management
 
-### Recall Preset
+### Recall Preset (`#R`)
 ```
 Command: #R[PresetNum]
 - PresetNum: 00-99 (Preset 1-100)
 Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23R07&res=1
-Response: s07 (immediate), then q07 (on completion)
+Response: s07 (immediate), then q07 (on completion via update notification)
 ```
 
-### Save Preset
+### Save Preset (`#M`)
 ```
 Command: #M[PresetNum]
 - PresetNum: 00-99 (Preset 1-100)
 Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23M07&res=1
+Response: s07
 ```
 
-### Delete Preset
+### Delete Preset (`#C`)
 ```
 Command: #C[PresetNum]
 - PresetNum: 00-99 (Preset 1-100)
 Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23C07&res=1
+Response: s07
 ```
 
-### Preset Speed
+### Preset Completion Notification (`q`)
+Sent automatically as an update notification when preset playback completes.
 ```
-Command: #UPVS[Speed]
-- Speed: 001-999 (for Speed mode) or 001-099 seconds (for Time mode)
+Response: q[Data]
+- Data: 00-99 (Preset 1-100)
+Update Notification: Yes
+```
+
+### Preset Entry Confirmation (`#PE`)
+Checks which preset slots have saved data.
+```
+Request: #PE[Data1]
+Response: pE[Data1][Data2]
+- Data1: 00h-02h (each covers 40 presets)
+- Data2: 0000000000h-FFFFFFFFFFh (40-bit field; bit0 = first preset in range, 0=empty, 1=saved)
+Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23PE00&res=1
+Update Notification: Yes (pE00[Data2], pE01[Data2], pE02[Data2])
+```
+
+### Request Latest Recall Preset No. (`#S`)
+```
+Request: #S
+Response: s[Data]
+- Data: 00-99 (Preset 1-100)
+Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23S&res=1
+Update Notification: Yes
+```
+
+### Preset Speed Unit (`OSJ:29`)
+Selects whether preset speed is controlled by speed table or time.
+```
+Control: OSJ:29:[Data]
+Request: QSJ:29
+- Data: 0 = Speed Table, 1 = Time
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:29:0&res=1
+Response: OSJ:29:[Data]
+Update Notification: Yes
+```
+
+### Preset Speed Table (`#PST`)
+Selects the speed table (Slow/Fast).
+```
+Control: #PST[Data]
+Request: #PST
+- Data: 0 = Slow, 2 = Fast
+Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23PST0&res=1
+Response: pST[Data]
+Update Notification: Yes
+```
+
+### Preset Speed (`#UPVS`)
+```
+Control: #UPVS[Data]
+Request: #UPVS
+- Data: 000-999
+  - Speed Table mode: 001-063h (1=Slow, 30=Fast)
+  - Time mode: 1-99 seconds
 Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23UPVS250&res=1
+Response: uPVS[Data]
+Update Notification: Yes
 ```
 
-### Save Preset Name
+### Preset Acceleration (`OSJ:A8`)
 ```
-Control: OSJ:35:[PresetNum]:[Name]
-- PresetNum: 00-99
-- Name: 15 characters (ASCII)
+Control: OSJ:A8:[Data]
+Request: QSJ:A8
+- Data: 0 = Manual, 1 = Auto
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:A8:0&res=1
+Response: OSJ:A8:[Data]
+Update Notification: Yes
+```
+
+### Preset Rise S-Curve (`OSJ:A9`)
+Available when Preset Acceleration is Manual.
+```
+Control: OSJ:A9:[Data]
+Request: QSJ:A9
+- Data: 00h-1Eh (0-30)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:A9:00&res=1
+Response: OSJ:A9:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Fall S-Curve (`OSJ:AA`)
+Available when Preset Acceleration is Manual.
+```
+Control: OSJ:AA:[Data]
+Request: QSJ:AA
+- Data: 00h-1Eh (0-30)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:AA:00&res=1
+Response: OSJ:AA:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Rise Acceleration (`OSJ:AB`)
+Available when Preset Acceleration is Manual AND Speed Unit is Speed.
+```
+Control: OSJ:AB:[Data]
+Request: QSJ:AB
+- Data: 01h-FFh (1-255)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:AB:01&res=1
+Response: OSJ:AB:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Fall Acceleration (`OSJ:AC`)
+Available when Preset Acceleration is Manual AND Speed Unit is Speed.
+```
+Control: OSJ:AC:[Data]
+Request: QSJ:AC
+- Data: 01h-FFh (1-255)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:AC:01&res=1
+Response: OSJ:AC:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Rise Ramp Time (`OSJ:AD`)
+Available when Preset Acceleration is Manual AND Speed Unit is Time.
+```
+Control: OSJ:AD:[Data]
+Request: QSJ:AD
+- Data: 01h-64h (0.1s - 10.0s)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:AD:01&res=1
+Response: OSJ:AD:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Fall Ramp Time (`OSJ:AE`)
+Available when Preset Acceleration is Manual AND Speed Unit is Time.
+```
+Control: OSJ:AE:[Data]
+Request: QSJ:AE
+- Data: 01h-64h (0.1s - 10.0s)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:AE:01&res=1
+Response: OSJ:AE:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Scope (`OSE:71`)
+Determines which camera settings are saved/recalled with presets.
+```
+Control: OSE:71:[Data]
+Request: QSE:71
+- Data: 0 = MODE A, 1 = MODE B, 2 = MODE C
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSE:71:0&res=1
+Response: OSE:71:[Data]
+Update Notification: Yes
+```
+
+### Preset Digital Extender (`OSE:7C`)
+```
+Control: OSE:7C:[Data]
+Request: QSE:7C
+- Data: 0 = Off, 1 = On
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSE:7C:0&res=1
+Response: OSE:7C:[Data]
+Update Notification: Yes
+```
+
+### Preset Crop (`OSJ:2A`)
+Available when Format is 2160/○○ AND UHD Crop is Crop(1080)/Crop(720).
+```
+Control: OSJ:2A:[Data]
+Request: QSJ:2A
+- Data: 0 = Off, 1 = On
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:2A:0&res=1
+Response: OSJ:2A:0x[Data]
+Update Notification: Yes
+```
+
+### Preset Iris (`OSJ:5B`)
+Available when Preset Scope is Mode A/Mode B.
+```
+Control: OSJ:5B:[Data]
+Request: QSJ:5B
+- Data: 0 = Off, 1 = On
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:5B:0&res=1
+Response: OSJ:5B:[Data]
+Update Notification: Yes
+```
+
+### Preset Zoom Mode (`OSE:7D`)
+```
+Control: OSE:7D:[Data]
+Request: QSE:7D
+- Data: 0 = Mode A, 1 = Mode B
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSE:7D:0&res=1
+Response: OSE:7D:[Data]
+Update Notification: Yes
+```
+
+### Freeze During Preset (`#PRF`)
+Freezes video output during preset playback.
+```
+Control: #PRF[Data]
+Request: #PRF
+- Data: 0 = Off, 1 = On
+Example: http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23PRF0&res=1
+Response: pRF[Data]
+Update Notification: Yes
+```
+
+### Save Preset Name (`OSJ:35`)
+```
+Control: OSJ:35:[Data1]:[Data2]
+Request: QSJ:35:[Data1]
+- Data1: 00h-99h (Preset 1-100)
+- Data2: Preset Name (fixed 15 ASCII characters)
 Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:35:00:MyPresetName123&res=1
+Response: OSJ:35:[Data1]:[Data2]
+Update Notification: No
+```
+
+### Delete Preset Name — Single (`OSJ:36`)
+```
+Control: OSJ:36:[Data1]
+- Data1: 00-99 (Preset 1-100)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:36:00&res=1
+Response: OSJ:36:[Data]
+Update Notification: No
+```
+
+### Delete Preset Name — All (`OSJ:37`)
+```
+Control: OSJ:37
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:37&res=1
+Response: OSJ:37
+Update Notification: No
+```
+
+### Preset Thumbnail Auto-Update (`OSJ:2B`)
+```
+Control: OSJ:2B:[Data]
+Request: QSJ:2B
+- Data: 0 = Off, 1 = On
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:2B:0&res=1
+Response: OSJ:2B:0x[Data]
+Update Notification: Yes
+```
+
+### Update Preset Thumbnail (`OSJ:39`)
+```
+Control: OSJ:39:[Data1]
+- Data1: 00-99 (Preset 1-100)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:39:00&res=1
+Response: OSJ:39:[Data]
+Update Notification: No
+```
+
+### Delete Preset Thumbnail — Single (`OSJ:3A`)
+```
+Control: OSJ:3A:[Data1]
+- Data1: 00-99 (Preset 1-100)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:3A:00&res=1
+Response: OSJ:3A:[Data]
+Update Notification: No
+```
+
+### Delete Preset Thumbnail — All (`OSJ:3B`)
+```
+Control: OSJ:3B
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:3B&res=1
+Response: OSJ:3B
+Update Notification: No
+```
+
+### Preset Name/Thumbnail Status Counter (`OSJ:3C`)
+Queries name and thumbnail status for a range of presets.
+```
+Request: QSJ:3C:[Data1]
+Response: OSJ:3C:[Data1]:[Data2]
+- Data1 ranges:
+  00h = Preset 001-009 | 01h = Preset 010-018 | 02h = Preset 019-027
+  03h = Preset 028-036 | 04h = Preset 037-045 | 05h = Preset 046-054
+  06h = Preset 055-063 | 07h = Preset 064-072 | 08h = Preset 073-081
+  09h = Preset 082-090 | 0Ah = Preset 091-099 | 0Bh = Preset 100
+- Data2: 000000000h-FFFFFFFFFh (status bits)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=QSJ:3C:00&res=1
+Update Notification: No
+```
+
+### Power On Position (`OSJ:45`)
+```
+Control: OSJ:45:[Data]
+Request: QSJ:45
+- Data: 1 = Standby, 2 = Home, 3 = Preset
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:45:1&res=1
+Response: OSJ:45:[Data]
+Update Notification: Yes
+```
+
+### Power On Preset Number (`OSJ:46`)
+Available when Power On Position is set to Preset.
+```
+Control: OSJ:46:[Data]
+Request: QSJ:46
+- Data: 00-99 (Preset 1-100)
+Example: http://192.168.0.10/cgi-bin/aw_cam?cmd=OSJ:46:00&res=1
+Response: OSJ:46:[Data]
+Update Notification: Yes
 ```
 
 ---
@@ -400,7 +697,7 @@ Response: 204 No Content
 ```
 
 ### Notification Format (TCP)
-Notifications are sent to the specified TCP port with the format:
+Notifications are sent to the specified TCP port:
 ```
 [CR][LF][Command Response][CR][LF]
 ```
@@ -428,7 +725,7 @@ Response: 200 OK with complete camera status
 ## Important Restrictions
 
 1. **Pan/Tilt Commands**: Send with 40ms gap between commands
-2. **HTTP Keep-Alive**: Not supported - connect/disconnect each time
+2. **HTTP Keep-Alive**: Not supported — connect/disconnect each time
 3. **URL Encoding**: `#` must be encoded as `%23` in IP communication
 4. **Command Rate**: Only send setting changes when needed, not at regular intervals
 
@@ -469,7 +766,7 @@ http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23Z50&res=1
 ### Preset Workflow
 ```bash
 # Move to position
-http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23APC800080000&res=1
+http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23APC80008000&res=1
 
 # Save as preset 1
 http://192.168.0.10/cgi-bin/aw_ptz?cmd=%23M00&res=1
