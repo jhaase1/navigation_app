@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
+import '../services/preset_name_store.dart';
 
 class PanasonicPresetsTab extends StatefulWidget {
   final List<PanasonicCameraConfig> panasonicCameras;
@@ -99,13 +100,11 @@ class _PanasonicPresetsTabState extends State<PanasonicPresetsTab> {
 
   Future<void> _savePresetName() async {
     if (_selectedCamera == null || !_panasonicConnected) return;
-    try {
-      final response = await _selectedCamera!.service!.savePresetName(
-          _selectedPresetNum - 1, _presetName); // Convert to 0-based
-      widget.onPanasonicResponse('Name saved: $response');
-    } catch (e) {
-      widget.onPanasonicResponse('Error: ${e.toString()}');
-    }
+    final presetIndex = _selectedPresetNum - 1; // 0-based
+    await PresetNameStore.save(
+        _selectedCamera!.ipController.text, presetIndex, _presetName);
+    widget.onPanasonicResponse(
+        'Name "$_presetName" saved for preset $_selectedPresetNum');
   }
 
   @override

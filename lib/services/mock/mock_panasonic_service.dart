@@ -32,6 +32,7 @@ class MockPanasonicService extends PanasonicServiceAbstract {
     return 'Mock: Saved preset name "$name" for preset $preset';
   }
 
+
   @override
   Future<String> getPresetName(int preset) async {
     // await Future.delayed(const Duration(milliseconds: 100));

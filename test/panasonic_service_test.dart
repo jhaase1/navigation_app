@@ -31,7 +31,7 @@ void main() {
           return http.Response('"pE015555555555"', 200);
         } else if (request.url.toString().contains('aw_ptz') &&
             request.url.toString().contains('%23PE02')) {
-          return http.Response('"pE02FFFFF00000"', 200);
+          return http.Response('"pE0200000FFFFF"', 200);
         } else if (request.url.toString().contains('aw_cam') &&
             request.url.toString().contains('OAW:0')) {
           return http.Response('"OAW0"', 200);
@@ -238,7 +238,7 @@ void main() {
       expect(result[1], true); // bit 1 of first nibble
       expect(result[2], false); // bit 2 of first nibble
       expect(result[3], true); // bit 3 of first nibble (MSB)
-      // Range 2: FFFFF00000 = first 20 bits set (presets 80-99)
+      // Range 2: 00000FFFFF (big-endian) = first 20 bits set (presets 80-99)
       expect(result[80], true);
       expect(result[99], true);
       expect(result[79], false); // Before range 2

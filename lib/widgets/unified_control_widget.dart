@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/preset_name_store.dart';
 
 class UnifiedControlWidget extends StatefulWidget {
   final RolandServiceAbstract? rolandService;
@@ -31,7 +31,6 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       {}; // cameraIndex -> {presetNum -> available}
   final Map<int, String> _macroNames = {};
   bool _loadingPresets = false;
-  bool _loadingMacros = false;
   final List<VoidCallback> _cameraListeners = [];
 
   @override
@@ -92,52 +91,18 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
     }
   }
 
-  Future<void> _fetchMacroNames() async {
-    if (widget.rolandService == null || widget.rolandConnected?.value != true)
-    {
+  void _fetchMacroNames() {
+    if (widget.rolandService == null || widget.rolandConnected?.value != true) {
       return;
     }
-    setState(() => _loadingMacros = true);
-    _macroNames.clear();
-    const int maxRetries = 3;
-    for (int attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        final futures = List.generate(
-            maxItems, (i) => widget.rolandService!.macroExists(i + 1));
-        final existsList = await Future.wait(futures);
-        for (int i = 0; i < existsList.length; i++) {
-          if (existsList[i]) {
-            _macroNames[i + 1] = 'Macro ${i + 1}';
-          }
-        }
-        if (mounted) {
-          setState(() {
-            _loadingMacros = false;
-          });
-        }
-        return; // Success, exit
-      } catch (e) {
-        String errorMessage;
-        if (e is TimeoutException) {
-          errorMessage =
-              'Network timeout while checking macro existence (attempt $attempt/$maxRetries)';
-        } else if (e.toString().contains('connection') ||
-            e.toString().contains('socket')) {
-          errorMessage =
-              'Connection error while checking macro existence (attempt $attempt/$maxRetries)';
-        } else {
-          errorMessage =
-              'Device error while checking macro existence: $e (attempt $attempt/$maxRetries)';
-        }
-        if (attempt == maxRetries) {
-          widget.onResponse(errorMessage);
-        } else {
-          await Future.delayed(const Duration(seconds: 1)); // Wait before retry
-        }
-      }
+    final names = <int, String>{};
+    for (int i = 1; i <= maxItems; i++) {
+      names[i] = 'Macro $i';
     }
     if (mounted) {
-      setState(() => _loadingMacros = false);
+      setState(() => _macroNames
+        ..clear()
+        ..addAll(names));
     }
   }
 
@@ -186,6 +151,13 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
       if (mounted) {
         setState(() {
           _cameraPresetAvailability[cameraIndex] = statuses;
+        });
+      }
+
+      final names = await PresetNameStore.loadAll(camera.ipController.text);
+      if (mounted) {
+        setState(() {
+          _cameraPresetNames[cameraIndex] = names;
         });
       }
     } on TimeoutException {
@@ -239,19 +211,7 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
             ),
             const SizedBox(height: 16),
             if (isRolandSelected) ...[
-              Row(
-                children: [
-                  const Text('Select Macro:'),
-                  if (_loadingMacros) ...[
-                    const SizedBox(width: 8),
-                    const SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ],
-                ],
-              ),
+              const Text('Select Macro:'),
               const SizedBox(height: 8),
               Expanded(
                 child: GridView.count(
@@ -300,7 +260,6 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
               Builder(
                 builder: (context) {
                   final cameraIndex = _selectedDeviceIndex - 1;
-                  final camera = widget.cameras[cameraIndex];
                   final presetNames = _cameraPresetNames[cameraIndex] ?? {};
                   final presetAvailability =
                       _cameraPresetAvailability[cameraIndex] ?? {};
@@ -326,11 +285,11 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                       mainAxisSpacing: 4,
                       crossAxisSpacing: 4,
                       children: availablePresets.map((entry) {
-                        final preset = entry.key +
-                            1; // Convert 0-based to 1-based for display
-                        final name = presetNames[preset];
+                        final presetIndex = entry.key; // 0-based for recall
+                        final displayNum = entry.key + 1; // 1-based for display
+                        final name = presetNames[presetIndex];
                         return Tooltip(
-                          message: name ?? '$preset',
+                          message: name ?? '$displayNum',
                           child: FilledButton(
                             style: FilledButton.styleFrom(
                               shape: RoundedRectangleBorder(
@@ -340,8 +299,8 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               textStyle: const TextStyle(fontSize: 12),
                             ),
-                            onPressed: () => _executeCameraPreset(preset),
-                            child: Text(name ?? '$preset'),
+                            onPressed: () => _executeCameraPreset(presetIndex),
+                            child: Text(name ?? '$displayNum'),
                           ),
                         );
                       }).toList(),

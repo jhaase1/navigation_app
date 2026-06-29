@@ -949,13 +949,13 @@ mixin ControlCommands {
   /// Executes a macro.
   Future<void> executeMacro(int macro) {
     if (macro < 1 || macro > 100) throw ArgumentError('macro must be 1-100');
-    return _sendCommand(_buildCommand('MCREX', [macro.toString()]));
+    return _sendCommand(_buildCommand('MCREX', ['MACRO$macro']));
   }
 
   /// Checks if macro is executing.
   Future<void> getMacroStatus(int macro) {
     if (macro < 1 || macro > 100) throw ArgumentError('macro must be 1-100');
-    return _sendCommand(_buildCommand('QMCRST', [macro.toString()]));
+    return _sendCommand(_buildCommand('QMCRST', ['MACRO$macro']));
   }
 
   /// Recalls scene memory.
@@ -2353,9 +2353,9 @@ class RolandService extends RolandServiceAbstract
       String cmd, List<String> params, String response) {
     switch (cmd) {
       case 'MCRST':
-        return MacroStatusResponse(params[0], params[1]);
       case 'QMCRST':
-        return MacroStatusResponse(params[0], params[1]);
+        // Response format: MCRST:MACRO{n},{status}; — params[0]=MACRO{n}, params[1]=status
+        return MacroStatusResponse(params[0], params[1].replaceAll(';', ''));
       case 'SQS':
         return SequencerStatusResponse(params[0]);
       case 'QSEQSW':
@@ -2402,20 +2402,10 @@ class RolandService extends RolandServiceAbstract
   }
 
   @override
-  Future<String> getMacroName(int macro) async {
-    // Roland V-160HD doesn't seem to have a command to get macro names via API
-    return 'Macro $macro';
-  }
+  Future<String> getMacroName(int macro) async => 'Macro $macro';
 
   @override
-  Future<bool> macroExists(int macro) async {
-    try {
-      await getMacroStatus(macro);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
+  Future<bool> macroExists(int macro) async => true;
 
   /// Disposes the service, closing streams and disconnecting.
   void dispose() {
