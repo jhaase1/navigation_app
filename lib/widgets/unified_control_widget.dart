@@ -326,11 +326,11 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                       mainAxisSpacing: 4,
                       crossAxisSpacing: 4,
                       children: availablePresets.map((entry) {
-                        final preset = entry.key +
-                            1; // Convert 0-based to 1-based for display
-                        final name = presetNames[preset];
+                        final presetIndex = entry.key; // 0-based for recall
+                        final displayNum = entry.key + 1; // 1-based for display
+                        final name = presetNames[presetIndex];
                         return Tooltip(
-                          message: name ?? '$preset',
+                          message: name ?? '$displayNum',
                           child: FilledButton(
                             style: FilledButton.styleFrom(
                               shape: RoundedRectangleBorder(
@@ -340,8 +340,8 @@ class _UnifiedControlWidgetState extends State<UnifiedControlWidget> {
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               textStyle: const TextStyle(fontSize: 12),
                             ),
-                            onPressed: () => _executeCameraPreset(preset),
-                            child: Text(name ?? '$preset'),
+                            onPressed: () => _executeCameraPreset(presetIndex),
+                            child: Text(name ?? '$displayNum'),
                           ),
                         );
                       }).toList(),

@@ -989,11 +989,11 @@ class PanasonicService extends PanasonicServiceAbstract {
 
     final List<bool> bits = [];
 
-    for (int charIndex = 0; charIndex < hexString.length; charIndex++) {
+    // The hex string is big-endian: the rightmost nibble holds bit0 (preset 1).
+    for (int charIndex = hexString.length - 1; charIndex >= 0; charIndex--) {
       final char = hexString[charIndex];
       final nibble = int.parse(char, radix: 16);
 
-      // Extract 4 bits from the nibble (bit 0 is LSB)
       for (int bit = 0; bit < 4; bit++) {
         bits.add((nibble & (1 << bit)) != 0);
       }
