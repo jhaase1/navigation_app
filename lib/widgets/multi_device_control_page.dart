@@ -1,14 +1,24 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
+import '../models/person.dart';
+import '../models/role.dart';
+import '../models/scene.dart';
+import '../models/service_order.dart';
 import '../services/roland_service.dart';
 import '../services/panasonic_service.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
-import 'settings_dialog.dart';
+import '../services/people_store.dart';
+import '../services/role_store.dart';
+import '../services/scene_store.dart';
+import '../services/service_order_store.dart';
+import '../services/visibility_store.dart';
 import 'basic_tab.dart';
 import 'filtered_control_widget.dart';
-import '../services/visibility_store.dart';
+import 'order_tab.dart';
+import 'scenes_tab.dart';
+import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
   const MultiDeviceControlPage({super.key});
@@ -18,7 +28,6 @@ class MultiDeviceControlPage extends StatefulWidget {
 }
 
 class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
-  // Mock mode
   bool _mockMode = true;
   bool _connectingAll = false;
 
@@ -31,10 +40,15 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   String _rolandResponse = '';
   final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
 
-  // Panasonic - Multiple cameras
+  // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
 
-  // Master control response
+  // Shared data
+  List<Scene> _scenes = [];
+  List<Person> _people = [];
+  List<Role> _roles = [];
+  List<ServiceOrder> _serviceOrders = [];
+
   String _masterResponse = '';
 
   @override
@@ -45,16 +59,40 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       PanasonicCameraConfig(name: 'Camera 2', ipAddress: '10.0.1.11'),
       PanasonicCameraConfig(name: 'Camera 3', ipAddress: '10.0.1.12'),
     ]);
+    _loadScenes();
+    _loadPeople();
+    _loadRoles();
+    _loadOrders();
   }
 
   @override
   void dispose() {
     _rolandService.disconnect();
     _rolandIpController.dispose();
-    for (var camera in _panasonicCameras) {
+    for (final camera in _panasonicCameras) {
       camera.ipController.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _loadScenes() async {
+    final scenes = await SceneStore.loadAll();
+    if (mounted) setState(() => _scenes = scenes);
+  }
+
+  Future<void> _loadPeople() async {
+    final people = await PeopleStore.loadAll();
+    if (mounted) setState(() => _people = people);
+  }
+
+  Future<void> _loadRoles() async {
+    final roles = await RoleStore.loadAll();
+    if (mounted) setState(() => _roles = roles);
+  }
+
+  Future<void> _loadOrders() async {
+    final orders = await ServiceOrderStore.loadAll();
+    if (mounted) setState(() => _serviceOrders = orders);
   }
 
   Future<void> _connectAll() async {
@@ -103,11 +141,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
       });
-
       service.responseStream.listen((data) {
-        setState(() {
-          _rolandResponse = data.toString();
-        });
+        setState(() => _rolandResponse = data.toString());
       });
     } catch (e) {
       setState(() {
@@ -168,17 +203,17 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(
-          builder: (context, setState) => SettingsDialog(
+          builder: (context, setDialogState) => SettingsDialog(
             mockMode: _mockMode,
             onMockModeChanged: (value) {
-              setState(() {
+              setDialogState(() {
                 _mockMode = value;
                 if (_rolandConnected.value) {
                   _rolandService.disconnect();
                   _rolandConnected.value = false;
                   _rolandService = MockRolandService();
                 }
-                for (var camera in _panasonicCameras) {
+                for (final camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
                     camera.service = MockPanasonicService();
@@ -194,7 +229,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onConnectRoland: _connectRoland,
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
-            onResponse: (r) => this.setState(() => _masterResponse = r),
+            onResponse: (r) => setState(() => _masterResponse = r),
+            scenes: _scenes,
+            people: _people,
+            roles: _roles,
+            onScenesChanged: _loadScenes,
+            onPeopleChanged: _loadPeople,
+            onRolesChanged: _loadRoles,
+            onOrdersChanged: _loadOrders,
           ),
         );
       },
@@ -283,13 +325,15 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         ],
       ),
       body: DefaultTabController(
-        length: 3,
+        length: 5,
         child: Column(
           children: [
             const TabBar(
               tabs: [
                 Tab(text: 'Basic'),
                 Tab(text: 'Advanced'),
+                Tab(text: 'Scenes'),
+                Tab(text: 'Order'),
                 Tab(text: 'Switching'),
               ],
             ),
@@ -303,8 +347,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
-                    onResponse: (response) =>
-                        setState(() => _masterResponse = response),
+                    onResponse: (r) => setState(() => _masterResponse = r),
                   ),
                   FilteredControlWidget(
                     title: 'Advanced',
@@ -313,13 +356,27 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
-                    onResponse: (response) =>
-                        setState(() => _masterResponse = response),
+                    onResponse: (r) => setState(() => _masterResponse = r),
+                  ),
+                  ScenesTab(
+                    cameras: _panasonicCameras,
+                    scenes: _scenes,
+                    people: _people,
+                    onResponse: (r) => setState(() => _masterResponse = r),
+                  ),
+                  OrderTab(
+                    cameras: _panasonicCameras,
+                    people: _people,
+                    roles: _roles,
+                    scenes: _scenes,
+                    orders: _serviceOrders,
+                    rolandService: _rolandService,
+                    rolandConnected: _rolandConnected,
+                    onResponse: (r) => setState(() => _masterResponse = r),
                   ),
                   BasicTab(
                     rolandConnected: _rolandConnected,
-                    onRolandResponse: (response) =>
-                        setState(() => _rolandResponse = response),
+                    onRolandResponse: (r) => setState(() => _rolandResponse = r),
                     rolandService: _rolandService,
                   ),
                 ],
@@ -332,7 +389,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 children: [
                   Text('Last Roland Response: $_rolandResponse',
                       style: Theme.of(context).textTheme.bodySmall),
-                  Text('Last Master Response: $_masterResponse',
+                  Text('Last Response: $_masterResponse',
                       style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
