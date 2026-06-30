@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
+import '../services/abstract/roland_service_abstract.dart';
+import 'connections_dialog.dart';
+import 'master_control_widget.dart';
+import 'pinp_tab.dart';
 
 class SettingsDialog extends StatelessWidget {
   final bool mockMode;
   final ValueChanged<bool> onMockModeChanged;
+  final RolandServiceAbstract? rolandService;
   final TextEditingController rolandIpController;
   final ValueNotifier<bool> rolandConnected;
   final ValueNotifier<bool> rolandConnecting;
@@ -11,11 +16,13 @@ class SettingsDialog extends StatelessWidget {
   final VoidCallback onConnectRoland;
   final List<PanasonicCameraConfig> panasonicCameras;
   final Function(int) onConnectPanasonic;
+  final ValueChanged<String> onResponse;
 
   const SettingsDialog({
     super.key,
     required this.mockMode,
     required this.onMockModeChanged,
+    required this.rolandService,
     required this.rolandIpController,
     required this.rolandConnected,
     required this.rolandConnecting,
@@ -23,254 +30,162 @@ class SettingsDialog extends StatelessWidget {
     required this.onConnectRoland,
     required this.panasonicCameras,
     required this.onConnectPanasonic,
+    required this.onResponse,
   });
+
+  void _openConnections(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => ConnectionsDialog(
+        rolandIpController: rolandIpController,
+        rolandConnected: rolandConnected,
+        rolandConnecting: rolandConnecting,
+        rolandConnectionError: rolandConnectionError,
+        onConnectRoland: onConnectRoland,
+        panasonicCameras: panasonicCameras,
+        onConnectPanasonic: onConnectPanasonic,
+      ),
+    );
+  }
+
+  void _openMasterControl(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Master Control'),
+        contentPadding: EdgeInsets.zero,
+        content: SizedBox(
+          width: 700,
+          height: MediaQuery.of(ctx).size.height * 0.85,
+          child: MasterControlWidget(
+            rolandService: rolandService,
+            rolandConnected: rolandConnected,
+            rolandIpController: rolandIpController,
+            cameras: panasonicCameras,
+            onResponse: onResponse,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openPinP(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('PinP'),
+        content: SizedBox(
+          width: 500,
+          child: PinPTab(
+            rolandConnected: rolandConnected,
+            onRolandResponse: onResponse,
+            rolandService: rolandService,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Device Settings'),
-      content: SingleChildScrollView(
-        child: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Mock Mode Toggle
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: mockMode
-                          ? Colors.orange.shade200
-                          : Colors.blue.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      mockMode ? Icons.visibility : Icons.wifi,
-                      color: mockMode ? Colors.orange : Colors.blue,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            mockMode ? 'Demo Mode Active' : 'Live Mode',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: mockMode
-                                  ? Colors.orange.shade900
-                                  : Colors.blue.shade900,
-                            ),
-                          ),
-                          Text(
-                            mockMode
-                                ? 'UI preview without real devices'
-                                : 'Connecting to actual hardware',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: mockMode
-                                  ? Colors.orange.shade700
-                                  : Colors.blue.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: mockMode,
-                      onChanged: onMockModeChanged,
-                    ),
-                  ],
-                ),
+      title: const Text('Settings'),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Demo / Live mode toggle
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: mockMode
+                        ? Colors.orange.shade200
+                        : Colors.blue.shade200),
               ),
-              const SizedBox(height: 24),
-              ValueListenableBuilder<bool>(
-                valueListenable: rolandConnected,
-                builder: (context, rolandConnectedValue, child) =>
-                    ValueListenableBuilder<bool>(
-                  valueListenable: rolandConnecting,
-                  builder: (context, rolandConnectingValue, child) =>
-                      ValueListenableBuilder<String>(
-                    valueListenable: rolandConnectionError,
-                    builder: (context, rolandErrorValue, child) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Row(
+                children: [
+                  Icon(
+                    mockMode ? Icons.visibility : Icons.wifi,
+                    color: mockMode ? Colors.orange : Colors.blue,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const Text('Roland V-160HD',
-                                style: TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.bold)),
-                            const SizedBox(width: 12),
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: rolandConnectedValue
-                                    ? Colors.green
-                                    : Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: rolandIpController,
-                          decoration: const InputDecoration(
-                            labelText: 'IP Address',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.router),
+                        Text(
+                          mockMode ? 'Demo Mode' : 'Live Mode',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: mockMode
+                                ? Colors.orange.shade900
+                                : Colors.blue.shade900,
                           ),
-                          enabled:
-                              !rolandConnectedValue && !rolandConnectingValue,
                         ),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed: rolandConnectingValue
-                              ? null
-                              : () {
-                                  onConnectRoland();
-                                },
-                          style: FilledButton.styleFrom(
-                            backgroundColor:
-                                rolandConnectedValue ? Colors.red : null,
+                        Text(
+                          mockMode
+                              ? 'UI preview without real devices'
+                              : 'Connecting to actual hardware',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: mockMode
+                                ? Colors.orange.shade700
+                                : Colors.blue.shade700,
                           ),
-                          child: rolandConnectingValue
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(rolandConnectedValue
-                                  ? 'Disconnect'
-                                  : 'Connect'),
                         ),
-                        if (rolandErrorValue.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.red.shade200),
-                            ),
-                            child: Text(
-                              'Connection failed. Check IP address.',
-                              style: TextStyle(
-                                  color: Colors.red.shade700, fontSize: 12),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
-                ),
+                  Switch(value: mockMode, onChanged: onMockModeChanged),
+                ],
               ),
-              const SizedBox(height: 24),
+            ),
+            const SizedBox(height: 8),
 
-              // Panasonic Cameras Section
-              const Text('Panasonic Cameras',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              ...List.generate(panasonicCameras.length, (index) {
-                final camera = panasonicCameras[index];
-                return ValueListenableBuilder<bool>(
-                  valueListenable: camera.isConnected,
-                  builder: (context, isConnectedValue, child) =>
-                      ValueListenableBuilder<bool>(
-                    valueListenable: camera.isConnecting,
-                    builder: (context, isConnectingValue, child) =>
-                        ValueListenableBuilder<String>(
-                      valueListenable: camera.connectionError,
-                      builder: (context, connectionErrorValue, child) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (index > 0) const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Text(camera.name,
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600)),
-                              const SizedBox(width: 12),
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: isConnectedValue
-                                      ? Colors.green
-                                      : Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: camera.ipController,
-                            decoration: const InputDecoration(
-                              labelText: 'IP Address',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.videocam),
-                            ),
-                            enabled: !isConnectedValue && !isConnectingValue,
-                          ),
-                          const SizedBox(height: 8),
-                          FilledButton(
-                            onPressed: isConnectingValue
-                                ? null
-                                : () {
-                                    onConnectPanasonic(index);
-                                  },
-                            style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  isConnectedValue ? Colors.red : null,
-                            ),
-                            child: isConnectingValue
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(isConnectedValue
-                                    ? 'Disconnect'
-                                    : 'Connect'),
-                          ),
-                          if (connectionErrorValue.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.red.shade200),
-                              ),
-                              child: Text(
-                                'Connection failed. Check IP address.',
-                                style: TextStyle(
-                                    color: Colors.red.shade700, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ],
-          ),
+            ListTile(
+              leading: const Icon(Icons.settings_ethernet),
+              title: const Text('Manage Connections'),
+              subtitle: const Text('Configure device IPs and connect/disconnect'),
+              trailing: const Icon(Icons.chevron_right),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              onTap: () => _openConnections(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.dashboard_customize),
+              title: const Text('Master Control'),
+              subtitle: const Text('Manage macros and presets, assign visibility'),
+              trailing: const Icon(Icons.chevron_right),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              onTap: () => _openMasterControl(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_in_picture),
+              title: const Text('PinP'),
+              subtitle: const Text('Picture-in-picture source and position'),
+              trailing: const Icon(Icons.chevron_right),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              onTap: () => _openPinP(context),
+            ),
+          ],
         ),
       ),
       actions: [
