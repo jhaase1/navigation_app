@@ -210,9 +210,10 @@ class SettingsDialog extends StatelessWidget {
       title: const Text('Settings'),
       content: SizedBox(
         width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -320,6 +321,7 @@ class SettingsDialog extends StatelessWidget {
           ],
         ),
       ),
+    ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
