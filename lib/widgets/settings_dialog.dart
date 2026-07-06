@@ -4,6 +4,7 @@ import '../models/person.dart';
 import '../models/role.dart';
 import '../models/scene.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/config_bundle.dart';
 import 'connections_dialog.dart';
 import 'master_control_widget.dart';
 import 'order_manager_dialog.dart';
@@ -31,6 +32,7 @@ class SettingsDialog extends StatelessWidget {
   final VoidCallback onPeopleChanged;
   final VoidCallback onRolesChanged;
   final VoidCallback onOrdersChanged;
+  final VoidCallback onAllDataChanged;
 
   const SettingsDialog({
     super.key,
@@ -52,6 +54,7 @@ class SettingsDialog extends StatelessWidget {
     required this.onPeopleChanged,
     required this.onRolesChanged,
     required this.onOrdersChanged,
+    required this.onAllDataChanged,
   });
 
   void _openConnections(BuildContext context) {
@@ -131,6 +134,51 @@ class SettingsDialog extends StatelessWidget {
         onSaved: onOrdersChanged,
       ),
     );
+  }
+
+  Future<void> _exportConfig(BuildContext context) async {
+    final bundle = await ConfigBundle.fromStores();
+    if (!context.mounted) return;
+    final path = await ConfigBundle.exportToFile(bundle);
+    if (!context.mounted) return;
+    if (path != null) {
+      onResponse('Config exported to $path');
+    }
+  }
+
+  Future<void> _importConfig(BuildContext context) async {
+    final bundle = await ConfigBundle.importFromFile();
+    if (bundle == null || !context.mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Replace all configuration?'),
+        content: Text(
+          'This will overwrite everything with:\n'
+          '  • ${bundle.scenes.length} scene${bundle.scenes.length == 1 ? '' : 's'}\n'
+          '  • ${bundle.people.length} person${bundle.people.length == 1 ? '' : 's'}\n'
+          '  • ${bundle.roles.length} role${bundle.roles.length == 1 ? '' : 's'}\n'
+          '  • ${bundle.orders.length} service order${bundle.orders.length == 1 ? '' : 's'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Replace all'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+    await bundle.saveToStores();
+    onAllDataChanged();
+    onResponse('Configuration imported successfully');
   }
 
   void _openPinP(BuildContext context) {
@@ -255,6 +303,19 @@ class SettingsDialog extends StatelessWidget {
               title: 'PinP',
               subtitle: 'Picture-in-picture source and position',
               onTap: () => _openPinP(context),
+            ),
+            const Divider(),
+            _tile(
+              icon: Icons.upload_file,
+              title: 'Export Configuration',
+              subtitle: 'Save scenes, people, roles & orders to a JSON file',
+              onTap: () => _exportConfig(context),
+            ),
+            _tile(
+              icon: Icons.download,
+              title: 'Import Configuration',
+              subtitle: 'Replace all data from a previously exported file',
+              onTap: () => _importConfig(context),
             ),
           ],
         ),

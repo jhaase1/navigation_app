@@ -90,6 +90,13 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) setState(() => _roles = roles);
   }
 
+  void _loadAll() {
+    _loadScenes();
+    _loadPeople();
+    _loadRoles();
+    _loadOrders();
+  }
+
   Future<void> _loadOrders() async {
     final orders = await ServiceOrderStore.loadAll();
     if (mounted) setState(() => _serviceOrders = orders);
@@ -237,6 +244,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onPeopleChanged: _loadPeople,
             onRolesChanged: _loadRoles,
             onOrdersChanged: _loadOrders,
+            onAllDataChanged: _loadAll,
           ),
         );
       },
