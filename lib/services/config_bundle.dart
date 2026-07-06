@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
-
 import '../models/person.dart';
 import '../models/role.dart';
 import '../models/scene.dart';
@@ -69,31 +67,36 @@ class ConfigBundle {
         ServiceOrderStore.saveAll(orders),
       ]).then((_) {});
 
-  // Returns the saved path, or null if the user cancelled.
-  static Future<String?> exportToFile(ConfigBundle bundle) async {
+  /// Suggested default export path using the platform Documents folder.
+  static String suggestedExportPath() {
     final now = DateTime.now();
     final stamp =
         '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final dir = await getDirectoryPath(confirmButtonText: 'Save here');
-    if (dir == null) return null;
-    final path = '$dir/nav_config_$stamp.json';
-    await File(path).writeAsString(
-      const JsonEncoder.withIndent('  ').convert(bundle.toJson()),
-    );
-    return path;
+    final filename = 'nav_config_$stamp.json';
+    if (Platform.isWindows) {
+      final home = Platform.environment['USERPROFILE'];
+      if (home != null) return '$home\\Documents\\$filename';
+    } else {
+      final home = Platform.environment['HOME'];
+      if (home != null) return '$home/Documents/$filename';
+    }
+    return filename;
   }
 
-  // Returns the parsed bundle, or null if the user cancelled or the file is invalid.
-  static Future<ConfigBundle?> importFromFile() async {
-    final file = await openFile(
-      acceptedTypeGroups: [
-        const XTypeGroup(label: 'JSON', extensions: ['json']),
-      ],
-    );
-    if (file == null) return null;
-    final content = await file.readAsString();
+  /// Writes this bundle to [path] as indented JSON. Throws on I/O error.
+  static Future<void> writeToPath(String path, ConfigBundle bundle) =>
+      File(path).writeAsString(
+        const JsonEncoder.withIndent('  ').convert(bundle.toJson()),
+      );
+
+  /// Reads and parses a bundle from [path]. Throws [FormatException] if the
+  /// content is not a valid configuration object.
+  static Future<ConfigBundle> readFromPath(String path) async {
+    final content = await File(path).readAsString();
     final json = jsonDecode(content);
-    if (json is! Map<String, dynamic>) return null;
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('Not a valid configuration file');
+    }
     return ConfigBundle.fromJson(json);
   }
 }

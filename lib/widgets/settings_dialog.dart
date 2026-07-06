@@ -137,18 +137,85 @@ class SettingsDialog extends StatelessWidget {
   }
 
   Future<void> _exportConfig(BuildContext context) async {
-    final bundle = await ConfigBundle.fromStores();
-    if (!context.mounted) return;
-    final path = await ConfigBundle.exportToFile(bundle);
-    if (!context.mounted) return;
-    if (path != null) {
-      onResponse('Config exported to $path');
+    final pathCtrl = TextEditingController(
+        text: ConfigBundle.suggestedExportPath());
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Export Configuration'),
+        content: TextField(
+          controller: pathCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Save path',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Export')),
+        ],
+      ),
+    );
+
+    final path = pathCtrl.text.trim();
+    pathCtrl.dispose();
+    if (confirmed != true || path.isEmpty || !context.mounted) return;
+
+    try {
+      final bundle = await ConfigBundle.fromStores();
+      if (!context.mounted) return;
+      await ConfigBundle.writeToPath(path, bundle);
+      onResponse('Exported to $path');
+    } catch (e) {
+      if (context.mounted) onResponse('Export failed: $e');
     }
   }
 
   Future<void> _importConfig(BuildContext context) async {
-    final bundle = await ConfigBundle.importFromFile();
-    if (bundle == null || !context.mounted) return;
+    final pathCtrl = TextEditingController();
+
+    final enteredPath = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Import Configuration'),
+        content: TextField(
+          controller: pathCtrl,
+          decoration: InputDecoration(
+            labelText: 'File path',
+            hintText: ConfigBundle.suggestedExportPath(),
+            border: const OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Load')),
+        ],
+      ),
+    );
+
+    final path = pathCtrl.text.trim();
+    pathCtrl.dispose();
+    if (enteredPath != true || path.isEmpty || !context.mounted) return;
+
+    ConfigBundle bundle;
+    try {
+      bundle = await ConfigBundle.readFromPath(path);
+    } catch (e) {
+      if (context.mounted) onResponse('Import failed: $e');
+      return;
+    }
+    if (!context.mounted) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -163,9 +230,8 @@ class SettingsDialog extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.orange),
             onPressed: () => Navigator.pop(context, true),
