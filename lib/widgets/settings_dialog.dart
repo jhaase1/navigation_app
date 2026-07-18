@@ -137,52 +137,48 @@ class SettingsDialog extends StatelessWidget {
   }
 
   Future<void> _exportConfig(BuildContext context) async {
-    final pathCtrl = TextEditingController(
-        text: ConfigBundle.suggestedExportPath());
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Export Configuration'),
-        content: TextField(
-          controller: pathCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Save path',
-            border: OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Export')),
-        ],
-      ),
-    );
-
-    final path = pathCtrl.text.trim();
-    pathCtrl.dispose();
-    if (confirmed != true || path.isEmpty || !context.mounted) return;
-
+    final path = ConfigBundle.suggestedExportPath();
     try {
       final bundle = await ConfigBundle.fromStores();
-      if (!context.mounted) return;
       await ConfigBundle.writeToPath(path, bundle);
-      onResponse('Exported to $path');
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Export complete'),
+          content: SelectableText(path),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
-      if (context.mounted) onResponse('Export failed: $e');
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Export failed'),
+          content: Text(e.toString()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
   Future<void> _importConfig(BuildContext context) async {
     final pathCtrl = TextEditingController();
 
-    final enteredPath = await showDialog<bool>(
+    final proceed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Import Configuration'),
         content: TextField(
           controller: pathCtrl,
@@ -195,10 +191,10 @@ class SettingsDialog extends StatelessWidget {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancel')),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(ctx, true),
               child: const Text('Load')),
         ],
       ),
@@ -206,20 +202,33 @@ class SettingsDialog extends StatelessWidget {
 
     final path = pathCtrl.text.trim();
     pathCtrl.dispose();
-    if (enteredPath != true || path.isEmpty || !context.mounted) return;
+    if (proceed != true || path.isEmpty || !context.mounted) return;
 
     ConfigBundle bundle;
     try {
       bundle = await ConfigBundle.readFromPath(path);
     } catch (e) {
-      if (context.mounted) onResponse('Import failed: $e');
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Import failed'),
+          content: Text(e.toString()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
       return;
     }
-    if (!context.mounted) return;
 
+    if (!context.mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Replace all configuration?'),
         content: Text(
           'This will overwrite everything with:\n'
@@ -230,11 +239,11 @@ class SettingsDialog extends StatelessWidget {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.orange),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Replace all'),
           ),
         ],

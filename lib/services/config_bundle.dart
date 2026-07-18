@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import '../models/person.dart';
 import '../models/role.dart';
 import '../models/scene.dart';
@@ -68,11 +70,13 @@ class ConfigBundle {
       ]).then((_) {});
 
   /// Suggested default export path using the platform Documents folder.
+  /// Returns just the filename on web (file I/O is not supported there).
   static String suggestedExportPath() {
     final now = DateTime.now();
     final stamp =
         '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
     final filename = 'nav_config_$stamp.json';
+    if (kIsWeb) return filename;
     if (Platform.isWindows) {
       final home = Platform.environment['USERPROFILE'];
       if (home != null) return '$home\\Documents\\$filename';
@@ -84,14 +88,22 @@ class ConfigBundle {
   }
 
   /// Writes this bundle to [path] as indented JSON. Throws on I/O error.
-  static Future<void> writeToPath(String path, ConfigBundle bundle) =>
-      File(path).writeAsString(
-        const JsonEncoder.withIndent('  ').convert(bundle.toJson()),
-      );
+  static Future<void> writeToPath(String path, ConfigBundle bundle) {
+    if (kIsWeb) {
+      return Future.error(
+          UnsupportedError('File export is not supported on web'));
+    }
+    return File(path).writeAsString(
+      const JsonEncoder.withIndent('  ').convert(bundle.toJson()),
+    );
+  }
 
   /// Reads and parses a bundle from [path]. Throws [FormatException] if the
   /// content is not a valid configuration object.
   static Future<ConfigBundle> readFromPath(String path) async {
+    if (kIsWeb) {
+      throw UnsupportedError('File import is not supported on web');
+    }
     final content = await File(path).readAsString();
     final json = jsonDecode(content);
     if (json is! Map<String, dynamic>) {
