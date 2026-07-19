@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
-import '../models/role.dart';
-import '../models/scene.dart';
-import '../models/service_order.dart';
+import '../models/position.dart';
+import '../models/service.dart';
 import '../services/roland_service.dart';
 import '../services/panasonic_service.dart';
 import '../services/abstract/roland_service_abstract.dart';
@@ -13,13 +12,12 @@ import '../services/mock/mock_panasonic_service.dart';
 import '../services/device_config_store.dart';
 import '../services/operator_store.dart';
 import '../services/people_store.dart';
-import '../services/role_store.dart';
-import '../services/scene_store.dart';
-import '../services/service_order_store.dart';
+import '../services/position_store.dart';
+import '../services/service_store.dart';
 import 'operator_panel.dart';
-import 'order_tab.dart';
+import 'service_tab.dart';
 import 'basic_tab.dart';
-import 'scenes_tab.dart';
+import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
@@ -50,10 +48,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   OperatorProfile _activeOperator = OperatorProfile.defaultProfile;
 
   // Shared data
-  List<Scene> _scenes = [];
+  List<Position> _positions = [];
   List<Person> _people = [];
-  List<Role> _roles = [];
-  List<ServiceOrder> _serviceOrders = [];
+  List<Service> _services = [];
 
   String _masterResponse = '';
 
@@ -62,10 +59,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     super.initState();
     _loadDeviceConfig();
     _loadOperators();
-    _loadScenes();
+    _loadPositions();
     _loadPeople();
-    _loadRoles();
-    _loadOrders();
+    _loadServices();
   }
 
   Future<void> _loadDeviceConfig() async {
@@ -131,9 +127,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     super.dispose();
   }
 
-  Future<void> _loadScenes() async {
-    final scenes = await SceneStore.loadAll();
-    if (mounted) setState(() => _scenes = scenes);
+  Future<void> _loadPositions() async {
+    final positions = await PositionStore.loadAll();
+    if (mounted) setState(() => _positions = positions);
   }
 
   Future<void> _loadPeople() async {
@@ -141,21 +137,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) setState(() => _people = people);
   }
 
-  Future<void> _loadRoles() async {
-    final roles = await RoleStore.loadAll();
-    if (mounted) setState(() => _roles = roles);
-  }
-
-  Future<void> _loadOrders() async {
-    final orders = await ServiceOrderStore.loadAll();
-    if (mounted) setState(() => _serviceOrders = orders);
-  }
-
-  void _loadAll() {
-    _loadScenes();
-    _loadPeople();
-    _loadRoles();
-    _loadOrders();
+  Future<void> _loadServices() async {
+    final services = await ServiceStore.loadAll();
+    if (mounted) setState(() => _services = services);
   }
 
   Future<void> _connectAll() async {
@@ -256,7 +240,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     } catch (e) {
       setState(() {
         camera.isConnecting.value = false;
-        camera.connectionError.value = 'Could not reach camera: ${e.toString()}';
+        camera.connectionError.value =
+            'Could not reach camera: ${e.toString()}';
       });
     }
   }
@@ -293,14 +278,24 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
             onResponse: (r) => setState(() => _masterResponse = r),
-            scenes: _scenes,
+            positions: _positions,
             people: _people,
-            roles: _roles,
-            onScenesChanged: _loadScenes,
-            onPeopleChanged: _loadPeople,
-            onRolesChanged: _loadRoles,
-            onOrdersChanged: _loadOrders,
-            onAllDataChanged: _loadAll,
+            onPositionsChanged: () async {
+              await _loadPositions();
+              setDialogState(() {});
+            },
+            onPeopleChanged: () async {
+              await _loadPeople();
+              setDialogState(() {});
+            },
+            onServicesChanged: () async {
+              await _loadServices();
+              setDialogState(() {});
+            },
+            onAllDataChanged: () async {
+              await Future.wait([_loadPositions(), _loadPeople(), _loadServices()]);
+              setDialogState(() {});
+            },
             onDeviceConfigSaved: _applyDeviceConfig,
             operators: _operators,
             activeOperator: _activeOperator,
@@ -433,21 +428,20 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           children: [
             const TabBar(
               tabs: [
-                Tab(text: 'Order'),
+                Tab(text: 'Service'),
                 Tab(text: 'Panel'),
-                Tab(text: 'Scenes'),
+                Tab(text: 'Positions'),
                 Tab(text: 'Switching'),
               ],
             ),
             Expanded(
               child: TabBarView(
                 children: [
-                  OrderTab(
+                  ServiceTab(
                     cameras: _panasonicCameras,
                     people: _people,
-                    roles: _roles,
-                    scenes: _scenes,
-                    orders: _serviceOrders,
+                    positions: _positions,
+                    services: _services,
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
                     onResponse: (r) => setState(() => _masterResponse = r),
@@ -460,15 +454,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     cameras: _panasonicCameras,
                     onResponse: (r) => setState(() => _masterResponse = r),
                   ),
-                  ScenesTab(
+                  PositionsTab(
                     cameras: _panasonicCameras,
-                    scenes: _scenes,
+                    positions: _positions,
                     people: _people,
                     onResponse: (r) => setState(() => _masterResponse = r),
                   ),
                   BasicTab(
                     rolandConnected: _rolandConnected,
-                    onRolandResponse: (r) => setState(() => _rolandResponse = r),
+                    onRolandResponse: (r) =>
+                        setState(() => _rolandResponse = r),
                     rolandService: _rolandService,
                   ),
                 ],

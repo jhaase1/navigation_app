@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
-import '../models/scene.dart';
+import '../models/position.dart';
 import '../services/people_store.dart';
 
 class PeopleManagerDialog extends StatefulWidget {
-  final List<Scene> scenes;
+  final List<Position> positions;
   final List<PanasonicCameraConfig> cameras;
   final VoidCallback onSaved;
 
   const PeopleManagerDialog({
     super.key,
-    required this.scenes,
+    required this.positions,
     required this.cameras,
     required this.onSaved,
   });
@@ -26,7 +26,7 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
 
   Person? _editingPerson;
   final TextEditingController _nameCtrl = TextEditingController();
-  // sceneId → cameraIp → controller (preset number, 1-based display)
+  // positionId → cameraIp → controller (preset number, 1-based display)
   final Map<String, Map<String, TextEditingController>> _presetCtrls = {};
 
   @override
@@ -44,7 +44,9 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
 
   void _disposePresetControllers() {
     for (final m in _presetCtrls.values) {
-      for (final c in m.values) { c.dispose(); }
+      for (final c in m.values) {
+        c.dispose();
+      }
     }
     _presetCtrls.clear();
   }
@@ -57,12 +59,12 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
   void _startEditing(Person person) {
     _disposePresetControllers();
     _nameCtrl.text = person.name;
-    for (final scene in widget.scenes) {
-      _presetCtrls[scene.id] = {};
+    for (final position in widget.positions) {
+      _presetCtrls[position.id] = {};
       for (final camera in widget.cameras) {
         final ip = camera.ipController.text;
-        final idx = person.scenePresets[scene.id]?[ip];
-        _presetCtrls[scene.id]![ip] =
+        final idx = person.positionPresets[position.id]?[ip];
+        _presetCtrls[position.id]![ip] =
             TextEditingController(text: idx != null ? '${idx + 1}' : '');
       }
     }
@@ -70,29 +72,29 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
   }
 
   void _addNewPerson() {
-    _startEditing(Person(id: generateSceneId(), name: ''));
+    _startEditing(Person(id: generatePositionId(), name: ''));
   }
 
   void _savePerson() {
     final name = _nameCtrl.text.trim();
-    final scenePresets = <String, Map<String, int>>{};
-    for (final scene in widget.scenes) {
+    final positionPresets = <String, Map<String, int>>{};
+    for (final position in widget.positions) {
       final cameraMap = <String, int>{};
       for (final camera in widget.cameras) {
         final ip = camera.ipController.text;
-        final text = _presetCtrls[scene.id]?[ip]?.text.trim() ?? '';
+        final text = _presetCtrls[position.id]?[ip]?.text.trim() ?? '';
         final num = int.tryParse(text);
         if (num != null && num >= 1 && num <= 100) {
           cameraMap[ip] = num - 1;
         }
       }
-      if (cameraMap.isNotEmpty) scenePresets[scene.id] = cameraMap;
+      if (cameraMap.isNotEmpty) positionPresets[position.id] = cameraMap;
     }
 
     final updated = Person(
       id: _editingPerson!.id,
       name: name.isEmpty ? 'Unnamed' : name,
-      scenePresets: scenePresets,
+      positionPresets: positionPresets,
     );
 
     final newPeople = [..._people];
@@ -174,8 +176,7 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
   Widget _buildList() {
     if (_loading) {
       return const SizedBox(
-          height: 120,
-          child: Center(child: CircularProgressIndicator()));
+          height: 120, child: Center(child: CircularProgressIndicator()));
     }
     if (_people.isEmpty) {
       return const SizedBox(
@@ -195,13 +196,13 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, i) {
         final person = _people[i];
-        final sceneCount = person.scenePresets.length;
+        final positionCount = person.positionPresets.length;
         return ListTile(
           leading: const CircleAvatar(child: Icon(Icons.person)),
           title: Text(person.name),
-          subtitle: Text(sceneCount == 0
+          subtitle: Text(positionCount == 0
               ? 'No presets configured'
-              : '$sceneCount scene${sceneCount == 1 ? '' : 's'} configured'),
+              : '$positionCount position${positionCount == 1 ? '' : 's'} configured'),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -221,7 +222,7 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
   }
 
   Widget _buildEditor() {
-    final noScenes = widget.scenes.isEmpty;
+    final noPositions = widget.positions.isEmpty;
     final noCameras = widget.cameras.isEmpty;
 
     return SingleChildScrollView(
@@ -238,27 +239,27 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
             ),
           ),
           const SizedBox(height: 16),
-          if (noScenes || noCameras)
+          if (noPositions || noCameras)
             Text(
-              noScenes
-                  ? 'Add scenes first (Settings → Manage Scenes).'
+              noPositions
+                  ? 'Add positions first (Settings → Manage Positions).'
                   : 'No cameras configured.',
               style: const TextStyle(color: Colors.grey),
             )
           else
-            ...widget.scenes.map((scene) => _buildSceneSection(scene)),
+            ...widget.positions.map((position) => _buildPositionSection(position)),
         ],
       ),
     );
   }
 
-  Widget _buildSceneSection(Scene scene) {
+  Widget _buildPositionSection(Position position) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(scene.name,
+          Text(position.name,
               style: const TextStyle(
                   fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
@@ -276,7 +277,7 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
                   SizedBox(
                     width: 80,
                     child: TextField(
-                      controller: _presetCtrls[scene.id]?[ip],
+                      controller: _presetCtrls[position.id]?[ip],
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: 'Preset #',

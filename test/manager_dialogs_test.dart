@@ -3,74 +3,74 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/person.dart';
-import 'package:navigation_app/models/role.dart';
-import 'package:navigation_app/models/scene.dart';
-import 'package:navigation_app/models/service_order.dart';
+import 'package:navigation_app/models/position.dart';
+import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/people_store.dart';
-import 'package:navigation_app/services/role_store.dart';
-import 'package:navigation_app/services/scene_store.dart';
-import 'package:navigation_app/services/service_order_store.dart';
-import 'package:navigation_app/widgets/order_manager_dialog.dart';
+import 'package:navigation_app/services/position_store.dart';
+import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/widgets/people_manager_dialog.dart';
-import 'package:navigation_app/widgets/role_manager_dialog.dart';
-import 'package:navigation_app/widgets/scene_manager_dialog.dart';
+import 'package:navigation_app/widgets/position_manager_dialog.dart';
+import 'package:navigation_app/widgets/service_manager_dialog.dart';
 
 // Open a dialog widget via showDialog so Navigator.pop works normally.
-Future<void> _open(WidgetTester tester, Widget Function(BuildContext) builder) async {
+Future<void> _open(
+    WidgetTester tester, Widget Function(BuildContext) builder) async {
   await tester.pumpWidget(MaterialApp(
     theme: ThemeData(useMaterial3: false),
-    home: Builder(builder: (ctx) => TextButton(
-      onPressed: () => showDialog<void>(context: ctx, builder: builder),
-      child: const Text('Open'),
-    )),
+    home: Builder(
+        builder: (ctx) => TextButton(
+              onPressed: () =>
+                  showDialog<void>(context: ctx, builder: builder),
+              child: const Text('Open'),
+            )),
   ));
   await tester.tap(find.text('Open'));
   await tester.pumpAndSettle();
 }
 
-// ─── SceneManagerDialog ──────────────────────────────────────────────────────
+// ─── PositionManagerDialog ────────────────────────────────────────────────────
 
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  group('SceneManagerDialog — list view', () {
-    testWidgets('shows empty state when no scenes exist', (tester) async {
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
-      expect(find.textContaining('No scenes yet'), findsOneWidget);
+  group('PositionManagerDialog — list view', () {
+    testWidgets('shows empty state when no positions exist', (tester) async {
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
+      expect(find.textContaining('No positions yet'), findsOneWidget);
     });
 
-    testWidgets('shows scenes loaded from store', (tester) async {
-      await SceneStore.saveAll([
-        Scene(id: 's1', name: 'Lectern'),
-        Scene(id: 's2', name: 'Pulpit'),
+    testWidgets('shows positions loaded from store', (tester) async {
+      await PositionStore.saveAll([
+        Position(id: 'p1', name: 'Lectern'),
+        Position(id: 'p2', name: 'Pulpit'),
       ]);
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
       expect(find.text('Lectern'), findsOneWidget);
       expect(find.text('Pulpit'), findsOneWidget);
     });
 
-    testWidgets('shows Add Scene button', (tester) async {
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
-      expect(find.text('Add Scene'), findsOneWidget);
+    testWidgets('shows Add Position button', (tester) async {
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
+      expect(find.text('Add Position'), findsOneWidget);
     });
   });
 
-  group('SceneManagerDialog — add / edit', () {
-    testWidgets('Add Scene opens the editor', (tester) async {
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
-      await tester.tap(find.text('Add Scene'));
+  group('PositionManagerDialog — add / edit', () {
+    testWidgets('Add Position opens the editor', (tester) async {
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
+      await tester.tap(find.text('Add Position'));
       await tester.pumpAndSettle();
-      expect(find.text('Edit Scene'), findsOneWidget);
+      expect(find.text('Edit Position'), findsOneWidget);
     });
 
-    testWidgets('saving a new scene adds it to the list', (tester) async {
+    testWidgets('saving a new position adds it to the list', (tester) async {
       bool saved = false;
-      await _open(tester,
-          (_) => SceneManagerDialog(onSaved: () => saved = true));
+      await _open(
+          tester, (_) => PositionManagerDialog(onSaved: () => saved = true));
 
-      await tester.tap(find.text('Add Scene'));
+      await tester.tap(find.text('Add Position'));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField), 'Baptistry');
@@ -81,25 +81,27 @@ void main() {
       expect(saved, isTrue);
     });
 
-    testWidgets('Cancel from editor returns to list without saving', (tester) async {
+    testWidgets('Cancel from editor returns to list without saving',
+        (tester) async {
       bool saved = false;
-      await _open(tester,
-          (_) => SceneManagerDialog(onSaved: () => saved = true));
+      await _open(
+          tester, (_) => PositionManagerDialog(onSaved: () => saved = true));
 
-      await tester.tap(find.text('Add Scene'));
+      await tester.tap(find.text('Add Position'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'Temporary');
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
       expect(find.text('Temporary'), findsNothing);
-      expect(find.text('Add Scene'), findsOneWidget);
+      expect(find.text('Add Position'), findsOneWidget);
       expect(saved, isFalse);
     });
 
-    testWidgets('editing an existing scene updates its name', (tester) async {
-      await SceneStore.saveAll([Scene(id: 's1', name: 'Old Name')]);
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
+    testWidgets('editing an existing position updates its name',
+        (tester) async {
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Old Name')]);
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
 
       await tester.tap(find.byIcon(Icons.edit));
       await tester.pumpAndSettle();
@@ -112,33 +114,32 @@ void main() {
       expect(find.text('Old Name'), findsNothing);
     });
 
-    testWidgets('blank name defaults to "New Scene"', (tester) async {
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
-      await tester.tap(find.text('Add Scene'));
+    testWidgets('blank name defaults to "New Position"', (tester) async {
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
+      await tester.tap(find.text('Add Position'));
       await tester.pumpAndSettle();
-      // Leave name empty
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
-      expect(find.text('New Scene'), findsOneWidget);
+      expect(find.text('New Position'), findsOneWidget);
     });
   });
 
-  group('SceneManagerDialog — delete', () {
+  group('PositionManagerDialog — delete', () {
     testWidgets('delete shows confirmation dialog', (tester) async {
-      await SceneStore.saveAll([Scene(id: 's1', name: 'Chapel')]);
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Chapel')]);
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();
 
-      expect(find.text('Delete Scene'), findsOneWidget);
+      expect(find.text('Delete Position'), findsOneWidget);
     });
 
-    testWidgets('confirming delete removes the scene', (tester) async {
+    testWidgets('confirming delete removes the position', (tester) async {
       bool saved = false;
-      await SceneStore.saveAll([Scene(id: 's1', name: 'Chapel')]);
-      await _open(tester,
-          (_) => SceneManagerDialog(onSaved: () => saved = true));
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Chapel')]);
+      await _open(
+          tester, (_) => PositionManagerDialog(onSaved: () => saved = true));
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();
@@ -149,9 +150,9 @@ void main() {
       expect(saved, isTrue);
     });
 
-    testWidgets('cancelling delete keeps the scene', (tester) async {
-      await SceneStore.saveAll([Scene(id: 's1', name: 'Chapel')]);
-      await _open(tester, (_) => SceneManagerDialog(onSaved: () {}));
+    testWidgets('cancelling delete keeps the position', (tester) async {
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Chapel')]);
+      await _open(tester, (_) => PositionManagerDialog(onSaved: () {}));
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();
@@ -162,122 +163,14 @@ void main() {
     });
   });
 
-  // ─── RoleManagerDialog ────────────────────────────────────────────────────
-
-  group('RoleManagerDialog — list view', () {
-    testWidgets('shows empty state when no roles exist', (tester) async {
-      await _open(tester, (_) => RoleManagerDialog(onSaved: () {}));
-      expect(find.textContaining('No roles yet'), findsOneWidget);
-    });
-
-    testWidgets('shows roles loaded from store', (tester) async {
-      await RoleStore.saveAll([
-        Role(id: 'r1', name: 'Reader 1'),
-        Role(id: 'r2', name: 'Priest'),
-      ]);
-      await _open(tester, (_) => RoleManagerDialog(onSaved: () {}));
-      expect(find.text('Reader 1'), findsOneWidget);
-      expect(find.text('Priest'), findsOneWidget);
-    });
-  });
-
-  group('RoleManagerDialog — add / edit', () {
-    testWidgets('Add Role opens the editor', (tester) async {
-      await _open(tester, (_) => RoleManagerDialog(onSaved: () {}));
-      await tester.tap(find.text('Add Role'));
-      await tester.pumpAndSettle();
-      expect(find.text('Edit Role'), findsOneWidget);
-    });
-
-    testWidgets('saving a new role adds it to the list', (tester) async {
-      bool saved = false;
-      await _open(tester,
-          (_) => RoleManagerDialog(onSaved: () => saved = true));
-
-      await tester.tap(find.text('Add Role'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Deacon');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Deacon'), findsOneWidget);
-      expect(saved, isTrue);
-    });
-
-    testWidgets('blank name defaults to "Role"', (tester) async {
-      await _open(tester, (_) => RoleManagerDialog(onSaved: () {}));
-      await tester.tap(find.text('Add Role'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-      expect(find.text('Role'), findsOneWidget);
-    });
-
-    testWidgets('Cancel from editor returns to list without saving', (tester) async {
-      bool saved = false;
-      await _open(tester,
-          (_) => RoleManagerDialog(onSaved: () => saved = true));
-
-      await tester.tap(find.text('Add Role'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Add Role'), findsOneWidget);
-      expect(saved, isFalse);
-    });
-
-    testWidgets('editing an existing role updates its name', (tester) async {
-      await RoleStore.saveAll([Role(id: 'r1', name: 'Acolyte')]);
-      await _open(tester, (_) => RoleManagerDialog(onSaved: () {}));
-
-      await tester.tap(find.byIcon(Icons.edit));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Sub-deacon');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Sub-deacon'), findsOneWidget);
-      expect(find.text('Acolyte'), findsNothing);
-    });
-  });
-
-  group('RoleManagerDialog — delete', () {
-    testWidgets('confirming delete removes the role and calls onSaved',
-        (tester) async {
-      bool saved = false;
-      await RoleStore.saveAll([Role(id: 'r1', name: 'Cantor')]);
-      await _open(tester,
-          (_) => RoleManagerDialog(onSaved: () => saved = true));
-
-      await tester.tap(find.byIcon(Icons.delete));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Cantor'), findsNothing);
-      expect(saved, isTrue);
-    });
-
-    testWidgets('cancelling delete keeps the role', (tester) async {
-      await RoleStore.saveAll([Role(id: 'r1', name: 'Cantor')]);
-      await _open(tester, (_) => RoleManagerDialog(onSaved: () {}));
-
-      await tester.tap(find.byIcon(Icons.delete));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Cantor'), findsOneWidget);
-    });
-  });
-
   // ─── PeopleManagerDialog ─────────────────────────────────────────────────
 
   group('PeopleManagerDialog — list view', () {
     testWidgets('shows empty state when no people exist', (tester) async {
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () {}));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
       expect(find.textContaining('No people yet'), findsOneWidget);
     });
 
@@ -286,54 +179,70 @@ void main() {
         Person(id: 'p1', name: 'Alice'),
         Person(id: 'p2', name: 'Bob'),
       ]);
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () {}));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
       expect(find.text('Alice'), findsOneWidget);
       expect(find.text('Bob'), findsOneWidget);
     });
 
-    testWidgets('subtitle shows scene count', (tester) async {
+    testWidgets('subtitle shows position count', (tester) async {
       await PeopleStore.saveAll([
-        Person(id: 'p1', name: 'Alice', scenePresets: {'s1': {'10.0.0.1': 0}}),
+        Person(
+            id: 'p1',
+            name: 'Alice',
+            positionPresets: {
+              'pos1': {'10.0.0.1': 0}
+            }),
       ]);
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () {}));
-      expect(find.textContaining('1 scene configured'), findsOneWidget);
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      expect(find.textContaining('1 position configured'), findsOneWidget);
     });
   });
 
   group('PeopleManagerDialog — editor', () {
-    testWidgets('Add Person with no scenes shows scenes-first warning',
+    testWidgets('Add Person with no positions shows positions-first warning',
         (tester) async {
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () {}));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Add scenes first'), findsOneWidget);
+      expect(find.textContaining('Add positions first'), findsOneWidget);
     });
 
     testWidgets('Add Person with no cameras shows no-cameras warning',
         (tester) async {
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [Scene(id: 's1', name: 'Lectern')],
-        cameras: [],
-        onSaved: () {},
-      ));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: const [],
+                onSaved: () {},
+              ));
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
       expect(find.textContaining('No cameras'), findsOneWidget);
     });
 
-    testWidgets('Add Person with scenes and cameras shows preset grid',
+    testWidgets('Add Person with positions and cameras shows preset grid',
         (tester) async {
-      final cam = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      final cam =
+          PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
       addTearDown(cam.dispose);
 
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [Scene(id: 's1', name: 'Lectern')],
-        cameras: [cam],
-        onSaved: () {},
-      ));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                onSaved: () {},
+              ));
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
 
@@ -343,8 +252,12 @@ void main() {
 
     testWidgets('saving a new person adds them to the list', (tester) async {
       bool saved = false;
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () => saved = true));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              onSaved: () => saved = true));
 
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
@@ -357,8 +270,10 @@ void main() {
     });
 
     testWidgets('blank name defaults to "Unnamed"', (tester) async {
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () {}));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));
@@ -372,8 +287,12 @@ void main() {
         (tester) async {
       bool saved = false;
       await PeopleStore.saveAll([Person(id: 'p1', name: 'Dave')]);
-      await _open(tester, (_) => PeopleManagerDialog(
-        scenes: [], cameras: [], onSaved: () => saved = true));
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              onSaved: () => saved = true));
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();
@@ -385,71 +304,88 @@ void main() {
     });
   });
 
-  // ─── OrderManagerDialog ───────────────────────────────────────────────────
+  // ─── ServiceManagerDialog ─────────────────────────────────────────────────
 
-  group('OrderManagerDialog — list view', () {
-    testWidgets('shows empty state when no orders exist', (tester) async {
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
-      expect(find.textContaining('No orders yet'), findsOneWidget);
+  group('ServiceManagerDialog — list view', () {
+    testWidgets('shows empty state when no services exist', (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      expect(find.textContaining('No services yet'), findsOneWidget);
     });
 
-    testWidgets('shows orders loaded from store', (tester) async {
-      await ServiceOrderStore.saveAll([
-        ServiceOrder(id: 'o1', name: 'Standard Mass', moments: []),
-        ServiceOrder(id: 'o2', name: 'Vespers', moments: []),
+    testWidgets('shows services loaded from store', (tester) async {
+      await ServiceStore.saveAll([
+        Service(id: 's1', name: 'Standard Mass'),
+        Service(id: 's2', name: 'Vespers'),
       ]);
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
       expect(find.text('Standard Mass'), findsOneWidget);
       expect(find.text('Vespers'), findsOneWidget);
     });
 
-    testWidgets('subtitle shows moment count', (tester) async {
-      await ServiceOrderStore.saveAll([
-        ServiceOrder(id: 'o1', name: 'Mass', moments: [
-          const OrderMoment(id: 'm1', type: MomentType.macro, macroNumber: 1),
-          const OrderMoment(id: 'm2', type: MomentType.macro, macroNumber: 2),
-        ]),
+    testWidgets('subtitle shows step count', (tester) async {
+      await ServiceStore.saveAll([
+        Service(
+          id: 's1',
+          name: 'Mass',
+          steps: [
+            const ServiceStep(
+                id: 'st1', type: StepType.macro, macroNumber: 1),
+            const ServiceStep(
+                id: 'st2', type: StepType.macro, macroNumber: 2),
+          ],
+        ),
       ]);
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
-      expect(find.textContaining('2 moments'), findsOneWidget);
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      expect(find.textContaining('2 step'), findsOneWidget);
     });
   });
 
-  group('OrderManagerDialog — editor', () {
-    testWidgets('Add Order opens the editor', (tester) async {
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
-      await tester.tap(find.text('Add Order'));
+  group('ServiceManagerDialog — editor', () {
+    testWidgets('Add Service opens the editor', (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
       await tester.pumpAndSettle();
-      expect(find.text('Add Moment'), findsOneWidget);
+      expect(find.text('Add Step'), findsOneWidget);
     });
 
-    testWidgets('Add Moment button adds a moment row', (tester) async {
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
-      await tester.tap(find.text('Add Order'));
+    testWidgets('Add Step button adds a step row', (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Add Moment'));
+      await tester.tap(find.text('Add Step'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Add Moment'));
+      await tester.tap(find.text('Add Step'));
       await tester.pumpAndSettle();
 
-      // Two moment rows numbered 1. and 2.
       expect(find.textContaining('1.'), findsOneWidget);
       expect(find.textContaining('2.'), findsOneWidget);
     });
 
-    testWidgets('remove icon on a moment deletes that row', (tester) async {
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
-      await tester.tap(find.text('Add Order'));
+    testWidgets('remove icon on a step deletes that row', (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Add Moment'));
+      await tester.tap(find.text('Add Step'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.close));
@@ -458,17 +394,18 @@ void main() {
       expect(find.textContaining('1.'), findsNothing);
     });
 
-    testWidgets('saving a new order adds it to the list', (tester) async {
+    testWidgets('saving a new service adds it to the list', (tester) async {
       bool saved = false;
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [],
-        onSaved: () => saved = true,
-      ));
-      await tester.tap(find.text('Add Order'));
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [],
+              cameras: const [],
+              onSaved: () => saved = true));
+      await tester.tap(find.text('Add Service'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextField, '').first,
-          'Christmas Vigil');
+      await tester.enterText(find.byType(TextField).first, 'Christmas Vigil');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
@@ -476,43 +413,72 @@ void main() {
       expect(saved, isTrue);
     });
 
-    testWidgets('blank name defaults to "New Order"', (tester) async {
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
-      await tester.tap(find.text('Add Order'));
+    testWidgets('blank name defaults to "New Service"', (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
-      expect(find.text('New Order'), findsOneWidget);
+      expect(find.text('New Service'), findsOneWidget);
     });
 
     testWidgets('Cancel from editor returns to list without saving',
         (tester) async {
       bool saved = false;
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [],
-        onSaved: () => saved = true,
-      ));
-      await tester.tap(find.text('Add Order'));
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [],
+              cameras: const [],
+              onSaved: () => saved = true));
+      await tester.tap(find.text('Add Service'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Add Order'), findsOneWidget);
+      expect(find.text('Add Service'), findsOneWidget);
       expect(saved, isFalse);
+    });
+
+    testWidgets('can add and remove a participant inline', (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
+      await tester.pumpAndSettle();
+
+      // Find the participant name field and type a name
+      final participantField =
+          find.widgetWithText(TextField, 'Participant name');
+      await tester.enterText(participantField, 'Reader 1');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reader 1'), findsOneWidget);
+
+      // Remove it with ×
+      await tester.tap(find.text('×'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reader 1'), findsNothing);
     });
   });
 
-  group('OrderManagerDialog — delete', () {
-    testWidgets('confirming delete removes order and calls onSaved',
+  group('ServiceManagerDialog — delete', () {
+    testWidgets('confirming delete removes service and calls onSaved',
         (tester) async {
       bool saved = false;
-      await ServiceOrderStore.saveAll(
-          [ServiceOrder(id: 'o1', name: 'Advent', moments: [])]);
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [],
-        onSaved: () => saved = true,
-      ));
+      await ServiceStore.saveAll([Service(id: 's1', name: 'Advent')]);
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [],
+              cameras: const [],
+              onSaved: () => saved = true));
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();
@@ -523,11 +489,12 @@ void main() {
       expect(saved, isTrue);
     });
 
-    testWidgets('cancelling delete keeps the order', (tester) async {
-      await ServiceOrderStore.saveAll(
-          [ServiceOrder(id: 'o1', name: 'Advent', moments: [])]);
-      await _open(tester, (_) => OrderManagerDialog(
-        roles: [], scenes: [], cameras: [], onSaved: () {}));
+    testWidgets('cancelling delete keeps the service', (tester) async {
+      await ServiceStore.saveAll([Service(id: 's1', name: 'Advent')]);
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
 
       await tester.tap(find.byIcon(Icons.delete));
       await tester.pumpAndSettle();

@@ -5,7 +5,9 @@ class OperatorProfile {
   final String name;
 
   /// Maps device storageKey → ordered list of item indices visible to this operator.
-  /// Ignored for the Default operator (which always shows all items).
+  /// A device with no entry here is unrestricted and shows all of its items —
+  /// this applies to every operator, including the Default operator, until a
+  /// selection is explicitly saved for that device via Manage Operators.
   final Map<String, List<int>> items;
 
   const OperatorProfile({

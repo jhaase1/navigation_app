@@ -58,7 +58,7 @@ class _OperatorPanelState extends State<OperatorPanel> {
   @override
   void didUpdateWidget(OperatorPanel old) {
     super.didUpdateWidget(old);
-    if (old.operator != widget.operator) setState(() {});
+    setState(() {});
   }
 
   @override
@@ -119,9 +119,10 @@ class _OperatorPanelState extends State<OperatorPanel> {
   }
 
   List<int> _visibleIndices(ControllableDevice device) {
-    if (widget.operator.isDefault) return device.itemIndices;
     final allowed = widget.operator.items[device.storageKey];
-    if (allowed == null || allowed.isEmpty) return [];
+    if (allowed == null) {
+      return widget.operator.isDefault ? device.itemIndices : [];
+    }
     final allowedSet = allowed.toSet();
     return device.itemIndices.where(allowedSet.contains).toList();
   }
@@ -188,7 +189,7 @@ class _OperatorPanelState extends State<OperatorPanel> {
               child: indices.isEmpty && !device.isLoadingItems
                   ? Center(
                       child: Text(
-                        widget.operator.isDefault
+                        device.itemIndices.isEmpty
                             ? 'No items available for this device.'
                             : 'No items configured for ${widget.operator.name}.\n'
                                 'Go to Settings → Manage Operators to add items.',

@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
-import '../models/role.dart';
-import '../models/scene.dart';
+import '../models/position.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/config_bundle.dart';
 import '../services/device_config_store.dart';
@@ -11,11 +10,10 @@ import '../services/operator_store.dart';
 import 'connections_dialog.dart';
 import 'master_control_widget.dart';
 import 'operator_manager_dialog.dart';
-import 'order_manager_dialog.dart';
 import 'people_manager_dialog.dart';
 import 'pinp_tab.dart';
-import 'role_manager_dialog.dart';
-import 'scene_manager_dialog.dart';
+import 'position_manager_dialog.dart';
+import 'service_manager_dialog.dart';
 
 class SettingsDialog extends StatelessWidget {
   final bool mockMode;
@@ -29,13 +27,11 @@ class SettingsDialog extends StatelessWidget {
   final List<PanasonicCameraConfig> panasonicCameras;
   final Function(int) onConnectPanasonic;
   final ValueChanged<String> onResponse;
-  final List<Scene> scenes;
+  final List<Position> positions;
   final List<Person> people;
-  final List<Role> roles;
-  final VoidCallback onScenesChanged;
+  final VoidCallback onPositionsChanged;
   final VoidCallback onPeopleChanged;
-  final VoidCallback onRolesChanged;
-  final VoidCallback onOrdersChanged;
+  final VoidCallback onServicesChanged;
   final VoidCallback onAllDataChanged;
   final DeviceConfigCallback onDeviceConfigSaved;
 
@@ -58,13 +54,11 @@ class SettingsDialog extends StatelessWidget {
     required this.panasonicCameras,
     required this.onConnectPanasonic,
     required this.onResponse,
-    required this.scenes,
+    required this.positions,
     required this.people,
-    required this.roles,
-    required this.onScenesChanged,
+    required this.onPositionsChanged,
     required this.onPeopleChanged,
-    required this.onRolesChanged,
-    required this.onOrdersChanged,
+    required this.onServicesChanged,
     required this.onAllDataChanged,
     required this.onDeviceConfigSaved,
     required this.operators,
@@ -193,35 +187,27 @@ class SettingsDialog extends StatelessWidget {
     showDialog(
       context: context,
       builder: (_) => PeopleManagerDialog(
-        scenes: scenes,
+        positions: positions,
         cameras: panasonicCameras,
         onSaved: onPeopleChanged,
       ),
     );
   }
 
-  void _openSceneManager(BuildContext context) {
+  void _openPositionManager(BuildContext context) {
     showDialog(
       context: context,
-      builder: (_) => SceneManagerDialog(onSaved: onScenesChanged),
+      builder: (_) => PositionManagerDialog(onSaved: onPositionsChanged),
     );
   }
 
-  void _openRoleManager(BuildContext context) {
+  void _openServiceManager(BuildContext context) {
     showDialog(
       context: context,
-      builder: (_) => RoleManagerDialog(onSaved: onRolesChanged),
-    );
-  }
-
-  void _openOrderManager(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => OrderManagerDialog(
-        roles: roles,
-        scenes: scenes,
+      builder: (_) => ServiceManagerDialog(
+        positions: positions,
         cameras: panasonicCameras,
-        onSaved: onOrdersChanged,
+        onSaved: onServicesChanged,
       ),
     );
   }
@@ -324,10 +310,9 @@ class SettingsDialog extends StatelessWidget {
         title: const Text('Replace all configuration?'),
         content: Text(
           'This will overwrite everything with:\n'
-          '  • ${bundle.scenes.length} scene${bundle.scenes.length == 1 ? '' : 's'}\n'
+          '  • ${bundle.positions.length} position${bundle.positions.length == 1 ? '' : 's'}\n'
           '  • ${bundle.people.length} person${bundle.people.length == 1 ? '' : 's'}\n'
-          '  • ${bundle.roles.length} role${bundle.roles.length == 1 ? '' : 's'}\n'
-          '  • ${bundle.orders.length} service order${bundle.orders.length == 1 ? '' : 's'}'
+          '  • ${bundle.services.length} service${bundle.services.length == 1 ? '' : 's'}'
           '${bundle.cameras != null ? '\n  • ${bundle.cameras!.length} camera${bundle.cameras!.length == 1 ? '' : 's'} + Roland IP' : ''}'
           '${bundle.operators != null ? '\n  • ${bundle.operators!.length} operator${bundle.operators!.length == 1 ? '' : 's'}' : ''}',
         ),
@@ -446,26 +431,20 @@ class SettingsDialog extends StatelessWidget {
               _tile(
                 icon: Icons.people,
                 title: 'Manage People',
-                subtitle: 'Create profiles with per-scene height preferences',
+                subtitle: 'Create profiles with per-position presets',
                 onTap: () => _openPeopleManager(context),
               ),
               _tile(
-                icon: Icons.theaters,
-                title: 'Manage Scenes',
-                subtitle: 'Link camera presets for real-world positions',
-                onTap: () => _openSceneManager(context),
-              ),
-              _tile(
-                icon: Icons.badge,
-                title: 'Manage Roles',
-                subtitle: 'Define generic roles (Reader 1, Priest, Deacon…)',
-                onTap: () => _openRoleManager(context),
+                icon: Icons.place,
+                title: 'Manage Positions',
+                subtitle: 'Define physical locations linked to camera presets',
+                onTap: () => _openPositionManager(context),
               ),
               _tile(
                 icon: Icons.format_list_numbered,
-                title: 'Manage Orders',
-                subtitle: 'Build service sequences of person + scene moments',
-                onTap: () => _openOrderManager(context),
+                title: 'Manage Services',
+                subtitle: 'Build service sequences with steps and participants',
+                onTap: () => _openServiceManager(context),
               ),
               const SizedBox(height: 4),
 

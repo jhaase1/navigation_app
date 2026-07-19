@@ -1,23 +1,23 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/service_order.dart';
+import '../models/position.dart';
 
-class ServiceOrderStore {
-  static const String _key = 'service_orders';
+class PositionStore {
+  static const String _key = 'positions';
 
-  static Future<List<ServiceOrder>> loadAll() async {
+  static Future<List<Position>> loadAll() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List<dynamic>;
     return list
-        .map((e) => ServiceOrder.fromJson(e as Map<String, dynamic>))
+        .map((e) => Position.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  static Future<void> saveAll(List<ServiceOrder> orders) async {
+  static Future<void> saveAll(List<Position> positions) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-        _key, jsonEncode(orders.map((o) => o.toJson()).toList()));
+        _key, jsonEncode(positions.map((p) => p.toJson()).toList()));
   }
 }

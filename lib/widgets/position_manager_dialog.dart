@@ -1,27 +1,27 @@
 import 'package:flutter/material.dart';
-import '../models/scene.dart';
-import '../services/scene_store.dart';
+import '../models/position.dart';
+import '../services/position_store.dart';
 
-class SceneManagerDialog extends StatefulWidget {
+class PositionManagerDialog extends StatefulWidget {
   final VoidCallback onSaved;
 
-  const SceneManagerDialog({super.key, required this.onSaved});
+  const PositionManagerDialog({super.key, required this.onSaved});
 
   @override
-  State<SceneManagerDialog> createState() => _SceneManagerDialogState();
+  State<PositionManagerDialog> createState() => _PositionManagerDialogState();
 }
 
-class _SceneManagerDialogState extends State<SceneManagerDialog> {
-  List<Scene> _scenes = [];
+class _PositionManagerDialogState extends State<PositionManagerDialog> {
+  List<Position> _positions = [];
   bool _loading = true;
 
-  Scene? _editingScene;
+  Position? _editingPosition;
   final TextEditingController _nameCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _loadScenes();
+    _loadPositions();
   }
 
   @override
@@ -30,42 +30,42 @@ class _SceneManagerDialogState extends State<SceneManagerDialog> {
     super.dispose();
   }
 
-  Future<void> _loadScenes() async {
-    final scenes = await SceneStore.loadAll();
-    if (mounted) setState(() { _scenes = scenes; _loading = false; });
+  Future<void> _loadPositions() async {
+    final positions = await PositionStore.loadAll();
+    if (mounted) setState(() { _positions = positions; _loading = false; });
   }
 
-  void _startEditing(Scene scene) {
-    _nameCtrl.text = scene.name;
-    setState(() => _editingScene = scene);
+  void _startEditing(Position position) {
+    _nameCtrl.text = position.name;
+    setState(() => _editingPosition = position);
   }
 
-  void _addNewScene() {
-    _startEditing(Scene(id: generateSceneId(), name: ''));
+  void _addNew() {
+    _startEditing(Position(id: generatePositionId(), name: ''));
   }
 
-  void _saveScene() {
+  void _save() {
     final name = _nameCtrl.text.trim();
-    final updated =
-        Scene(id: _editingScene!.id, name: name.isEmpty ? 'New Scene' : name);
+    final updated = Position(
+        id: _editingPosition!.id, name: name.isEmpty ? 'New Position' : name);
 
-    final newScenes = [..._scenes];
-    final idx = newScenes.indexWhere((s) => s.id == updated.id);
+    final newPositions = [..._positions];
+    final idx = newPositions.indexWhere((p) => p.id == updated.id);
     if (idx >= 0) {
-      newScenes[idx] = updated;
+      newPositions[idx] = updated;
     } else {
-      newScenes.add(updated);
+      newPositions.add(updated);
     }
 
-    SceneStore.saveAll(newScenes).then((_) => widget.onSaved());
-    setState(() { _scenes = newScenes; _editingScene = null; });
+    PositionStore.saveAll(newPositions).then((_) => widget.onSaved());
+    setState(() { _positions = newPositions; _editingPosition = null; });
   }
 
-  Future<void> _deleteScene(String sceneId) async {
+  Future<void> _delete(String positionId) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete Scene'),
+        title: const Text('Delete Position'),
         content: const Text('This cannot be undone.'),
         actions: [
           TextButton(
@@ -82,27 +82,26 @@ class _SceneManagerDialogState extends State<SceneManagerDialog> {
     );
     if (confirmed != true) return;
 
-    final newScenes = _scenes.where((s) => s.id != sceneId).toList();
-    await SceneStore.saveAll(newScenes);
+    final newPositions = _positions.where((p) => p.id != positionId).toList();
+    await PositionStore.saveAll(newPositions);
     widget.onSaved();
-    if (mounted) setState(() => _scenes = newScenes);
+    if (mounted) setState(() => _positions = newPositions);
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title:
-          Text(_editingScene == null ? 'Manage Scenes' : 'Edit Scene'),
+      title: Text(_editingPosition == null ? 'Manage Positions' : 'Edit Position'),
       content: SizedBox(
         width: 380,
-        child: _editingScene == null ? _buildList() : _buildEditor(),
+        child: _editingPosition == null ? _buildList() : _buildEditor(),
       ),
-      actions: _editingScene == null
+      actions: _editingPosition == null
           ? [
               FilledButton.icon(
-                onPressed: _addNewScene,
+                onPressed: _addNew,
                 icon: const Icon(Icons.add),
-                label: const Text('Add Scene'),
+                label: const Text('Add Position'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
@@ -111,11 +110,11 @@ class _SceneManagerDialogState extends State<SceneManagerDialog> {
             ]
           : [
               TextButton(
-                onPressed: () => setState(() => _editingScene = null),
+                onPressed: () => setState(() => _editingPosition = null),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: _saveScene,
+                onPressed: _save,
                 child: const Text('Save'),
               ),
             ],
@@ -125,15 +124,14 @@ class _SceneManagerDialogState extends State<SceneManagerDialog> {
   Widget _buildList() {
     if (_loading) {
       return const SizedBox(
-          height: 100,
-          child: Center(child: CircularProgressIndicator()));
+          height: 100, child: Center(child: CircularProgressIndicator()));
     }
-    if (_scenes.isEmpty) {
+    if (_positions.isEmpty) {
       return const SizedBox(
         height: 100,
         child: Center(
           child: Text(
-            'No scenes yet.\nTap "Add Scene" to create a position.',
+            'No positions yet.\nTap "Add Position" to create one.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey),
           ),
@@ -142,23 +140,23 @@ class _SceneManagerDialogState extends State<SceneManagerDialog> {
     }
     return ListView.separated(
       shrinkWrap: true,
-      itemCount: _scenes.length,
+      itemCount: _positions.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, i) {
-        final scene = _scenes[i];
+        final position = _positions[i];
         return ListTile(
           leading: const Icon(Icons.place),
-          title: Text(scene.name),
+          title: Text(position.name),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
                 icon: const Icon(Icons.edit),
-                onPressed: () => _startEditing(scene),
+                onPressed: () => _startEditing(position),
               ),
               IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteScene(scene.id),
+                onPressed: () => _delete(position.id),
               ),
             ],
           ),
@@ -172,7 +170,7 @@ class _SceneManagerDialogState extends State<SceneManagerDialog> {
       controller: _nameCtrl,
       autofocus: true,
       decoration: const InputDecoration(
-        labelText: 'Scene Name',
+        labelText: 'Position Name',
         hintText: 'e.g. Lectern, Pulpit, Altar',
         border: OutlineInputBorder(),
       ),

@@ -1,14 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/person.dart';
-import 'package:navigation_app/models/role.dart';
-import 'package:navigation_app/models/scene.dart';
-import 'package:navigation_app/models/service_order.dart';
+import 'package:navigation_app/models/position.dart';
+import 'package:navigation_app/models/service.dart';
+import 'package:navigation_app/services/height_range_store.dart';
 import 'package:navigation_app/services/people_store.dart';
+import 'package:navigation_app/services/position_store.dart';
 import 'package:navigation_app/services/preset_name_store.dart';
-import 'package:navigation_app/services/role_store.dart';
-import 'package:navigation_app/services/scene_store.dart';
-import 'package:navigation_app/services/service_order_store.dart';
+import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/services/visibility_store.dart';
 
 void main() {
@@ -16,34 +16,34 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  group('SceneStore', () {
+  group('PositionStore', () {
     test('loadAll returns empty list before anything is saved', () async {
-      expect(await SceneStore.loadAll(), isEmpty);
+      expect(await PositionStore.loadAll(), isEmpty);
     });
 
-    test('saveAll then loadAll returns the same scenes', () async {
-      final scenes = [
-        Scene(id: '1', name: 'Lectern'),
-        Scene(id: '2', name: 'Pulpit'),
+    test('saveAll then loadAll returns the same positions', () async {
+      final positions = [
+        Position(id: '1', name: 'Lectern'),
+        Position(id: '2', name: 'Pulpit'),
       ];
-      await SceneStore.saveAll(scenes);
-      final loaded = await SceneStore.loadAll();
+      await PositionStore.saveAll(positions);
+      final loaded = await PositionStore.loadAll();
       expect(loaded.length, 2);
       expect(loaded[0].id, '1');
       expect(loaded[0].name, 'Lectern');
       expect(loaded[1].name, 'Pulpit');
     });
 
-    test('overwriting with empty list clears stored scenes', () async {
-      await SceneStore.saveAll([Scene(id: '1', name: 'Lectern')]);
-      await SceneStore.saveAll([]);
-      expect(await SceneStore.loadAll(), isEmpty);
+    test('overwriting with empty list clears stored positions', () async {
+      await PositionStore.saveAll([Position(id: '1', name: 'Lectern')]);
+      await PositionStore.saveAll([]);
+      expect(await PositionStore.loadAll(), isEmpty);
     });
 
     test('overwrites previous save entirely', () async {
-      await SceneStore.saveAll([Scene(id: '1', name: 'Lectern')]);
-      await SceneStore.saveAll([Scene(id: '2', name: 'Pulpit')]);
-      final loaded = await SceneStore.loadAll();
+      await PositionStore.saveAll([Position(id: '1', name: 'Lectern')]);
+      await PositionStore.saveAll([Position(id: '2', name: 'Pulpit')]);
+      final loaded = await PositionStore.loadAll();
       expect(loaded.length, 1);
       expect(loaded[0].name, 'Pulpit');
     });
@@ -54,20 +54,20 @@ void main() {
       expect(await PeopleStore.loadAll(), isEmpty);
     });
 
-    test('saveAll then loadAll preserves person with scenePresets', () async {
+    test('saveAll then loadAll preserves person with positionPresets', () async {
       final person = Person(
         id: 'p1',
         name: 'Alice',
-        scenePresets: {
-          's1': {'10.0.0.1': 3, '10.0.0.2': 7},
+        positionPresets: {
+          'pos1': {'10.0.0.1': 3, '10.0.0.2': 7},
         },
       );
       await PeopleStore.saveAll([person]);
       final loaded = await PeopleStore.loadAll();
       expect(loaded.length, 1);
       expect(loaded[0].name, 'Alice');
-      expect(loaded[0].scenePresets['s1']?['10.0.0.1'], 3);
-      expect(loaded[0].scenePresets['s1']?['10.0.0.2'], 7);
+      expect(loaded[0].positionPresets['pos1']?['10.0.0.1'], 3);
+      expect(loaded[0].positionPresets['pos1']?['10.0.0.2'], 7);
     });
 
     test('saves multiple people', () async {
@@ -82,80 +82,60 @@ void main() {
     });
   });
 
-  group('RoleStore', () {
+  group('ServiceStore', () {
     test('loadAll returns empty list before anything is saved', () async {
-      expect(await RoleStore.loadAll(), isEmpty);
+      expect(await ServiceStore.loadAll(), isEmpty);
     });
 
-    test('saveAll then loadAll returns the same roles', () async {
-      final roles = [
-        Role(id: 'r1', name: 'Reader 1'),
-        Role(id: 'r2', name: 'Priest'),
-        Role(id: 'r3', name: 'Deacon'),
-      ];
-      await RoleStore.saveAll(roles);
-      final loaded = await RoleStore.loadAll();
-      expect(loaded.length, 3);
-      expect(loaded[0].name, 'Reader 1');
-      expect(loaded[1].name, 'Priest');
-      expect(loaded[2].name, 'Deacon');
-    });
-
-    test('overwriting with empty list clears stored roles', () async {
-      await RoleStore.saveAll([Role(id: 'r1', name: 'Reader 1')]);
-      await RoleStore.saveAll([]);
-      expect(await RoleStore.loadAll(), isEmpty);
-    });
-  });
-
-  group('ServiceOrderStore', () {
-    test('loadAll returns empty list before anything is saved', () async {
-      expect(await ServiceOrderStore.loadAll(), isEmpty);
-    });
-
-    test('saveAll then loadAll preserves order with moments', () async {
-      final order = ServiceOrder(
-        id: 'o1',
+    test('saveAll then loadAll preserves service with participants and steps',
+        () async {
+      final service = Service(
+        id: 's1',
         name: 'Standard Mass',
-        moments: [
-          const OrderMoment(id: 'm1', type: MomentType.macro, macroNumber: 2),
-          const OrderMoment(
-              id: 'm2',
-              type: MomentType.roleScene,
-              roleId: 'r1',
-              sceneId: 's1'),
-          const OrderMoment(
-              id: 'm3', type: MomentType.subOrder, subOrderId: 'o2'),
+        participants: [
+          Participant(id: 'pt1', name: 'Reader 1'),
+          Participant(id: 'pt2', name: 'Priest'),
+        ],
+        steps: [
+          const ServiceStep(
+              id: 'st1', type: StepType.macro, macroNumber: 2),
+          const ServiceStep(
+              id: 'st2',
+              type: StepType.ministry,
+              participantId: 'pt1',
+              positionId: 'pos1'),
+          const ServiceStep(
+              id: 'st3', type: StepType.block, subServiceId: 's2'),
         ],
       );
-      await ServiceOrderStore.saveAll([order]);
-      final loaded = await ServiceOrderStore.loadAll();
+      await ServiceStore.saveAll([service]);
+      final loaded = await ServiceStore.loadAll();
       expect(loaded.length, 1);
       expect(loaded[0].name, 'Standard Mass');
-      expect(loaded[0].moments.length, 3);
-      expect(loaded[0].moments[0].macroNumber, 2);
-      expect(loaded[0].moments[1].roleId, 'r1');
-      expect(loaded[0].moments[2].subOrderId, 'o2');
+      expect(loaded[0].participants.length, 2);
+      expect(loaded[0].steps.length, 3);
+      expect(loaded[0].steps[0].macroNumber, 2);
+      expect(loaded[0].steps[1].participantId, 'pt1');
+      expect(loaded[0].steps[2].subServiceId, 's2');
     });
 
-    test('saves multiple orders', () async {
-      final orders = [
-        ServiceOrder(id: 'o1', name: 'Mass'),
-        ServiceOrder(id: 'o2', name: 'Vespers'),
+    test('saves multiple services', () async {
+      final services = [
+        Service(id: 's1', name: 'Mass'),
+        Service(id: 's2', name: 'Vespers'),
       ];
-      await ServiceOrderStore.saveAll(orders);
-      final loaded = await ServiceOrderStore.loadAll();
+      await ServiceStore.saveAll(services);
+      final loaded = await ServiceStore.loadAll();
       expect(loaded.length, 2);
-      expect(loaded.map((o) => o.name), containsAll(['Mass', 'Vespers']));
+      expect(loaded.map((s) => s.name), containsAll(['Mass', 'Vespers']));
     });
 
     test('each store uses its own key (no cross-contamination)', () async {
-      await SceneStore.saveAll([Scene(id: 's1', name: 'Lectern')]);
-      await RoleStore.saveAll([Role(id: 'r1', name: 'Priest')]);
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Lectern')]);
+      await ServiceStore.saveAll([Service(id: 's1', name: 'Mass')]);
 
-      // loading the other stores should still be empty
+      // loading the other store should still be unaffected
       expect(await PeopleStore.loadAll(), isEmpty);
-      expect(await ServiceOrderStore.loadAll(), isEmpty);
     });
   });
 
@@ -237,6 +217,70 @@ void main() {
     test('different device keys do not share visibilities', () async {
       await VisibilityStore.save('roland_10.0.1.20', 5, ItemVisibility.hide);
       expect(await VisibilityStore.loadAll('10.0.1.10'), isEmpty);
+    });
+  });
+
+  group('HeightRangeStore', () {
+    test('loadAll returns empty list before anything is saved', () async {
+      expect(await HeightRangeStore.loadAll(), isEmpty);
+    });
+
+    test('saveAll then loadAll preserves bounded range with positionPresets', () async {
+      final range = HeightRange(
+        id: 'hr1',
+        name: 'Short',
+        maxHeightCm: 163,
+        positionPresets: {
+          'pos1': {'10.0.0.1': 2, '10.0.0.2': 5},
+        },
+      );
+      await HeightRangeStore.saveAll([range]);
+      final loaded = await HeightRangeStore.loadAll();
+      expect(loaded.length, 1);
+      expect(loaded[0].id, 'hr1');
+      expect(loaded[0].name, 'Short');
+      expect(loaded[0].maxHeightCm, 163);
+      expect(loaded[0].positionPresets['pos1']?['10.0.0.1'], 2);
+      expect(loaded[0].positionPresets['pos1']?['10.0.0.2'], 5);
+    });
+
+    test('saveAll then loadAll preserves catch-all range (null maxHeightCm)', () async {
+      final range = HeightRange(id: 'hr2', name: 'Tall');
+      await HeightRangeStore.saveAll([range]);
+      final loaded = await HeightRangeStore.loadAll();
+      expect(loaded.length, 1);
+      expect(loaded[0].maxHeightCm, isNull);
+    });
+
+    test('saves multiple ranges', () async {
+      final ranges = [
+        HeightRange(id: 'hr1', name: 'Short', maxHeightCm: 163),
+        HeightRange(id: 'hr2', name: 'Medium', maxHeightCm: 175),
+        HeightRange(id: 'hr3', name: 'Tall'),
+      ];
+      await HeightRangeStore.saveAll(ranges);
+      final loaded = await HeightRangeStore.loadAll();
+      expect(loaded.length, 3);
+      expect(loaded.map((r) => r.name), containsAll(['Short', 'Medium', 'Tall']));
+    });
+
+    test('overwriting with empty list clears stored ranges', () async {
+      await HeightRangeStore.saveAll([HeightRange(id: 'hr1', name: 'Short', maxHeightCm: 163)]);
+      await HeightRangeStore.saveAll([]);
+      expect(await HeightRangeStore.loadAll(), isEmpty);
+    });
+
+    test('overwrites previous save entirely', () async {
+      await HeightRangeStore.saveAll([HeightRange(id: 'hr1', name: 'Short', maxHeightCm: 163)]);
+      await HeightRangeStore.saveAll([HeightRange(id: 'hr2', name: 'Tall')]);
+      final loaded = await HeightRangeStore.loadAll();
+      expect(loaded.length, 1);
+      expect(loaded[0].name, 'Tall');
+    });
+
+    test('HeightRangeStore uses its own key (no cross-contamination with PositionStore)', () async {
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Lectern')]);
+      expect(await HeightRangeStore.loadAll(), isEmpty);
     });
   });
 }

@@ -4,30 +4,28 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/height_range.dart';
 import '../models/operator_profile.dart';
 import '../models/person.dart';
-import '../models/role.dart';
-import '../models/scene.dart';
-import '../models/service_order.dart';
+import '../models/position.dart';
+import '../models/service.dart';
 import 'device_config_store.dart';
+import 'height_range_store.dart';
 import 'operator_store.dart';
 import 'people_store.dart';
-import 'role_store.dart';
-import 'scene_store.dart';
-import 'service_order_store.dart';
+import 'position_store.dart';
+import 'service_store.dart';
 
 class ConfigBundle {
-  final List<Scene> scenes;
+  final List<Position> positions;
   final List<Person> people;
-  final List<Role> roles;
-  final List<ServiceOrder> orders;
+  final List<Service> services;
+  final List<HeightRange> heightRanges;
 
-  /// Preset/macro names keyed by device storage key (camera IP or `roland_<ip>`),
-  /// then by item index string → custom name.
+  /// Preset/macro names keyed by device storage key, then item index string → custom name.
   final Map<String, Map<String, String>> presetNames;
 
-  /// Item visibility keyed by device storage key, then item index string →
-  /// visibility name (matches [ItemVisibility.name]).
+  /// Item visibility keyed by device storage key, then item index string → visibility name.
   final Map<String, Map<String, String>> visibilities;
 
   /// Roland V-160HD IP address. Null means "not included in this bundle".
@@ -40,10 +38,10 @@ class ConfigBundle {
   final List<OperatorProfile>? operators;
 
   const ConfigBundle({
-    required this.scenes,
+    required this.positions,
     required this.people,
-    required this.roles,
-    required this.orders,
+    required this.services,
+    this.heightRanges = const [],
     this.presetNames = const {},
     this.visibilities = const {},
     this.rolandIp,
@@ -52,10 +50,10 @@ class ConfigBundle {
   });
 
   Map<String, dynamic> toJson() => {
-        'scenes': scenes.map((s) => s.toJson()).toList(),
+        'positions': positions.map((p) => p.toJson()).toList(),
         'people': people.map((p) => p.toJson()).toList(),
-        'roles': roles.map((r) => r.toJson()).toList(),
-        'serviceOrders': orders.map((o) => o.toJson()).toList(),
+        'services': services.map((s) => s.toJson()).toList(),
+        'heightRanges': heightRanges.map((r) => r.toJson()).toList(),
         if (presetNames.isNotEmpty) 'presetNames': presetNames,
         if (visibilities.isNotEmpty) 'visibilities': visibilities,
         if (rolandIp != null) 'rolandIp': rolandIp,
@@ -66,17 +64,17 @@ class ConfigBundle {
       };
 
   factory ConfigBundle.fromJson(Map<String, dynamic> json) => ConfigBundle(
-        scenes: (json['scenes'] as List<dynamic>? ?? [])
-            .map((s) => Scene.fromJson(s as Map<String, dynamic>))
+        positions: (json['positions'] as List<dynamic>? ?? [])
+            .map((p) => Position.fromJson(p as Map<String, dynamic>))
             .toList(),
         people: (json['people'] as List<dynamic>? ?? [])
             .map((p) => Person.fromJson(p as Map<String, dynamic>))
             .toList(),
-        roles: (json['roles'] as List<dynamic>? ?? [])
-            .map((r) => Role.fromJson(r as Map<String, dynamic>))
+        services: (json['services'] as List<dynamic>? ?? [])
+            .map((s) => Service.fromJson(s as Map<String, dynamic>))
             .toList(),
-        orders: (json['serviceOrders'] as List<dynamic>? ?? [])
-            .map((o) => ServiceOrder.fromJson(o as Map<String, dynamic>))
+        heightRanges: (json['heightRanges'] as List<dynamic>? ?? [])
+            .map((r) => HeightRange.fromJson(r as Map<String, dynamic>))
             .toList(),
         presetNames: _parseStringStringMaps(json['presetNames']),
         visibilities: _parseStringStringMaps(json['visibilities']),
@@ -107,10 +105,10 @@ class ConfigBundle {
 
   static Future<ConfigBundle> fromStores() async {
     final results = await Future.wait([
-      SceneStore.loadAll(),
+      PositionStore.loadAll(),
       PeopleStore.loadAll(),
-      RoleStore.loadAll(),
-      ServiceOrderStore.loadAll(),
+      ServiceStore.loadAll(),
+      HeightRangeStore.loadAll(),
     ]);
 
     final prefs = await SharedPreferences.getInstance();
@@ -142,10 +140,10 @@ class ConfigBundle {
     final operators = await OperatorStore.loadAll();
 
     return ConfigBundle(
-      scenes: results[0] as List<Scene>,
+      positions: results[0] as List<Position>,
       people: results[1] as List<Person>,
-      roles: results[2] as List<Role>,
-      orders: results[3] as List<ServiceOrder>,
+      services: results[2] as List<Service>,
+      heightRanges: results[3] as List<HeightRange>,
       presetNames: presetNames,
       visibilities: visibilities,
       rolandIp: rolandIp,
@@ -158,10 +156,10 @@ class ConfigBundle {
     final prefs = await SharedPreferences.getInstance();
 
     await Future.wait([
-      SceneStore.saveAll(scenes),
+      PositionStore.saveAll(positions),
       PeopleStore.saveAll(people),
-      RoleStore.saveAll(roles),
-      ServiceOrderStore.saveAll(orders),
+      ServiceStore.saveAll(services),
+      HeightRangeStore.saveAll(heightRanges),
       if (rolandIp != null || cameras != null)
         DeviceConfigStore.save(
           rolandIp ?? DeviceConfigStore.defaultRolandIp,
@@ -181,7 +179,6 @@ class ConfigBundle {
   }
 
   /// Suggested default export path using the platform Documents folder.
-  /// Returns just the filename on web (file I/O is not supported there).
   static String suggestedExportPath() {
     final now = DateTime.now();
     final stamp =
@@ -198,7 +195,6 @@ class ConfigBundle {
     return filename;
   }
 
-  /// Writes this bundle to [path] as indented JSON. Throws on I/O error.
   static Future<void> writeToPath(String path, ConfigBundle bundle) {
     if (kIsWeb) {
       return Future.error(
@@ -209,8 +205,6 @@ class ConfigBundle {
     );
   }
 
-  /// Reads and parses a bundle from [path]. Throws [FormatException] if the
-  /// content is not a valid configuration object.
   static Future<ConfigBundle> readFromPath(String path) async {
     if (kIsWeb) {
       throw UnsupportedError('File import is not supported on web');

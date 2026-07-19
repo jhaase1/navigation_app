@@ -1,165 +1,166 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
-import '../models/role.dart';
-import '../models/scene.dart';
-import '../models/service_order.dart';
+import '../models/position.dart';
+import '../models/service.dart';
 import '../services/abstract/roland_service_abstract.dart';
 
-class _FlatMoment {
+class _FlatStep {
   final String id;
-  final MomentType type;
-  final String? roleId;
-  final String? sceneId;
+  final StepType type;
+  final String? participantId;
+  final String? positionId;
   final int? macroNumber;
   final String? cameraIp;
   final int? cameraPresetIndex;
 
-  const _FlatMoment({
+  const _FlatStep({
     required this.id,
     required this.type,
-    this.roleId,
-    this.sceneId,
+    this.participantId,
+    this.positionId,
     this.macroNumber,
     this.cameraIp,
     this.cameraPresetIndex,
   });
 }
 
-class OrderTab extends StatefulWidget {
+class ServiceTab extends StatefulWidget {
   final List<PanasonicCameraConfig> cameras;
   final List<Person> people;
-  final List<Role> roles;
-  final List<Scene> scenes;
-  final List<ServiceOrder> orders;
+  final List<Position> positions;
+  final List<Service> services;
   final RolandServiceAbstract? rolandService;
   final ValueNotifier<bool>? rolandConnected;
   final ValueChanged<String> onResponse;
 
-  const OrderTab({
+  const ServiceTab({
     super.key,
     required this.cameras,
     required this.people,
-    required this.roles,
-    required this.scenes,
-    required this.orders,
+    required this.positions,
+    required this.services,
     required this.rolandService,
     required this.rolandConnected,
     required this.onResponse,
   });
 
   @override
-  State<OrderTab> createState() => _OrderTabState();
+  State<ServiceTab> createState() => _ServiceTabState();
 }
 
-class _OrderTabState extends State<OrderTab> {
-  String? _selectedOrderId;
+class _ServiceTabState extends State<ServiceTab> {
+  String? _selectedServiceId;
   int _selectedCameraIndex = 0;
-  int? _currentMomentIndex;
+  int? _currentStepIndex;
 
-  // roleId → personId, set at run time for this service
-  final Map<String, String?> _roleAssignments = {};
+  // participantId → personId, set at run time for this service
+  final Map<String, String?> _participantAssignments = {};
 
-  ServiceOrder? get _selectedOrder => _selectedOrderId == null
+  Service? get _selectedService => _selectedServiceId == null
       ? null
-      : widget.orders.where((o) => o.id == _selectedOrderId).firstOrNull;
+      : widget.services.where((s) => s.id == _selectedServiceId).firstOrNull;
 
-  List<_FlatMoment> get _flatMoments {
-    final order = _selectedOrder;
-    if (order == null) return [];
-    return _flatten(order, {});
+  List<_FlatStep> get _flatSteps {
+    final service = _selectedService;
+    if (service == null) return [];
+    return _flatten(service, {});
   }
 
-  List<_FlatMoment> _flatten(ServiceOrder order, Set<String> visited) {
-    if (visited.contains(order.id)) return [];
-    final seen = {...visited, order.id};
-    final result = <_FlatMoment>[];
-    for (final m in order.moments) {
-      if (m.type == MomentType.subOrder && m.subOrderId != null) {
-        final sub = widget.orders
-            .where((o) => o.id == m.subOrderId)
+  List<_FlatStep> _flatten(Service service, Set<String> visited) {
+    if (visited.contains(service.id)) return [];
+    final seen = {...visited, service.id};
+    final result = <_FlatStep>[];
+    for (final s in service.steps) {
+      if (s.type == StepType.block && s.subServiceId != null) {
+        final sub = widget.services
+            .where((sv) => sv.id == s.subServiceId)
             .firstOrNull;
         if (sub != null) result.addAll(_flatten(sub, seen));
       } else {
-        result.add(_FlatMoment(
-          id: m.id,
-          type: m.type,
-          roleId: m.roleId,
-          sceneId: m.sceneId,
-          macroNumber: m.macroNumber,
-          cameraIp: m.cameraIp,
-          cameraPresetIndex: m.cameraPresetIndex,
+        result.add(_FlatStep(
+          id: s.id,
+          type: s.type,
+          participantId: s.participantId,
+          positionId: s.positionId,
+          macroNumber: s.macroNumber,
+          cameraIp: s.cameraIp,
+          cameraPresetIndex: s.cameraPresetIndex,
         ));
       }
     }
     return result;
   }
 
-  Set<String> get _referencedRoleIds {
-    return _flatMoments
-        .where((m) => m.type == MomentType.roleScene && m.roleId != null)
-        .map((m) => m.roleId!)
+  Set<String> get _referencedParticipantIds {
+    return _flatSteps
+        .where((s) => s.type == StepType.ministry && s.participantId != null)
+        .map((s) => s.participantId!)
         .toSet();
   }
 
   @override
-  void didUpdateWidget(OrderTab old) {
+  void didUpdateWidget(ServiceTab old) {
     super.didUpdateWidget(old);
-    if (_selectedOrderId != null &&
-        !widget.orders.any((o) => o.id == _selectedOrderId)) {
-      _selectedOrderId = null;
-      _currentMomentIndex = null;
-      _roleAssignments.clear();
+    if (_selectedServiceId != null &&
+        !widget.services.any((s) => s.id == _selectedServiceId)) {
+      _selectedServiceId = null;
+      _currentStepIndex = null;
+      _participantAssignments.clear();
     }
   }
 
-  Future<void> _fireMoment(int index) async {
-    final flat = _flatMoments;
+  Future<void> _fireStep(int index) async {
+    final flat = _flatSteps;
     if (index < 0 || index >= flat.length) return;
-    setState(() => _currentMomentIndex = index);
-    final m = flat[index];
+    setState(() => _currentStepIndex = index);
+    final s = flat[index];
 
-    switch (m.type) {
-      case MomentType.roleScene:
-        await _fireRoleScene(m);
-      case MomentType.macro:
-        await _fireMacro(m);
-      case MomentType.camera:
-        await _fireCamera(m);
-      case MomentType.subOrder:
+    switch (s.type) {
+      case StepType.ministry:
+        await _fireMinistryStep(s);
+      case StepType.macro:
+        await _fireMacroStep(s);
+      case StepType.shot:
+        await _fireShotStep(s);
+      case StepType.block:
         break; // already flattened; should never appear
     }
   }
 
-  Future<void> _fireRoleScene(_FlatMoment m) async {
-    final role = m.roleId == null
+  Future<void> _fireMinistryStep(_FlatStep s) async {
+    final service = _selectedService;
+    final participant = s.participantId == null
         ? null
-        : widget.roles.where((r) => r.id == m.roleId).firstOrNull;
-    if (role == null) {
-      widget.onResponse('Missing role data');
+        : service?.participants
+            .where((p) => p.id == s.participantId)
+            .firstOrNull;
+    if (participant == null) {
+      widget.onResponse('Missing participant data');
       return;
     }
-    final personId = _roleAssignments[role.id];
+    final personId = _participantAssignments[participant.id];
     if (personId == null) {
-      widget.onResponse('No one assigned to "${role.name}" for this service');
+      widget.onResponse(
+          'No one assigned to "${participant.name}" for this service');
       return;
     }
-    final person =
-        widget.people.where((p) => p.id == personId).firstOrNull;
-    final scene = m.sceneId == null
+    final person = widget.people.where((p) => p.id == personId).firstOrNull;
+    final position = s.positionId == null
         ? null
-        : widget.scenes.where((s) => s.id == m.sceneId).firstOrNull;
-    if (person == null || scene == null) {
-      widget.onResponse('Missing person or scene data');
+        : widget.positions.where((p) => p.id == s.positionId).firstOrNull;
+    if (person == null || position == null) {
+      widget.onResponse('Missing person or position data');
       return;
     }
     final cameraIdx =
         _selectedCameraIndex.clamp(0, widget.cameras.length - 1);
     final camera = widget.cameras[cameraIdx];
-    final presetIndex = person.scenePresets[scene.id]?[camera.ipController.text];
+    final presetIndex =
+        person.positionPresets[position.id]?[camera.ipController.text];
     if (presetIndex == null) {
       widget.onResponse(
-          '${person.name} has no preset for ${camera.name} at "${scene.name}"');
+          '${person.name} has no preset for ${camera.name} at "${position.name}"');
       return;
     }
     if (!camera.isConnected.value || camera.service == null) {
@@ -169,14 +170,14 @@ class _OrderTabState extends State<OrderTab> {
     try {
       final response = await camera.service!.recallPreset(presetIndex);
       widget.onResponse(
-          '${role.name} (${person.name}) · ${scene.name} → ${camera.name}: $response');
+          '${participant.name} (${person.name}) · ${position.name} → ${camera.name}: $response');
     } catch (e) {
       widget.onResponse('Error: $e');
     }
   }
 
-  Future<void> _fireMacro(_FlatMoment m) async {
-    if (m.macroNumber == null) {
+  Future<void> _fireMacroStep(_FlatStep s) async {
+    if (s.macroNumber == null) {
       widget.onResponse('Macro number not set');
       return;
     }
@@ -186,23 +187,23 @@ class _OrderTabState extends State<OrderTab> {
       return;
     }
     try {
-      await widget.rolandService!.executeMacro(m.macroNumber!);
-      widget.onResponse('Macro ${m.macroNumber} executed');
+      await widget.rolandService!.executeMacro(s.macroNumber!);
+      widget.onResponse('Macro ${s.macroNumber} executed');
     } catch (e) {
       widget.onResponse('Macro error: $e');
     }
   }
 
-  Future<void> _fireCamera(_FlatMoment m) async {
-    if (m.cameraIp == null || m.cameraPresetIndex == null) {
+  Future<void> _fireShotStep(_FlatStep s) async {
+    if (s.cameraIp == null || s.cameraPresetIndex == null) {
       widget.onResponse('Camera or preset not set');
       return;
     }
     final camera = widget.cameras
-        .where((c) => c.ipController.text == m.cameraIp)
+        .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
-      widget.onResponse('Camera not found (${m.cameraIp})');
+      widget.onResponse('Camera not found (${s.cameraIp})');
       return;
     }
     if (!camera.isConnected.value || camera.service == null) {
@@ -210,60 +211,57 @@ class _OrderTabState extends State<OrderTab> {
       return;
     }
     try {
-      final response =
-          await camera.service!.recallPreset(m.cameraPresetIndex!);
+      final response = await camera.service!.recallPreset(s.cameraPresetIndex!);
       widget.onResponse(
-          '${camera.name} → Preset ${m.cameraPresetIndex! + 1}: $response');
+          '${camera.name} → Preset ${s.cameraPresetIndex! + 1}: $response');
     } catch (e) {
       widget.onResponse('Error: $e');
     }
   }
 
   void _goNext() {
-    final flat = _flatMoments;
+    final flat = _flatSteps;
     if (flat.isEmpty) return;
     final next =
-        (_currentMomentIndex == null ? 0 : _currentMomentIndex! + 1)
+        (_currentStepIndex == null ? 0 : _currentStepIndex! + 1)
             .clamp(0, flat.length - 1);
-    _fireMoment(next);
+    _fireStep(next);
   }
 
   void _goPrev() {
-    if (_currentMomentIndex == null || _currentMomentIndex! == 0) return;
-    _fireMoment(_currentMomentIndex! - 1);
+    if (_currentStepIndex == null || _currentStepIndex! == 0) return;
+    _fireStep(_currentStepIndex! - 1);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.orders.isEmpty) {
+    if (widget.services.isEmpty) {
       return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.format_list_numbered, size: 48, color: Colors.grey),
             SizedBox(height: 8),
-            Text('No service orders configured',
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('No services configured',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             SizedBox(height: 4),
-            Text('Use Settings → Manage Orders to create one',
+            Text('Use Settings → Manage Services to create one',
                 style: TextStyle(color: Colors.grey)),
           ],
         ),
       );
     }
 
-    final flat = _flatMoments;
-    final order = _selectedOrder;
+    final flat = _flatSteps;
+    final service = _selectedService;
 
     return Column(
       children: [
-        // Order + camera selectors
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
           child: Row(
             children: [
-              Expanded(child: _buildOrderDropdown()),
+              Expanded(child: _buildServiceDropdown()),
               if (widget.cameras.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 _buildCameraToggle(),
@@ -272,56 +270,51 @@ class _OrderTabState extends State<OrderTab> {
           ),
         ),
 
-        // Role assignments (only when order selected and roles are used)
-        if (order != null && _referencedRoleIds.isNotEmpty)
-          _buildRoleAssignmentPanel(),
+        if (service != null && _referencedParticipantIds.isNotEmpty)
+          _buildParticipantAssignmentPanel(),
 
-        // Moment list
         Expanded(
-          child: order == null
+          child: service == null
               ? const Center(
-                  child: Text('Select an order above',
+                  child: Text('Select a service above',
                       style: TextStyle(color: Colors.grey)))
               : flat.isEmpty
                   ? const Center(
-                      child: Text('This order has no moments',
+                      child: Text('This service has no steps',
                           style: TextStyle(color: Colors.grey)))
                   : ListView.builder(
                       padding: const EdgeInsets.all(8),
                       itemCount: flat.length,
-                      itemBuilder: (context, i) =>
-                          _buildMomentTile(flat[i], i),
+                      itemBuilder: (context, i) => _buildStepTile(flat[i], i),
                     ),
         ),
 
-        // Prev / Next
-        if (order != null && flat.isNotEmpty)
+        if (service != null && flat.isNotEmpty)
           Padding(
             padding: const EdgeInsets.all(8),
             child: Row(
               children: [
                 OutlinedButton.icon(
-                  onPressed:
-                      (_currentMomentIndex ?? 0) > 0 ? _goPrev : null,
+                  onPressed: (_currentStepIndex ?? 0) > 0 ? _goPrev : null,
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('Prev'),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Center(
-                    child: _currentMomentIndex == null
-                        ? const Text('Tap a moment or Next to begin',
+                    child: _currentStepIndex == null
+                        ? const Text('Tap a step or Next to begin',
                             style: TextStyle(color: Colors.grey))
                         : Text(
-                            '${_currentMomentIndex! + 1} / ${flat.length}',
+                            '${_currentStepIndex! + 1} / ${flat.length}',
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(width: 12),
                 FilledButton.icon(
-                  onPressed: (_currentMomentIndex == null ||
-                          _currentMomentIndex! < flat.length - 1)
+                  onPressed: (_currentStepIndex == null ||
+                          _currentStepIndex! < flat.length - 1)
                       ? _goNext
                       : null,
                   icon: const Icon(Icons.arrow_forward),
@@ -334,31 +327,31 @@ class _OrderTabState extends State<OrderTab> {
     );
   }
 
-  Widget _buildOrderDropdown() {
+  Widget _buildServiceDropdown() {
     return InputDecorator(
       decoration: const InputDecoration(
-        labelText: 'Order',
+        labelText: 'Service',
         border: OutlineInputBorder(),
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
-          value: _selectedOrderId,
+          value: _selectedServiceId,
           isDense: true,
           isExpanded: true,
-          hint: const Text('Select order…',
+          hint: const Text('Select service…',
               style: TextStyle(color: Colors.grey)),
-          items: widget.orders
-              .map((o) => DropdownMenuItem<String?>(
-                    value: o.id,
-                    child: Text(o.name),
+          items: widget.services
+              .map((s) => DropdownMenuItem<String?>(
+                    value: s.id,
+                    child: Text(s.name),
                   ))
               .toList(),
           onChanged: (id) => setState(() {
-            _selectedOrderId = id;
-            _currentMomentIndex = null;
-            _roleAssignments.clear();
+            _selectedServiceId = id;
+            _currentStepIndex = null;
+            _participantAssignments.clear();
           }),
         ),
       ),
@@ -382,10 +375,14 @@ class _OrderTabState extends State<OrderTab> {
     );
   }
 
-  Widget _buildRoleAssignmentPanel() {
-    final roles = _referencedRoleIds
-        .map((id) => widget.roles.where((r) => r.id == id).firstOrNull)
-        .whereType<Role>()
+  Widget _buildParticipantAssignmentPanel() {
+    final service = _selectedService;
+    if (service == null) return const SizedBox.shrink();
+
+    final participants = _referencedParticipantIds
+        .map((id) =>
+            service.participants.where((p) => p.id == id).firstOrNull)
+        .whereType<Participant>()
         .toList();
 
     return Container(
@@ -398,16 +395,16 @@ class _OrderTabState extends State<OrderTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Role assignments for this service',
+          const Text("Today's cast",
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
           const SizedBox(height: 8),
-          ...roles.map((role) => Padding(
+          ...participants.map((p) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
                   children: [
                     SizedBox(
                       width: 90,
-                      child: Text(role.name,
+                      child: Text(p.name,
                           style: const TextStyle(fontSize: 13)),
                     ),
                     Expanded(
@@ -420,7 +417,7 @@ class _OrderTabState extends State<OrderTab> {
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String?>(
-                            value: _roleAssignments[role.id],
+                            value: _participantAssignments[p.id],
                             isDense: true,
                             isExpanded: true,
                             hint: const Text('— unassigned —',
@@ -432,14 +429,15 @@ class _OrderTabState extends State<OrderTab> {
                                 child: Text('— unassigned —',
                                     style: TextStyle(color: Colors.grey)),
                               ),
-                              ...widget.people.map((p) =>
+                              ...widget.people.map((person) =>
                                   DropdownMenuItem<String?>(
-                                    value: p.id,
-                                    child: Text(p.name),
+                                    value: person.id,
+                                    child: Text(person.name),
                                   )),
                             ],
                             onChanged: (personId) => setState(
-                                () => _roleAssignments[role.id] = personId),
+                                () => _participantAssignments[p.id] =
+                                    personId),
                           ),
                         ),
                       ),
@@ -452,31 +450,36 @@ class _OrderTabState extends State<OrderTab> {
     );
   }
 
-  Widget _buildMomentTile(_FlatMoment m, int index) {
-    final isCurrent = _currentMomentIndex == index;
+  Widget _buildStepTile(_FlatStep s, int index) {
+    final isCurrent = _currentStepIndex == index;
+    final service = _selectedService;
 
     String title = '${index + 1}. ';
     String? subtitle;
     bool hasWarning = false;
     IconData typeIcon = Icons.circle_outlined;
 
-    switch (m.type) {
-      case MomentType.roleScene:
-        final role = m.roleId == null
+    switch (s.type) {
+      case StepType.ministry:
+        final participant = s.participantId == null
             ? null
-            : widget.roles.where((r) => r.id == m.roleId).firstOrNull;
-        final scene = m.sceneId == null
+            : service?.participants
+                .where((p) => p.id == s.participantId)
+                .firstOrNull;
+        final position = s.positionId == null
             ? null
-            : widget.scenes.where((s) => s.id == m.sceneId).firstOrNull;
+            : widget.positions
+                .where((p) => p.id == s.positionId)
+                .firstOrNull;
         typeIcon = Icons.badge;
-        if (role == null || scene == null) {
-          title += 'Missing role/scene';
+        if (participant == null || position == null) {
+          title += 'Missing participant/position';
           hasWarning = true;
         } else {
-          title += '${role.name}  ·  ${scene.name}';
-          final personId = _roleAssignments[role.id];
+          title += '${participant.name}  ·  ${position.name}';
+          final personId = _participantAssignments[participant.id];
           if (personId == null) {
-            subtitle = '${role.name} not assigned';
+            subtitle = '${participant.name} not assigned';
             hasWarning = true;
           } else {
             final person =
@@ -485,30 +488,30 @@ class _OrderTabState extends State<OrderTab> {
           }
         }
 
-      case MomentType.macro:
+      case StepType.macro:
         typeIcon = Icons.settings_remote;
-        title += m.macroNumber != null
-            ? 'Macro ${m.macroNumber}'
+        title += s.macroNumber != null
+            ? 'Macro ${s.macroNumber}'
             : 'Macro (not set)';
-        if (m.macroNumber == null) hasWarning = true;
+        if (s.macroNumber == null) hasWarning = true;
 
-      case MomentType.camera:
+      case StepType.shot:
         typeIcon = Icons.videocam;
-        final camera = m.cameraIp == null
+        final camera = s.cameraIp == null
             ? null
             : widget.cameras
-                .where((c) => c.ipController.text == m.cameraIp)
+                .where((c) => c.ipController.text == s.cameraIp)
                 .firstOrNull;
-        if (camera == null || m.cameraPresetIndex == null) {
-          title += 'Camera (not set)';
+        if (camera == null || s.cameraPresetIndex == null) {
+          title += 'Shot (not set)';
           hasWarning = true;
         } else {
-          title += '${camera.name}  ·  Preset ${m.cameraPresetIndex! + 1}';
+          title += '${camera.name}  ·  Preset ${s.cameraPresetIndex! + 1}';
         }
 
-      case MomentType.subOrder:
+      case StepType.block:
         typeIcon = Icons.subdirectory_arrow_right;
-        title += 'Sub-order';
+        title += 'Block';
     }
 
     return Card(
@@ -531,7 +534,7 @@ class _OrderTabState extends State<OrderTab> {
         trailing: hasWarning
             ? const Icon(Icons.warning_amber, color: Colors.orange)
             : null,
-        onTap: () => _fireMoment(index),
+        onTap: () => _fireStep(index),
       ),
     );
   }

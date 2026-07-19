@@ -1,38 +1,38 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
-import '../models/scene.dart';
+import '../models/position.dart';
 
-class ScenesTab extends StatefulWidget {
+class PositionsTab extends StatefulWidget {
   final List<PanasonicCameraConfig> cameras;
-  final List<Scene> scenes;
+  final List<Position> positions;
   final List<Person> people;
   final ValueChanged<String> onResponse;
 
-  const ScenesTab({
+  const PositionsTab({
     super.key,
     required this.cameras,
-    required this.scenes,
+    required this.positions,
     required this.people,
     required this.onResponse,
   });
 
   @override
-  State<ScenesTab> createState() => _ScenesTabState();
+  State<PositionsTab> createState() => _PositionsTabState();
 }
 
-class _ScenesTabState extends State<ScenesTab> {
+class _PositionsTabState extends State<PositionsTab> {
   int _selectedCameraIndex = 0;
 
-  Future<void> _executePerson(Scene scene, Person person) async {
+  Future<void> _executePerson(Position position, Person person) async {
     final idx = _selectedCameraIndex.clamp(0, widget.cameras.length - 1);
     final camera = widget.cameras[idx];
     final ip = camera.ipController.text;
-    final presetIndex = person.scenePresets[scene.id]?[ip];
+    final presetIndex = person.positionPresets[position.id]?[ip];
 
     if (presetIndex == null) {
       widget.onResponse(
-          'No preset linked for ${camera.name} — ${person.name} at ${scene.name}');
+          'No preset linked for ${camera.name} — ${person.name} at ${position.name}');
       return;
     }
     if (!camera.isConnected.value || camera.service == null) {
@@ -41,7 +41,8 @@ class _ScenesTabState extends State<ScenesTab> {
     }
     try {
       final response = await camera.service!.recallPreset(presetIndex);
-      widget.onResponse('${person.name} · ${scene.name} → ${camera.name}: $response');
+      widget.onResponse(
+          '${person.name} · ${position.name} → ${camera.name}: $response');
     } catch (e) {
       widget.onResponse('Error: $e');
     }
@@ -79,27 +80,27 @@ class _ScenesTabState extends State<ScenesTab> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: widget.scenes.isEmpty
+            child: widget.positions.isEmpty
                 ? const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.place, size: 48, color: Colors.grey),
                         SizedBox(height: 8),
-                        Text('No scenes configured',
+                        Text('No positions configured',
                             style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold)),
                         SizedBox(height: 4),
                         Text(
-                            'Use Settings → Manage Scenes to add positions',
+                            'Use Settings → Manage Positions to define physical locations',
                             style: TextStyle(color: Colors.grey)),
                       ],
                     ),
                   )
                 : ListView(
-                    children: widget.scenes
-                        .map((scene) => _buildSceneCard(scene, ip))
+                    children: widget.positions
+                        .map((p) => _buildPositionCard(p, ip))
                         .toList(),
                   ),
           ),
@@ -108,9 +109,9 @@ class _ScenesTabState extends State<ScenesTab> {
     );
   }
 
-  Widget _buildSceneCard(Scene scene, String cameraIp) {
+  Widget _buildPositionCard(Position position, String cameraIp) {
     final peopleHere = widget.people
-        .where((p) => p.scenePresets[scene.id]?[cameraIp] != null)
+        .where((p) => p.positionPresets[position.id]?[cameraIp] != null)
         .toList();
 
     return Card(
@@ -120,7 +121,7 @@ class _ScenesTabState extends State<ScenesTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(scene.name,
+            Text(position.name,
                 style: const TextStyle(
                     fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -135,7 +136,7 @@ class _ScenesTabState extends State<ScenesTab> {
                 runSpacing: 8,
                 children: peopleHere
                     .map((person) => FilledButton(
-                          onPressed: () => _executePerson(scene, person),
+                          onPressed: () => _executePerson(position, person),
                           child: Text(person.name),
                         ))
                     .toList(),

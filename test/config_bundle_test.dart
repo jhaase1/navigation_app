@@ -1,46 +1,63 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/person.dart';
-import 'package:navigation_app/models/role.dart';
-import 'package:navigation_app/models/scene.dart';
-import 'package:navigation_app/models/service_order.dart';
+import 'package:navigation_app/models/position.dart';
+import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/config_bundle.dart';
+import 'package:navigation_app/services/height_range_store.dart';
 import 'package:navigation_app/services/people_store.dart';
-import 'package:navigation_app/services/role_store.dart';
-import 'package:navigation_app/services/scene_store.dart';
-import 'package:navigation_app/services/service_order_store.dart';
+import 'package:navigation_app/services/position_store.dart';
+import 'package:navigation_app/services/service_store.dart';
 
 ConfigBundle _full() => ConfigBundle(
-      scenes: [
-        Scene(id: 's1', name: 'Lectern'),
-        Scene(id: 's2', name: 'Pulpit'),
+      positions: [
+        Position(id: 'pos1', name: 'Lectern'),
+        Position(id: 'pos2', name: 'Pulpit'),
       ],
       people: [
         Person(
           id: 'p1',
           name: 'Alice',
-          scenePresets: {
-            's1': {'10.0.0.1': 2},
+          heightCm: 170,
+          positionPresets: {
+            'pos1': {'10.0.0.1': 2},
           },
         ),
       ],
-      roles: [
-        Role(id: 'r1', name: 'Reader 1'),
-        Role(id: 'r2', name: 'Priest'),
-      ],
-      orders: [
-        ServiceOrder(
-          id: 'o1',
+      services: [
+        Service(
+          id: 's1',
           name: 'Standard Mass',
-          moments: [
-            const OrderMoment(
-                id: 'm1', type: MomentType.macro, macroNumber: 3),
-            const OrderMoment(
-                id: 'm2',
-                type: MomentType.roleScene,
-                roleId: 'r1',
-                sceneId: 's1'),
+          participants: [
+            Participant(id: 'pt1', name: 'Reader 1'),
           ],
+          steps: [
+            const ServiceStep(
+                id: 'st1', type: StepType.macro, macroNumber: 3),
+            const ServiceStep(
+                id: 'st2',
+                type: StepType.ministry,
+                participantId: 'pt1',
+                positionId: 'pos1'),
+          ],
+        ),
+      ],
+      heightRanges: [
+        HeightRange(
+          id: 'hr1',
+          name: 'Short',
+          maxHeightCm: 163,
+          positionPresets: {
+            'pos1': {'10.0.0.1': 1},
+          },
+        ),
+        HeightRange(
+          id: 'hr2',
+          name: 'Tall',
+          positionPresets: {
+            'pos1': {'10.0.0.1': 5},
+          },
         ),
       ],
       presetNames: {
@@ -58,22 +75,30 @@ void main() {
       final bundle = _full();
       final copy = ConfigBundle.fromJson(bundle.toJson());
 
-      expect(copy.scenes.length, 2);
-      expect(copy.scenes[0].name, 'Lectern');
-      expect(copy.scenes[1].name, 'Pulpit');
+      expect(copy.positions.length, 2);
+      expect(copy.positions[0].name, 'Lectern');
+      expect(copy.positions[1].name, 'Pulpit');
 
       expect(copy.people.length, 1);
       expect(copy.people[0].name, 'Alice');
-      expect(copy.people[0].scenePresets['s1']?['10.0.0.1'], 2);
+      expect(copy.people[0].heightCm, 170);
+      expect(copy.people[0].positionPresets['pos1']?['10.0.0.1'], 2);
 
-      expect(copy.roles.length, 2);
-      expect(copy.roles[0].name, 'Reader 1');
+      expect(copy.heightRanges.length, 2);
+      expect(copy.heightRanges[0].name, 'Short');
+      expect(copy.heightRanges[0].maxHeightCm, 163);
+      expect(copy.heightRanges[0].positionPresets['pos1']?['10.0.0.1'], 1);
+      expect(copy.heightRanges[1].name, 'Tall');
+      expect(copy.heightRanges[1].maxHeightCm, isNull);
+      expect(copy.heightRanges[1].positionPresets['pos1']?['10.0.0.1'], 5);
 
-      expect(copy.orders.length, 1);
-      expect(copy.orders[0].name, 'Standard Mass');
-      expect(copy.orders[0].moments.length, 2);
-      expect(copy.orders[0].moments[0].macroNumber, 3);
-      expect(copy.orders[0].moments[1].roleId, 'r1');
+      expect(copy.services.length, 1);
+      expect(copy.services[0].name, 'Standard Mass');
+      expect(copy.services[0].participants.length, 1);
+      expect(copy.services[0].participants[0].name, 'Reader 1');
+      expect(copy.services[0].steps.length, 2);
+      expect(copy.services[0].steps[0].macroNumber, 3);
+      expect(copy.services[0].steps[1].participantId, 'pt1');
 
       expect(copy.presetNames['roland_10.0.1.20']?['1'], 'Opening Prayer');
       expect(copy.presetNames['roland_10.0.1.20']?['2'], 'Entrance Hymn');
@@ -86,23 +111,27 @@ void main() {
 
     test('missing keys in JSON produce empty collections and empty maps', () {
       final bundle = ConfigBundle.fromJson({});
-      expect(bundle.scenes, isEmpty);
+      expect(bundle.positions, isEmpty);
       expect(bundle.people, isEmpty);
-      expect(bundle.roles, isEmpty);
-      expect(bundle.orders, isEmpty);
+      expect(bundle.services, isEmpty);
+      expect(bundle.heightRanges, isEmpty);
       expect(bundle.presetNames, isEmpty);
       expect(bundle.visibilities, isEmpty);
     });
 
-    test('toJson uses serviceOrders key for orders', () {
-      const bundle = ConfigBundle(
-          scenes: [], people: [], roles: [], orders: []);
-      expect(bundle.toJson().containsKey('serviceOrders'), isTrue);
-      expect(bundle.toJson().containsKey('orders'), isFalse);
+    test('toJson uses positions, services, and heightRanges keys', () {
+      const bundle = ConfigBundle(positions: [], people: [], services: []);
+      final json = bundle.toJson();
+      expect(json.containsKey('positions'), isTrue);
+      expect(json.containsKey('services'), isTrue);
+      expect(json.containsKey('heightRanges'), isTrue);
+      expect(json.containsKey('roles'), isFalse);
+      expect(json.containsKey('scenes'), isFalse);
+      expect(json.containsKey('serviceOrders'), isFalse);
     });
 
     test('toJson omits presetNames and visibilities when empty', () {
-      const bundle = ConfigBundle(scenes: [], people: [], roles: [], orders: []);
+      const bundle = ConfigBundle(positions: [], people: [], services: []);
       final json = bundle.toJson();
       expect(json.containsKey('presetNames'), isFalse);
       expect(json.containsKey('visibilities'), isFalse);
@@ -115,29 +144,13 @@ void main() {
       expect(json.containsKey('visibilities'), isTrue);
     });
 
-    test('fromJson reads serviceOrders key', () {
-      final json = {
-        'serviceOrders': [
-          {
-            'id': 'o1',
-            'name': 'Test',
-            'moments': [],
-          }
-        ],
-      };
-      final bundle = ConfigBundle.fromJson(json);
-      expect(bundle.orders.length, 1);
-      expect(bundle.orders[0].name, 'Test');
-    });
-
     test('empty bundle round-trips', () {
-      const bundle =
-          ConfigBundle(scenes: [], people: [], roles: [], orders: []);
+      const bundle = ConfigBundle(positions: [], people: [], services: []);
       final copy = ConfigBundle.fromJson(bundle.toJson());
-      expect(copy.scenes, isEmpty);
+      expect(copy.positions, isEmpty);
       expect(copy.people, isEmpty);
-      expect(copy.roles, isEmpty);
-      expect(copy.orders, isEmpty);
+      expect(copy.services, isEmpty);
+      expect(copy.heightRanges, isEmpty);
     });
   });
 
@@ -148,38 +161,43 @@ void main() {
 
     test('fromStores returns empty bundle when stores are empty', () async {
       final bundle = await ConfigBundle.fromStores();
-      expect(bundle.scenes, isEmpty);
+      expect(bundle.positions, isEmpty);
       expect(bundle.people, isEmpty);
-      expect(bundle.roles, isEmpty);
-      expect(bundle.orders, isEmpty);
+      expect(bundle.services, isEmpty);
+      expect(bundle.heightRanges, isEmpty);
       expect(bundle.presetNames, isEmpty);
       expect(bundle.visibilities, isEmpty);
     });
 
-    test('saveToStores persists all four collections', () async {
+    test('saveToStores persists positions, people, services, and heightRanges', () async {
       await _full().saveToStores();
 
-      final scenes = await SceneStore.loadAll();
-      expect(scenes.length, 2);
-      expect(scenes[0].name, 'Lectern');
+      final positions = await PositionStore.loadAll();
+      expect(positions.length, 2);
+      expect(positions[0].name, 'Lectern');
 
       final people = await PeopleStore.loadAll();
       expect(people.length, 1);
-      expect(people[0].scenePresets['s1']?['10.0.0.1'], 2);
+      expect(people[0].heightCm, 170);
+      expect(people[0].positionPresets['pos1']?['10.0.0.1'], 2);
 
-      final roles = await RoleStore.loadAll();
-      expect(roles.length, 2);
+      final services = await ServiceStore.loadAll();
+      expect(services.length, 1);
+      expect(services[0].steps.length, 2);
 
-      final orders = await ServiceOrderStore.loadAll();
-      expect(orders.length, 1);
-      expect(orders[0].moments.length, 2);
+      final heightRanges = await HeightRangeStore.loadAll();
+      expect(heightRanges.length, 2);
+      expect(heightRanges[0].name, 'Short');
+      expect(heightRanges[0].maxHeightCm, 163);
+      expect(heightRanges[0].positionPresets['pos1']?['10.0.0.1'], 1);
+      expect(heightRanges[1].name, 'Tall');
+      expect(heightRanges[1].maxHeightCm, isNull);
     });
 
     test('saveToStores persists preset names and visibilities', () async {
       await _full().saveToStores();
       final prefs = await SharedPreferences.getInstance();
 
-      // PresetNameStore keys
       final rolandRaw = prefs.getString('preset_names_roland_10.0.1.20');
       expect(rolandRaw, isNotNull);
       expect(rolandRaw, contains('Opening Prayer'));
@@ -188,16 +206,17 @@ void main() {
       expect(camRaw, isNotNull);
       expect(camRaw, contains('Wide Shot'));
 
-      // VisibilityStore key
       final visRaw = prefs.getString('item_visibility_roland_10.0.1.20');
       expect(visRaw, isNotNull);
       expect(visRaw, contains('basic'));
     });
 
-    test('fromStores reads preset names and visibilities from SharedPreferences', () async {
+    test('fromStores reads preset names and visibilities from SharedPreferences',
+        () async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('preset_names_10.0.1.10', '{"0":"Wide Shot"}');
-      await prefs.setString('item_visibility_roland_10.0.1.20', '{"3":"hide"}');
+      await prefs.setString(
+          'item_visibility_roland_10.0.1.20', '{"3":"hide"}');
 
       final bundle = await ConfigBundle.fromStores();
       expect(bundle.presetNames['10.0.1.10']?['0'], 'Wide Shot');
@@ -208,33 +227,31 @@ void main() {
       await _full().saveToStores();
       final loaded = await ConfigBundle.fromStores();
 
-      expect(loaded.scenes.map((s) => s.id), containsAll(['s1', 's2']));
+      expect(loaded.positions.map((p) => p.id), containsAll(['pos1', 'pos2']));
       expect(loaded.people[0].name, 'Alice');
-      expect(loaded.roles.map((r) => r.name),
-          containsAll(['Reader 1', 'Priest']));
-      expect(loaded.orders[0].name, 'Standard Mass');
+      expect(loaded.people[0].heightCm, 170);
+      expect(loaded.services[0].name, 'Standard Mass');
+      expect(loaded.heightRanges.length, 2);
+      expect(loaded.heightRanges[0].name, 'Short');
+      expect(loaded.heightRanges[1].maxHeightCm, isNull);
       expect(loaded.presetNames['roland_10.0.1.20']?['1'], 'Opening Prayer');
       expect(loaded.presetNames['10.0.1.10']?['3'], 'Close Up');
       expect(loaded.visibilities['roland_10.0.1.20']?['5'], 'hide');
     });
 
     test('saveToStores overwrites previous store contents', () async {
-      // Save a full bundle first
       await _full().saveToStores();
 
-      // Save a minimal bundle — should replace, not merge
       await const ConfigBundle(
-        scenes: [],
+        positions: [],
         people: [],
-        roles: [],
-        orders: [],
+        services: [],
       ).saveToStores();
 
       final bundle = await ConfigBundle.fromStores();
-      expect(bundle.scenes, isEmpty);
+      expect(bundle.positions, isEmpty);
       expect(bundle.people, isEmpty);
-      expect(bundle.roles, isEmpty);
-      expect(bundle.orders, isEmpty);
+      expect(bundle.services, isEmpty);
     });
 
     test('toJson/fromJson/saveToStores/fromStores full round-trip', () async {
@@ -244,10 +261,15 @@ void main() {
       await decoded.saveToStores();
       final reloaded = await ConfigBundle.fromStores();
 
-      expect(reloaded.scenes.length, original.scenes.length);
-      expect(reloaded.people[0].scenePresets['s1']?['10.0.0.1'], 2);
-      expect(reloaded.roles.length, original.roles.length);
-      expect(reloaded.orders[0].moments[0].macroNumber, 3);
+      expect(reloaded.positions.length, original.positions.length);
+      expect(reloaded.people[0].heightCm, 170);
+      expect(reloaded.people[0].positionPresets['pos1']?['10.0.0.1'], 2);
+      expect(reloaded.services.length, original.services.length);
+      expect(reloaded.services[0].steps[0].macroNumber, 3);
+      expect(reloaded.heightRanges.length, 2);
+      expect(reloaded.heightRanges[0].name, 'Short');
+      expect(reloaded.heightRanges[0].positionPresets['pos1']?['10.0.0.1'], 1);
+      expect(reloaded.heightRanges[1].maxHeightCm, isNull);
       expect(reloaded.presetNames['roland_10.0.1.20']?['2'], 'Entrance Hymn');
       expect(reloaded.presetNames['10.0.1.10']?['0'], 'Wide Shot');
       expect(reloaded.visibilities['roland_10.0.1.20']?['1'], 'basic');

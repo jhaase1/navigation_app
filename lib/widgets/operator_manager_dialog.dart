@@ -119,7 +119,7 @@ class _OperatorManagerDialogState extends State<OperatorManagerDialog> {
 
   // ── Editor ───────────────────────────────────────────────────────────────
 
-  void _save() {
+  Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     final updated = _editing!.copyWith(
       name: name.isEmpty ? 'Operator' : name,
@@ -134,8 +134,9 @@ class _OperatorManagerDialogState extends State<OperatorManagerDialog> {
       newList.add(updated);
     }
 
-    OperatorStore.saveAll(newList).then((_) => widget.onSaved());
-    setState(() { _operators = newList; _editing = null; });
+    await OperatorStore.saveAll(newList);
+    widget.onSaved();
+    if (mounted) setState(() { _operators = newList; _editing = null; });
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

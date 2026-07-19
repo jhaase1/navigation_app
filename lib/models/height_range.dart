@@ -1,39 +1,42 @@
-class Person {
+class HeightRange {
   final String id;
   final String name;
-  // null means "not set" — preset_resolver defaults to 5'8" (173 cm)
-  final int? heightCm;
-  // positionId → cameraIp → preset index (0-based); stored values are overrides
+  // null means no upper bound — catch-all for the tallest group
+  final int? maxHeightCm;
+  // positionId → cameraIp → preset index (0-based)
   final Map<String, Map<String, int>> positionPresets;
 
-  Person({
+  HeightRange({
     required this.id,
     required this.name,
-    this.heightCm,
+    this.maxHeightCm,
     Map<String, Map<String, int>>? positionPresets,
   }) : positionPresets = positionPresets ?? {};
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        if (heightCm != null) 'heightCm': heightCm,
+        if (maxHeightCm != null) 'maxHeightCm': maxHeightCm,
         'positionPresets': positionPresets.map(
-          (positionId, cameraMap) =>
-              MapEntry(positionId, Map<String, dynamic>.from(cameraMap)),
+          (posId, cameraMap) =>
+              MapEntry(posId, Map<String, dynamic>.from(cameraMap)),
         ),
       };
 
-  factory Person.fromJson(Map<String, dynamic> json) => Person(
+  factory HeightRange.fromJson(Map<String, dynamic> json) => HeightRange(
         id: json['id'] as String,
         name: json['name'] as String,
-        heightCm: json['heightCm'] as int?,
+        maxHeightCm: json['maxHeightCm'] as int?,
         positionPresets:
             (json['positionPresets'] as Map<String, dynamic>? ?? {}).map(
-          (positionId, cameraMap) => MapEntry(
-            positionId,
+          (posId, cameraMap) => MapEntry(
+            posId,
             (cameraMap as Map<String, dynamic>)
                 .map((ip, preset) => MapEntry(ip, preset as int)),
           ),
         ),
       );
 }
+
+String generateHeightRangeId() =>
+    DateTime.now().microsecondsSinceEpoch.toString();
