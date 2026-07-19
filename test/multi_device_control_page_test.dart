@@ -5,10 +5,22 @@ import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
+// Connects using Demo Mode so tests never attempt a real network connection.
+// The app now defaults to production (live) mode, so tests must switch it
+// on explicitly before hitting "Connect All".
 Future<void> _connect(WidgetTester tester) async {
   await tester
       .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
   await tester.pumpAndSettle();
+
+  await tester.tap(find.descendant(
+      of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byType(Switch));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Close'));
+  await tester.pumpAndSettle();
+
   await tester.tap(find.text('Connect All'));
   await tester.pump(const Duration(milliseconds: 600));
   await tester.pumpAndSettle();
@@ -44,11 +56,30 @@ void main() {
       expect(find.text('Default'), findsOneWidget);
     });
 
-    testWidgets('shows a Demo mode badge once connected (mock mode is on by default)',
+    testWidgets('shows a Demo mode badge once connected in Demo Mode',
         (tester) async {
       await _connect(tester);
 
       expect(find.text('Demo'), findsOneWidget);
+    });
+  });
+
+  group('MultiDeviceControlPage — production mode default', () {
+    testWidgets('defaults to Live Mode (not Demo Mode) before connecting',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Live Mode'), findsOneWidget);
+      expect(find.text('Demo Mode'), findsNothing);
+    });
+
+    testWidgets('does not show a "Roland V-160HD Control" title',
+        (tester) async {
+      await _connect(tester);
+
+      expect(find.text('Roland V-160HD Control'), findsNothing);
     });
   });
 

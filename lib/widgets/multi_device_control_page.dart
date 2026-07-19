@@ -30,7 +30,7 @@ class MultiDeviceControlPage extends StatefulWidget {
 }
 
 class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
-  bool _mockMode = true;
+  bool _mockMode = false;
   bool _connectingAll = false;
 
   // Roland
@@ -463,7 +463,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Roland V-160HD Control'),
         actions: [
           Tooltip(
             message: 'Switch operator',
