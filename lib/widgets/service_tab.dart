@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../models/height_range.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
 import '../models/position.dart';
 import '../models/service.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../utils/preset_resolver.dart';
 
 class _FlatStep {
   final String id;
@@ -30,6 +32,7 @@ class ServiceTab extends StatefulWidget {
   final List<Person> people;
   final List<Position> positions;
   final List<Service> services;
+  final List<HeightRange> heightRanges;
   final RolandServiceAbstract? rolandService;
   final ValueNotifier<bool>? rolandConnected;
   final ValueChanged<String> onResponse;
@@ -40,6 +43,7 @@ class ServiceTab extends StatefulWidget {
     required this.people,
     required this.positions,
     required this.services,
+    required this.heightRanges,
     required this.rolandService,
     required this.rolandConnected,
     required this.onResponse,
@@ -51,7 +55,6 @@ class ServiceTab extends StatefulWidget {
 
 class _ServiceTabState extends State<ServiceTab> {
   String? _selectedServiceId;
-  int _selectedCameraIndex = 0;
   int? _currentStepIndex;
 
   // participantId → personId, set at run time for this service
@@ -153,11 +156,24 @@ class _ServiceTabState extends State<ServiceTab> {
       widget.onResponse('Missing person or position data');
       return;
     }
-    final cameraIdx =
-        _selectedCameraIndex.clamp(0, widget.cameras.length - 1);
-    final camera = widget.cameras[cameraIdx];
-    final presetIndex =
-        person.positionPresets[position.id]?[camera.ipController.text];
+    if (s.cameraIp == null) {
+      widget.onResponse(
+          '${participant.name} · ${position.name} has no camera set');
+      return;
+    }
+    final camera = widget.cameras
+        .where((c) => c.ipController.text == s.cameraIp)
+        .firstOrNull;
+    if (camera == null) {
+      widget.onResponse('Camera not found (${s.cameraIp})');
+      return;
+    }
+    final presetIndex = resolvePreset(
+      person: person,
+      positionId: position.id,
+      cameraIp: camera.ipController.text,
+      heightRanges: widget.heightRanges,
+    );
     if (presetIndex == null) {
       widget.onResponse(
           '${person.name} has no preset for ${camera.name} at "${position.name}"');
@@ -259,15 +275,7 @@ class _ServiceTabState extends State<ServiceTab> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-          child: Row(
-            children: [
-              Expanded(child: _buildServiceDropdown()),
-              if (widget.cameras.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                _buildCameraToggle(),
-              ],
-            ],
-          ),
+          child: _buildServiceDropdown(),
         ),
 
         if (service != null && _referencedParticipantIds.isNotEmpty)
@@ -354,23 +362,6 @@ class _ServiceTabState extends State<ServiceTab> {
             _participantAssignments.clear();
           }),
         ),
-      ),
-    );
-  }
-
-  Widget _buildCameraToggle() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: ToggleButtons(
-        isSelected: List.generate(
-            widget.cameras.length, (i) => i == _selectedCameraIndex),
-        onPressed: (i) => setState(() => _selectedCameraIndex = i),
-        children: widget.cameras
-            .map((c) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(c.name),
-                ))
-            .toList(),
       ),
     );
   }
@@ -476,15 +467,25 @@ class _ServiceTabState extends State<ServiceTab> {
           title += 'Missing participant/position';
           hasWarning = true;
         } else {
-          title += '${participant.name}  ·  ${position.name}';
-          final personId = _participantAssignments[participant.id];
-          if (personId == null) {
-            subtitle = '${participant.name} not assigned';
+          final camera = s.cameraIp == null
+              ? null
+              : widget.cameras
+                  .where((c) => c.ipController.text == s.cameraIp)
+                  .firstOrNull;
+          if (camera == null) {
+            title += '${participant.name}  ·  ${position.name}  ·  camera not set';
             hasWarning = true;
           } else {
-            final person =
-                widget.people.where((p) => p.id == personId).firstOrNull;
-            subtitle = person?.name ?? 'Unknown person';
+            title += '${participant.name}  ·  ${position.name}  ·  ${camera.name}';
+            final personId = _participantAssignments[participant.id];
+            if (personId == null) {
+              subtitle = '${participant.name} not assigned';
+              hasWarning = true;
+            } else {
+              final person =
+                  widget.people.where((p) => p.id == personId).firstOrNull;
+              subtitle = person?.name ?? 'Unknown person';
+            }
           }
         }
 

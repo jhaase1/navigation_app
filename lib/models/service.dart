@@ -18,16 +18,16 @@ class ServiceStep {
   final String id;
   final StepType type;
 
-  // ministry — person at a position
+  // ministry — person at a position, shot on cameraIp (preset resolved at run time)
   final String? participantId;
   final String? positionId;
 
   // macro — Roland macro
   final int? macroNumber;
 
-  // shot — hardcoded camera preset
+  // shot — hardcoded camera preset; also used by ministry to pick the camera
   final String? cameraIp;
-  final int? cameraPresetIndex; // 0-based
+  final int? cameraPresetIndex; // 0-based, shot only
 
   // block — sub-service reference
   final String? subServiceId;

@@ -66,7 +66,6 @@ void main() {
     test('round-trips with bounded maxHeightCm and presets', () {
       final r = HeightRange(
         id: 'hr1',
-        name: 'Short',
         maxHeightCm: 163,
         positionPresets: {
           'pos1': {'10.0.0.1': 2, '10.0.0.2': 5},
@@ -74,20 +73,19 @@ void main() {
       );
       final copy = HeightRange.fromJson(r.toJson());
       expect(copy.id, 'hr1');
-      expect(copy.name, 'Short');
       expect(copy.maxHeightCm, 163);
       expect(copy.positionPresets['pos1']?['10.0.0.1'], 2);
       expect(copy.positionPresets['pos1']?['10.0.0.2'], 5);
     });
 
     test('null maxHeightCm is omitted from JSON and round-trips as null', () {
-      final r = HeightRange(id: 'hr2', name: 'Tall');
+      final r = HeightRange(id: 'hr2');
       expect(r.toJson().containsKey('maxHeightCm'), isFalse);
       expect(HeightRange.fromJson(r.toJson()).maxHeightCm, isNull);
     });
 
     test('missing positionPresets key in JSON yields empty map', () {
-      final r = HeightRange.fromJson({'id': 'x', 'name': 'Test'});
+      final r = HeightRange.fromJson({'id': 'x'});
       expect(r.positionPresets, isEmpty);
     });
 

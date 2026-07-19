@@ -228,7 +228,6 @@ void main() {
     test('saveAll then loadAll preserves bounded range with positionPresets', () async {
       final range = HeightRange(
         id: 'hr1',
-        name: 'Short',
         maxHeightCm: 163,
         positionPresets: {
           'pos1': {'10.0.0.1': 2, '10.0.0.2': 5},
@@ -238,14 +237,13 @@ void main() {
       final loaded = await HeightRangeStore.loadAll();
       expect(loaded.length, 1);
       expect(loaded[0].id, 'hr1');
-      expect(loaded[0].name, 'Short');
       expect(loaded[0].maxHeightCm, 163);
       expect(loaded[0].positionPresets['pos1']?['10.0.0.1'], 2);
       expect(loaded[0].positionPresets['pos1']?['10.0.0.2'], 5);
     });
 
     test('saveAll then loadAll preserves catch-all range (null maxHeightCm)', () async {
-      final range = HeightRange(id: 'hr2', name: 'Tall');
+      final range = HeightRange(id: 'hr2');
       await HeightRangeStore.saveAll([range]);
       final loaded = await HeightRangeStore.loadAll();
       expect(loaded.length, 1);
@@ -254,28 +252,28 @@ void main() {
 
     test('saves multiple ranges', () async {
       final ranges = [
-        HeightRange(id: 'hr1', name: 'Short', maxHeightCm: 163),
-        HeightRange(id: 'hr2', name: 'Medium', maxHeightCm: 175),
-        HeightRange(id: 'hr3', name: 'Tall'),
+        HeightRange(id: 'hr1', maxHeightCm: 163),
+        HeightRange(id: 'hr2', maxHeightCm: 175),
+        HeightRange(id: 'hr3'),
       ];
       await HeightRangeStore.saveAll(ranges);
       final loaded = await HeightRangeStore.loadAll();
       expect(loaded.length, 3);
-      expect(loaded.map((r) => r.name), containsAll(['Short', 'Medium', 'Tall']));
+      expect(loaded.map((r) => r.id), containsAll(['hr1', 'hr2', 'hr3']));
     });
 
     test('overwriting with empty list clears stored ranges', () async {
-      await HeightRangeStore.saveAll([HeightRange(id: 'hr1', name: 'Short', maxHeightCm: 163)]);
+      await HeightRangeStore.saveAll([HeightRange(id: 'hr1', maxHeightCm: 163)]);
       await HeightRangeStore.saveAll([]);
       expect(await HeightRangeStore.loadAll(), isEmpty);
     });
 
     test('overwrites previous save entirely', () async {
-      await HeightRangeStore.saveAll([HeightRange(id: 'hr1', name: 'Short', maxHeightCm: 163)]);
-      await HeightRangeStore.saveAll([HeightRange(id: 'hr2', name: 'Tall')]);
+      await HeightRangeStore.saveAll([HeightRange(id: 'hr1', maxHeightCm: 163)]);
+      await HeightRangeStore.saveAll([HeightRange(id: 'hr2')]);
       final loaded = await HeightRangeStore.loadAll();
       expect(loaded.length, 1);
-      expect(loaded[0].name, 'Tall');
+      expect(loaded[0].id, 'hr2');
     });
 
     test('HeightRangeStore uses its own key (no cross-contamination with PositionStore)', () async {

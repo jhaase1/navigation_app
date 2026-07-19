@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/person.dart';
 import 'package:navigation_app/models/position.dart';
@@ -13,6 +14,7 @@ ServiceTab _tab({
   List<Person> people = const [],
   List<Position> positions = const [],
   List<Service> services = const [],
+  List<HeightRange> heightRanges = const [],
   ValueChanged<String>? onResponse,
 }) =>
     ServiceTab(
@@ -20,6 +22,7 @@ ServiceTab _tab({
       people: people,
       positions: positions,
       services: services,
+      heightRanges: heightRanges,
       rolandService: null,
       rolandConnected: null,
       onResponse: onResponse ?? (_) {},
@@ -235,6 +238,231 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.warning_amber), findsOneWidget);
+    });
+
+    testWidgets('shows warning icon on ministry step with no camera set',
+        (tester) async {
+      final service = Service(
+        id: 's1',
+        name: 'Mass',
+        participants: [Participant(id: 'pt1', name: 'Reader 1')],
+        steps: [
+          const ServiceStep(
+            id: 'st1',
+            type: StepType.ministry,
+            participantId: 'pt1',
+            positionId: 'pos1',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(_wrap(_tab(
+        services: [service],
+        positions: [Position(id: 'pos1', name: 'Lectern')],
+      )));
+      await tester.tap(find.byType(DropdownButton<String?>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mass').last);
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.warning_amber), findsOneWidget);
+      expect(find.textContaining('camera not set'), findsOneWidget);
+    });
+  });
+
+  group('ServiceTab — height-based preset resolution', () {
+    Service ministryService() => Service(
+          id: 's1',
+          name: 'Mass',
+          participants: [Participant(id: 'pt1', name: 'Reader 1')],
+          steps: [
+            const ServiceStep(
+              id: 'st1',
+              type: StepType.ministry,
+              participantId: 'pt1',
+              positionId: 'pos1',
+              cameraIp: '10.0.1.10',
+            ),
+          ],
+        );
+
+    Future<void> selectServiceAndAssign(
+        WidgetTester tester, String personName) async {
+      await tester.tap(find.byType(DropdownButton<String?>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mass').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<String?>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(personName).last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'firing a ministry step resolves the preset via a height range when no override exists',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      final alice = Person(id: 'p1', name: 'Alice', heightCm: 160);
+      final shortRange = HeightRange(
+        id: 'hr1',
+        maxHeightCm: 165,
+        positionPresets: {
+          'pos1': {'10.0.1.10': 4},
+        },
+      );
+
+      String? response;
+      await tester.pumpWidget(_wrap(_tab(
+        services: [ministryService()],
+        positions: [Position(id: 'pos1', name: 'Lectern')],
+        people: [alice],
+        cameras: [cam],
+        heightRanges: [shortRange],
+        onResponse: (r) => response = r,
+      )));
+
+      await selectServiceAndAssign(tester, 'Alice');
+      await tester.tap(find.textContaining('Reader 1  ·'));
+      await tester.pumpAndSettle();
+
+      // Camera isn't connected, but reaching that message proves the
+      // height-range preset was resolved rather than "no preset" being hit.
+      expect(response, 'Cam not connected');
+    });
+
+    testWidgets(
+        'firing a ministry step reports no preset when height matches no range',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      final alice = Person(id: 'p1', name: 'Alice', heightCm: 200);
+      final shortRange = HeightRange(
+        id: 'hr1',
+        maxHeightCm: 165,
+        positionPresets: {
+          'pos1': {'10.0.1.10': 4},
+        },
+      );
+
+      String? response;
+      await tester.pumpWidget(_wrap(_tab(
+        services: [ministryService()],
+        positions: [Position(id: 'pos1', name: 'Lectern')],
+        people: [alice],
+        cameras: [cam],
+        heightRanges: [shortRange],
+        onResponse: (r) => response = r,
+      )));
+
+      await selectServiceAndAssign(tester, 'Alice');
+      await tester.tap(find.textContaining('Reader 1  ·'));
+      await tester.pumpAndSettle();
+
+      expect(response, contains('has no preset'));
+    });
+  });
+
+  group('ServiceTab — per-step camera selection', () {
+    testWidgets(
+        'firing a ministry step uses the camera stored on the step, not the first camera in the list',
+        (tester) async {
+      final cam1 = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      final cam2 = PanasonicCameraConfig(name: 'Cam 2', ipAddress: '10.0.1.11');
+      addTearDown(cam1.dispose);
+      addTearDown(cam2.dispose);
+
+      final alice = Person(id: 'p1', name: 'Alice', heightCm: 160);
+      final range = HeightRange(
+        id: 'hr1',
+        maxHeightCm: null,
+        positionPresets: {
+          'pos1': {'10.0.1.11': 2},
+        },
+      );
+      final service = Service(
+        id: 's1',
+        name: 'Mass',
+        participants: [Participant(id: 'pt1', name: 'Reader 1')],
+        steps: [
+          const ServiceStep(
+            id: 'st1',
+            type: StepType.ministry,
+            participantId: 'pt1',
+            positionId: 'pos1',
+            cameraIp: '10.0.1.11',
+          ),
+        ],
+      );
+
+      String? response;
+      await tester.pumpWidget(_wrap(_tab(
+        services: [service],
+        positions: [Position(id: 'pos1', name: 'Lectern')],
+        people: [alice],
+        cameras: [cam1, cam2],
+        heightRanges: [range],
+        onResponse: (r) => response = r,
+      )));
+
+      await tester.tap(find.byType(DropdownButton<String?>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mass').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<String?>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alice').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('Reader 1  ·'));
+      await tester.pumpAndSettle();
+
+      expect(response, 'Cam 2 not connected');
+    });
+
+    testWidgets('firing a ministry step with no camera set reports it',
+        (tester) async {
+      final alice = Person(id: 'p1', name: 'Alice', heightCm: 160);
+      final service = Service(
+        id: 's1',
+        name: 'Mass',
+        participants: [Participant(id: 'pt1', name: 'Reader 1')],
+        steps: [
+          const ServiceStep(
+            id: 'st1',
+            type: StepType.ministry,
+            participantId: 'pt1',
+            positionId: 'pos1',
+          ),
+        ],
+      );
+
+      String? response;
+      await tester.pumpWidget(_wrap(_tab(
+        services: [service],
+        positions: [Position(id: 'pos1', name: 'Lectern')],
+        people: [alice],
+        onResponse: (r) => response = r,
+      )));
+
+      await tester.tap(find.byType(DropdownButton<String?>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mass').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<String?>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alice').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('Reader 1  ·'));
+      await tester.pumpAndSettle();
+
+      expect(response, contains('no camera set'));
     });
   });
 

@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/person.dart';
 import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/people_store.dart';
 import 'package:navigation_app/services/position_store.dart';
+import 'package:navigation_app/services/preset_name_store.dart';
 import 'package:navigation_app/services/service_store.dart';
+import 'package:navigation_app/utils/height_utils.dart';
 import 'package:navigation_app/widgets/people_manager_dialog.dart';
 import 'package:navigation_app/widgets/position_manager_dialog.dart';
 import 'package:navigation_app/widgets/service_manager_dialog.dart';
@@ -170,7 +173,10 @@ void main() {
       await _open(
           tester,
           (_) => PeopleManagerDialog(
-              positions: const [], cameras: const [], onSaved: () {}));
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
       expect(find.textContaining('No people yet'), findsOneWidget);
     });
 
@@ -182,7 +188,10 @@ void main() {
       await _open(
           tester,
           (_) => PeopleManagerDialog(
-              positions: const [], cameras: const [], onSaved: () {}));
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
       expect(find.text('Alice'), findsOneWidget);
       expect(find.text('Bob'), findsOneWidget);
     });
@@ -199,7 +208,10 @@ void main() {
       await _open(
           tester,
           (_) => PeopleManagerDialog(
-              positions: const [], cameras: const [], onSaved: () {}));
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
       expect(find.textContaining('1 position configured'), findsOneWidget);
     });
   });
@@ -210,7 +222,10 @@ void main() {
       await _open(
           tester,
           (_) => PeopleManagerDialog(
-              positions: const [], cameras: const [], onSaved: () {}));
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Add positions first'), findsOneWidget);
@@ -223,6 +238,7 @@ void main() {
           (_) => PeopleManagerDialog(
                 positions: [Position(id: 'pos1', name: 'Lectern')],
                 cameras: const [],
+                heightRanges: const [],
                 onSaved: () {},
               ));
       await tester.tap(find.text('Add Person'));
@@ -230,7 +246,8 @@ void main() {
       expect(find.textContaining('No cameras'), findsOneWidget);
     });
 
-    testWidgets('Add Person with positions and cameras shows preset grid',
+    testWidgets(
+        'Add Person with positions and cameras shows preset grid with a dropdown',
         (tester) async {
       final cam =
           PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
@@ -241,6 +258,7 @@ void main() {
           (_) => PeopleManagerDialog(
                 positions: [Position(id: 'pos1', name: 'Lectern')],
                 cameras: [cam],
+                heightRanges: const [],
                 onSaved: () {},
               ));
       await tester.tap(find.text('Add Person'));
@@ -248,6 +266,70 @@ void main() {
 
       expect(find.text('Lectern'), findsOneWidget);
       expect(find.text('Cam 1'), findsOneWidget);
+      expect(find.byType(DropdownButton<int?>), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Preset #'), findsNothing);
+    });
+
+    testWidgets('selecting a preset from the dropdown persists it',
+        (tester) async {
+      final cam =
+          PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: const [],
+                onSaved: () {},
+              ));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Name'), 'Nadia');
+
+      await tester.tap(find.byType(DropdownButton<int?>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('5').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await PeopleStore.loadAll();
+      expect(saved.single.positionPresets['pos1']?['10.0.1.10'], 4);
+    });
+
+    testWidgets('editing an existing person prefills the preset dropdown',
+        (tester) async {
+      final cam =
+          PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      await PeopleStore.saveAll([
+        Person(
+          id: 'p1',
+          name: 'Olga',
+          positionPresets: {
+            'pos1': {'10.0.1.10': 6},
+          },
+        ),
+      ]);
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: const [],
+                onSaved: () {},
+              ));
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+
+      final dropdown =
+          tester.widget<DropdownButton<int?>>(find.byType(DropdownButton<int?>));
+      expect(dropdown.value, 7);
     });
 
     testWidgets('saving a new person adds them to the list', (tester) async {
@@ -257,6 +339,7 @@ void main() {
           (_) => PeopleManagerDialog(
               positions: const [],
               cameras: const [],
+              heightRanges: const [],
               onSaved: () => saved = true));
 
       await tester.tap(find.text('Add Person'));
@@ -273,12 +356,341 @@ void main() {
       await _open(
           tester,
           (_) => PeopleManagerDialog(
-              positions: const [], cameras: const [], onSaved: () {}));
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
       await tester.tap(find.text('Add Person'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       expect(find.text('Unnamed'), findsOneWidget);
+    });
+  });
+
+  group('PeopleManagerDialog — preset names', () {
+    testWidgets('preset dropdown shows a saved preset name instead of its number',
+        (tester) async {
+      final cam =
+          PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+      await PresetNameStore.save('10.0.1.10', 4, 'Wide Shot');
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: const [],
+                onSaved: () {},
+              ));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<int?>));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Wide Shot'), findsOneWidget);
+      expect(find.text('5'), findsNothing);
+    });
+
+    testWidgets('selecting a named preset persists its underlying index',
+        (tester) async {
+      final cam =
+          PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+      await PresetNameStore.save('10.0.1.10', 4, 'Wide Shot');
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: const [],
+                onSaved: () {},
+              ));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Name'), 'Petra');
+
+      await tester.tap(find.byType(DropdownButton<int?>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Wide Shot').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await PeopleStore.loadAll();
+      expect(saved.single.positionPresets['pos1']?['10.0.1.10'], 4);
+    });
+
+    testWidgets('presets without a saved name still show their raw number',
+        (tester) async {
+      final cam =
+          PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+      await PresetNameStore.save('10.0.1.10', 4, 'Wide Shot');
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: const [],
+                onSaved: () {},
+              ));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<int?>));
+      await tester.pumpAndSettle();
+
+      expect(find.text('3'), findsOneWidget);
+    });
+  });
+
+  group('PeopleManagerDialog — height', () {
+    testWidgets('editor shows height feet and inches fields', (tester) async {
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(TextField, 'Height — ft'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Height — in'), findsOneWidget);
+    });
+
+    testWidgets('leaving height blank saves heightCm as null', (tester) async {
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Name'), 'Grace');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await PeopleStore.loadAll();
+      expect(saved.single.heightCm, isNull);
+    });
+
+    testWidgets('entering feet and inches persists heightCm', (tester) async {
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
+      await tester.tap(find.text('Add Person'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Name'), 'Henry');
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Height — ft'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Height — in'), '9');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await PeopleStore.loadAll();
+      expect(saved.single.heightCm, feetInchesToCm(5, 9));
+    });
+
+    testWidgets('editing an existing person prefills height fields',
+        (tester) async {
+      await PeopleStore.saveAll([
+        Person(id: 'p1', name: 'Ivy', heightCm: feetInchesToCm(5, 8)),
+      ]);
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.widgetWithText(TextField, 'Height — ft').evaluate().isNotEmpty,
+          isTrue);
+      final ftField = tester
+          .widget<TextField>(find.byType(TextField).at(1));
+      final inField = tester
+          .widget<TextField>(find.byType(TextField).at(2));
+      expect(ftField.controller?.text, '5');
+      expect(inField.controller?.text, '8');
+    });
+
+    testWidgets('editing a person preserves their existing height',
+        (tester) async {
+      await PeopleStore.saveAll([
+        Person(id: 'p1', name: 'Jack', heightCm: feetInchesToCm(6, 1)),
+      ]);
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+              positions: const [],
+              cameras: const [],
+              heightRanges: const [],
+              onSaved: () {}));
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+      // Only touch the name field — height fields are left as prefilled.
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Name'), 'Jack Renamed');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await PeopleStore.loadAll();
+      expect(saved.single.name, 'Jack Renamed');
+      expect(saved.single.heightCm, feetInchesToCm(6, 1));
+    });
+  });
+
+  group('PeopleManagerDialog — height defaults', () {
+    testWidgets(
+        'subtitle shows a height-default count when no override exists but a height range resolves one',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+      await PeopleStore.saveAll([
+        Person(id: 'p1', name: 'Alice', heightCm: 160),
+      ]);
+      final shortRange = HeightRange(
+        id: 'hr1',
+        maxHeightCm: 165,
+        positionPresets: {
+          'pos1': {'10.0.1.10': 4},
+        },
+      );
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: [shortRange],
+                onSaved: () {},
+              ));
+
+      expect(find.textContaining('1 via height default'), findsOneWidget);
+    });
+
+    testWidgets('subtitle combines explicit overrides and height defaults',
+        (tester) async {
+      final cam1 = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      final cam2 = PanasonicCameraConfig(name: 'Cam 2', ipAddress: '10.0.1.11');
+      addTearDown(cam1.dispose);
+      addTearDown(cam2.dispose);
+      await PeopleStore.saveAll([
+        Person(
+          id: 'p1',
+          name: 'Alice',
+          heightCm: 160,
+          positionPresets: {
+            'pos1': {'10.0.1.11': 9},
+          },
+        ),
+      ]);
+      final shortRange = HeightRange(
+        id: 'hr1',
+        maxHeightCm: 165,
+        positionPresets: {
+          'pos1': {'10.0.1.10': 4},
+        },
+      );
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam1, cam2],
+                heightRanges: [shortRange],
+                onSaved: () {},
+              ));
+
+      expect(find.textContaining('1 position configured'), findsOneWidget);
+      expect(find.textContaining('1 via height default'), findsOneWidget);
+    });
+
+    testWidgets(
+        'editor shows a hint under a blank preset field when a height range resolves a default',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+      await PeopleStore.saveAll([
+        Person(id: 'p1', name: 'Alice', heightCm: 160),
+      ]);
+      final shortRange = HeightRange(
+        id: 'hr1',
+        maxHeightCm: 165,
+        positionPresets: {
+          'pos1': {'10.0.1.10': 4},
+        },
+      );
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: [shortRange],
+                onSaved: () {},
+              ));
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Defaults to preset 5 via height range'),
+          findsOneWidget);
+    });
+
+    testWidgets('editor hides the hint once the slot has an explicit override',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+      await PeopleStore.saveAll([
+        Person(
+          id: 'p1',
+          name: 'Alice',
+          heightCm: 160,
+          positionPresets: {
+            'pos1': {'10.0.1.10': 9},
+          },
+        ),
+      ]);
+      final shortRange = HeightRange(
+        id: 'hr1',
+        maxHeightCm: 165,
+        positionPresets: {
+          'pos1': {'10.0.1.10': 4},
+        },
+      );
+
+      await _open(
+          tester,
+          (_) => PeopleManagerDialog(
+                positions: [Position(id: 'pos1', name: 'Lectern')],
+                cameras: [cam],
+                heightRanges: [shortRange],
+                onSaved: () {},
+              ));
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Defaults to preset'), findsNothing);
     });
   });
 
@@ -292,6 +704,7 @@ void main() {
           (_) => PeopleManagerDialog(
               positions: const [],
               cameras: const [],
+              heightRanges: const [],
               onSaved: () => saved = true));
 
       await tester.tap(find.byIcon(Icons.delete));
@@ -441,6 +854,57 @@ void main() {
 
       expect(find.text('Add Service'), findsOneWidget);
       expect(saved, isFalse);
+    });
+
+    testWidgets(
+        'ministry step (default type) shows a camera dropdown alongside participant/position',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: [Position(id: 'pos1', name: 'Lectern')],
+              cameras: [cam],
+              onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add Step'));
+      await tester.pumpAndSettle();
+
+      // Participant, Position, Camera — three dropdowns on a ministry step row.
+      expect(find.byType(DropdownButton<String?>), findsNWidgets(3));
+    });
+
+    testWidgets('selecting a camera on a ministry step persists it on save',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: [Position(id: 'pos1', name: 'Lectern')],
+              cameras: [cam],
+              onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add Step'));
+      await tester.pumpAndSettle();
+
+      // Third dropdown in the ministry row is the camera picker.
+      await tester.tap(find.byType(DropdownButton<String?>).at(2));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cam 1').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'Mass');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await ServiceStore.loadAll();
+      expect(saved.single.steps.single.cameraIp, '10.0.1.10');
     });
 
     testWidgets('can add and remove a participant inline', (tester) async {

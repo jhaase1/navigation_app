@@ -46,7 +46,6 @@ ConfigBundle _full() => ConfigBundle(
       heightRanges: [
         HeightRange(
           id: 'hr1',
-          name: 'Short',
           maxHeightCm: 163,
           positionPresets: {
             'pos1': {'10.0.0.1': 1},
@@ -54,7 +53,6 @@ ConfigBundle _full() => ConfigBundle(
         ),
         HeightRange(
           id: 'hr2',
-          name: 'Tall',
           positionPresets: {
             'pos1': {'10.0.0.1': 5},
           },
@@ -85,10 +83,10 @@ void main() {
       expect(copy.people[0].positionPresets['pos1']?['10.0.0.1'], 2);
 
       expect(copy.heightRanges.length, 2);
-      expect(copy.heightRanges[0].name, 'Short');
+      expect(copy.heightRanges[0].id, 'hr1');
       expect(copy.heightRanges[0].maxHeightCm, 163);
       expect(copy.heightRanges[0].positionPresets['pos1']?['10.0.0.1'], 1);
-      expect(copy.heightRanges[1].name, 'Tall');
+      expect(copy.heightRanges[1].id, 'hr2');
       expect(copy.heightRanges[1].maxHeightCm, isNull);
       expect(copy.heightRanges[1].positionPresets['pos1']?['10.0.0.1'], 5);
 
@@ -187,10 +185,10 @@ void main() {
 
       final heightRanges = await HeightRangeStore.loadAll();
       expect(heightRanges.length, 2);
-      expect(heightRanges[0].name, 'Short');
+      expect(heightRanges[0].id, 'hr1');
       expect(heightRanges[0].maxHeightCm, 163);
       expect(heightRanges[0].positionPresets['pos1']?['10.0.0.1'], 1);
-      expect(heightRanges[1].name, 'Tall');
+      expect(heightRanges[1].id, 'hr2');
       expect(heightRanges[1].maxHeightCm, isNull);
     });
 
@@ -232,7 +230,7 @@ void main() {
       expect(loaded.people[0].heightCm, 170);
       expect(loaded.services[0].name, 'Standard Mass');
       expect(loaded.heightRanges.length, 2);
-      expect(loaded.heightRanges[0].name, 'Short');
+      expect(loaded.heightRanges[0].id, 'hr1');
       expect(loaded.heightRanges[1].maxHeightCm, isNull);
       expect(loaded.presetNames['roland_10.0.1.20']?['1'], 'Opening Prayer');
       expect(loaded.presetNames['10.0.1.10']?['3'], 'Close Up');
@@ -267,7 +265,7 @@ void main() {
       expect(reloaded.services.length, original.services.length);
       expect(reloaded.services[0].steps[0].macroNumber, 3);
       expect(reloaded.heightRanges.length, 2);
-      expect(reloaded.heightRanges[0].name, 'Short');
+      expect(reloaded.heightRanges[0].id, 'hr1');
       expect(reloaded.heightRanges[0].positionPresets['pos1']?['10.0.0.1'], 1);
       expect(reloaded.heightRanges[1].maxHeightCm, isNull);
       expect(reloaded.presetNames['roland_10.0.1.20']?['2'], 'Entrance Hymn');

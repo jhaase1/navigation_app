@@ -489,6 +489,20 @@ class _ServiceManagerDialogState extends State<ServiceManagerDialog> {
                 onChanged: (v) => setState(() => s.positionId = v),
               ),
             ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _dropdown<String?>(
+                hint: 'Camera',
+                value: s.cameraIp,
+                items: widget.cameras
+                    .map((c) => DropdownMenuItem<String?>(
+                          value: c.ipController.text,
+                          child: Text(c.name),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => s.cameraIp = v),
+              ),
+            ),
           ],
         );
 

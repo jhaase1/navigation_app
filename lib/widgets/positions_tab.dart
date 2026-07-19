@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import '../models/height_range.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
 import '../models/position.dart';
+import '../utils/preset_resolver.dart';
 
 class PositionsTab extends StatefulWidget {
   final List<PanasonicCameraConfig> cameras;
   final List<Position> positions;
   final List<Person> people;
+  final List<HeightRange> heightRanges;
   final ValueChanged<String> onResponse;
 
   const PositionsTab({
@@ -14,6 +17,7 @@ class PositionsTab extends StatefulWidget {
     required this.cameras,
     required this.positions,
     required this.people,
+    required this.heightRanges,
     required this.onResponse,
   });
 
@@ -28,7 +32,12 @@ class _PositionsTabState extends State<PositionsTab> {
     final idx = _selectedCameraIndex.clamp(0, widget.cameras.length - 1);
     final camera = widget.cameras[idx];
     final ip = camera.ipController.text;
-    final presetIndex = person.positionPresets[position.id]?[ip];
+    final presetIndex = resolvePreset(
+      person: person,
+      positionId: position.id,
+      cameraIp: ip,
+      heightRanges: widget.heightRanges,
+    );
 
     if (presetIndex == null) {
       widget.onResponse(
@@ -111,7 +120,12 @@ class _PositionsTabState extends State<PositionsTab> {
 
   Widget _buildPositionCard(Position position, String cameraIp) {
     final peopleHere = widget.people
-        .where((p) => p.positionPresets[position.id]?[cameraIp] != null)
+        .where((p) => resolvePreset(
+              person: p,
+              positionId: position.id,
+              cameraIp: cameraIp,
+              heightRanges: widget.heightRanges,
+            ) != null)
         .toList();
 
     return Card(

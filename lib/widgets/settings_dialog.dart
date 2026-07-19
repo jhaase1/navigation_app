@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/height_range.dart';
 import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
@@ -8,6 +9,7 @@ import '../services/config_bundle.dart';
 import '../services/device_config_store.dart';
 import '../services/operator_store.dart';
 import 'connections_dialog.dart';
+import 'height_range_manager_dialog.dart';
 import 'master_control_widget.dart';
 import 'operator_manager_dialog.dart';
 import 'people_manager_dialog.dart';
@@ -29,9 +31,11 @@ class SettingsDialog extends StatelessWidget {
   final ValueChanged<String> onResponse;
   final List<Position> positions;
   final List<Person> people;
+  final List<HeightRange> heightRanges;
   final VoidCallback onPositionsChanged;
   final VoidCallback onPeopleChanged;
   final VoidCallback onServicesChanged;
+  final VoidCallback onHeightRangesChanged;
   final VoidCallback onAllDataChanged;
   final DeviceConfigCallback onDeviceConfigSaved;
 
@@ -56,9 +60,11 @@ class SettingsDialog extends StatelessWidget {
     required this.onResponse,
     required this.positions,
     required this.people,
+    required this.heightRanges,
     required this.onPositionsChanged,
     required this.onPeopleChanged,
     required this.onServicesChanged,
+    required this.onHeightRangesChanged,
     required this.onAllDataChanged,
     required this.onDeviceConfigSaved,
     required this.operators,
@@ -189,6 +195,7 @@ class SettingsDialog extends StatelessWidget {
       builder: (_) => PeopleManagerDialog(
         positions: positions,
         cameras: panasonicCameras,
+        heightRanges: heightRanges,
         onSaved: onPeopleChanged,
       ),
     );
@@ -198,6 +205,17 @@ class SettingsDialog extends StatelessWidget {
     showDialog(
       context: context,
       builder: (_) => PositionManagerDialog(onSaved: onPositionsChanged),
+    );
+  }
+
+  void _openHeightRangeManager(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => HeightRangeManagerDialog(
+        positions: positions,
+        cameras: panasonicCameras,
+        onSaved: onHeightRangesChanged,
+      ),
     );
   }
 
@@ -445,6 +463,13 @@ class SettingsDialog extends StatelessWidget {
                 title: 'Manage Services',
                 subtitle: 'Build service sequences with steps and participants',
                 onTap: () => _openServiceManager(context),
+              ),
+              _tile(
+                icon: Icons.height,
+                title: 'Manage Height Ranges',
+                subtitle:
+                    'Default presets by height, used when a person has no explicit preset',
+                onTap: () => _openHeightRangeManager(context),
               ),
               const SizedBox(height: 4),
 

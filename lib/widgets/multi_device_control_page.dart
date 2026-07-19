@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/height_range.dart';
 import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
@@ -10,6 +11,7 @@ import '../services/abstract/roland_service_abstract.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
 import '../services/device_config_store.dart';
+import '../services/height_range_store.dart';
 import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/position_store.dart';
@@ -51,6 +53,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Position> _positions = [];
   List<Person> _people = [];
   List<Service> _services = [];
+  List<HeightRange> _heightRanges = [];
 
   String _masterResponse = '';
 
@@ -62,6 +65,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     _loadPositions();
     _loadPeople();
     _loadServices();
+    _loadHeightRanges();
   }
 
   Future<void> _loadDeviceConfig() async {
@@ -140,6 +144,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   Future<void> _loadServices() async {
     final services = await ServiceStore.loadAll();
     if (mounted) setState(() => _services = services);
+  }
+
+  Future<void> _loadHeightRanges() async {
+    final heightRanges = await HeightRangeStore.loadAll();
+    if (mounted) setState(() => _heightRanges = heightRanges);
   }
 
   Future<void> _connectAll() async {
@@ -280,6 +289,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onResponse: (r) => setState(() => _masterResponse = r),
             positions: _positions,
             people: _people,
+            heightRanges: _heightRanges,
             onPositionsChanged: () async {
               await _loadPositions();
               setDialogState(() {});
@@ -292,8 +302,17 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               await _loadServices();
               setDialogState(() {});
             },
+            onHeightRangesChanged: () async {
+              await _loadHeightRanges();
+              setDialogState(() {});
+            },
             onAllDataChanged: () async {
-              await Future.wait([_loadPositions(), _loadPeople(), _loadServices()]);
+              await Future.wait([
+                _loadPositions(),
+                _loadPeople(),
+                _loadServices(),
+                _loadHeightRanges(),
+              ]);
               setDialogState(() {});
             },
             onDeviceConfigSaved: _applyDeviceConfig,
@@ -442,6 +461,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     people: _people,
                     positions: _positions,
                     services: _services,
+                    heightRanges: _heightRanges,
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
                     onResponse: (r) => setState(() => _masterResponse = r),
@@ -458,6 +478,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     cameras: _panasonicCameras,
                     positions: _positions,
                     people: _people,
+                    heightRanges: _heightRanges,
                     onResponse: (r) => setState(() => _masterResponse = r),
                   ),
                   BasicTab(
