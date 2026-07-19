@@ -5,9 +5,11 @@ import 'package:navigation_app/models/role.dart';
 import 'package:navigation_app/models/scene.dart';
 import 'package:navigation_app/models/service_order.dart';
 import 'package:navigation_app/services/people_store.dart';
+import 'package:navigation_app/services/preset_name_store.dart';
 import 'package:navigation_app/services/role_store.dart';
 import 'package:navigation_app/services/scene_store.dart';
 import 'package:navigation_app/services/service_order_store.dart';
+import 'package:navigation_app/services/visibility_store.dart';
 
 void main() {
   setUp(() {
@@ -154,6 +156,87 @@ void main() {
       // loading the other stores should still be empty
       expect(await PeopleStore.loadAll(), isEmpty);
       expect(await ServiceOrderStore.loadAll(), isEmpty);
+    });
+  });
+
+  group('PresetNameStore', () {
+    test('loadAll returns empty map before anything is saved', () async {
+      expect(await PresetNameStore.loadAll('10.0.1.10'), isEmpty);
+    });
+
+    test('save then loadAll returns the saved name', () async {
+      await PresetNameStore.save('10.0.1.10', 0, 'Wide Shot');
+      final names = await PresetNameStore.loadAll('10.0.1.10');
+      expect(names[0], 'Wide Shot');
+    });
+
+    test('saving empty string removes the entry', () async {
+      await PresetNameStore.save('10.0.1.10', 2, 'Close Up');
+      await PresetNameStore.save('10.0.1.10', 2, '');
+      final names = await PresetNameStore.loadAll('10.0.1.10');
+      expect(names.containsKey(2), isFalse);
+    });
+
+    test('multiple presets saved independently for same camera', () async {
+      await PresetNameStore.save('10.0.1.10', 0, 'Wide');
+      await PresetNameStore.save('10.0.1.10', 3, 'Tight');
+      await PresetNameStore.save('10.0.1.10', 7, 'Altar');
+      final names = await PresetNameStore.loadAll('10.0.1.10');
+      expect(names[0], 'Wide');
+      expect(names[3], 'Tight');
+      expect(names[7], 'Altar');
+    });
+
+    test('different camera IPs do not share names', () async {
+      await PresetNameStore.save('10.0.1.10', 0, 'Wide');
+      expect(await PresetNameStore.loadAll('10.0.1.11'), isEmpty);
+    });
+
+    test('saving a name overwrites the previous value', () async {
+      await PresetNameStore.save('10.0.1.10', 1, 'Old');
+      await PresetNameStore.save('10.0.1.10', 1, 'New');
+      expect((await PresetNameStore.loadAll('10.0.1.10'))[1], 'New');
+    });
+
+    test('Roland key is independent of camera key', () async {
+      await PresetNameStore.save('roland_10.0.1.20', 5, 'Entrance');
+      expect(await PresetNameStore.loadAll('10.0.1.20'), isEmpty);
+      expect(
+          (await PresetNameStore.loadAll('roland_10.0.1.20'))[5], 'Entrance');
+    });
+  });
+
+  group('VisibilityStore', () {
+    test('loadAll returns empty map before anything is saved', () async {
+      expect(await VisibilityStore.loadAll('roland_10.0.1.20'), isEmpty);
+    });
+
+    test('save then loadAll returns the saved visibility', () async {
+      await VisibilityStore.save('roland_10.0.1.20', 1, ItemVisibility.basic);
+      final vis = await VisibilityStore.loadAll('roland_10.0.1.20');
+      expect(vis[1], ItemVisibility.basic);
+    });
+
+    test('all three ItemVisibility values round-trip', () async {
+      await VisibilityStore.save('10.0.1.10', 0, ItemVisibility.hide);
+      await VisibilityStore.save('10.0.1.10', 1, ItemVisibility.expanded);
+      await VisibilityStore.save('10.0.1.10', 2, ItemVisibility.basic);
+      final vis = await VisibilityStore.loadAll('10.0.1.10');
+      expect(vis[0], ItemVisibility.hide);
+      expect(vis[1], ItemVisibility.expanded);
+      expect(vis[2], ItemVisibility.basic);
+    });
+
+    test('saving overwrites existing visibility', () async {
+      await VisibilityStore.save('10.0.1.10', 3, ItemVisibility.basic);
+      await VisibilityStore.save('10.0.1.10', 3, ItemVisibility.hide);
+      expect(
+          (await VisibilityStore.loadAll('10.0.1.10'))[3], ItemVisibility.hide);
+    });
+
+    test('different device keys do not share visibilities', () async {
+      await VisibilityStore.save('roland_10.0.1.20', 5, ItemVisibility.hide);
+      expect(await VisibilityStore.loadAll('10.0.1.10'), isEmpty);
     });
   });
 }
