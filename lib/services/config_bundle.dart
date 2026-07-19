@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/person.dart';
 import '../models/role.dart';
@@ -18,11 +19,21 @@ class ConfigBundle {
   final List<Role> roles;
   final List<ServiceOrder> orders;
 
+  /// Preset/macro names keyed by device storage key (camera IP or `roland_<ip>`),
+  /// then by item index string → custom name.
+  final Map<String, Map<String, String>> presetNames;
+
+  /// Item visibility keyed by device storage key, then item index string →
+  /// visibility name (matches [ItemVisibility.name]).
+  final Map<String, Map<String, String>> visibilities;
+
   const ConfigBundle({
     required this.scenes,
     required this.people,
     required this.roles,
     required this.orders,
+    this.presetNames = const {},
+    this.visibilities = const {},
   });
 
   Map<String, dynamic> toJson() => {
@@ -30,6 +41,8 @@ class ConfigBundle {
         'people': people.map((p) => p.toJson()).toList(),
         'roles': roles.map((r) => r.toJson()).toList(),
         'serviceOrders': orders.map((o) => o.toJson()).toList(),
+        if (presetNames.isNotEmpty) 'presetNames': presetNames,
+        if (visibilities.isNotEmpty) 'visibilities': visibilities,
       };
 
   factory ConfigBundle.fromJson(Map<String, dynamic> json) => ConfigBundle(
@@ -45,7 +58,25 @@ class ConfigBundle {
         orders: (json['serviceOrders'] as List<dynamic>? ?? [])
             .map((o) => ServiceOrder.fromJson(o as Map<String, dynamic>))
             .toList(),
+        presetNames: _parseStringStringMaps(json['presetNames']),
+        visibilities: _parseStringStringMaps(json['visibilities']),
       );
+
+  static Map<String, Map<String, String>> _parseStringStringMaps(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return {};
+    return raw.map((deviceKey, inner) {
+      if (inner is! Map<String, dynamic>) {
+        return MapEntry(deviceKey, <String, String>{});
+      }
+      return MapEntry(
+        deviceKey,
+        inner.map((k, v) => MapEntry(k, v as String)),
+      );
+    });
+  }
+
+  static const _presetPrefix = 'preset_names_';
+  static const _visibilityPrefix = 'item_visibility_';
 
   static Future<ConfigBundle> fromStores() async {
     final results = await Future.wait([
@@ -54,20 +85,60 @@ class ConfigBundle {
       RoleStore.loadAll(),
       ServiceOrderStore.loadAll(),
     ]);
+
+    final prefs = await SharedPreferences.getInstance();
+    final presetNames = <String, Map<String, String>>{};
+    final visibilities = <String, Map<String, String>>{};
+
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith(_presetPrefix)) {
+        final deviceKey = key.substring(_presetPrefix.length);
+        final raw = prefs.getString(key);
+        if (raw != null) {
+          final decoded = jsonDecode(raw) as Map<String, dynamic>;
+          presetNames[deviceKey] =
+              decoded.map((k, v) => MapEntry(k, v as String));
+        }
+      } else if (key.startsWith(_visibilityPrefix)) {
+        final deviceKey = key.substring(_visibilityPrefix.length);
+        final raw = prefs.getString(key);
+        if (raw != null) {
+          final decoded = jsonDecode(raw) as Map<String, dynamic>;
+          visibilities[deviceKey] =
+              decoded.map((k, v) => MapEntry(k, v as String));
+        }
+      }
+    }
+
     return ConfigBundle(
       scenes: results[0] as List<Scene>,
       people: results[1] as List<Person>,
       roles: results[2] as List<Role>,
       orders: results[3] as List<ServiceOrder>,
+      presetNames: presetNames,
+      visibilities: visibilities,
     );
   }
 
-  Future<void> saveToStores() => Future.wait([
-        SceneStore.saveAll(scenes),
-        PeopleStore.saveAll(people),
-        RoleStore.saveAll(roles),
-        ServiceOrderStore.saveAll(orders),
-      ]).then((_) {});
+  Future<void> saveToStores() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await Future.wait([
+      SceneStore.saveAll(scenes),
+      PeopleStore.saveAll(people),
+      RoleStore.saveAll(roles),
+      ServiceOrderStore.saveAll(orders),
+    ]);
+
+    for (final entry in presetNames.entries) {
+      await prefs.setString(
+          '$_presetPrefix${entry.key}', jsonEncode(entry.value));
+    }
+    for (final entry in visibilities.entries) {
+      await prefs.setString(
+          '$_visibilityPrefix${entry.key}', jsonEncode(entry.value));
+    }
+  }
 
   /// Suggested default export path using the platform Documents folder.
   /// Returns just the filename on web (file I/O is not supported there).
