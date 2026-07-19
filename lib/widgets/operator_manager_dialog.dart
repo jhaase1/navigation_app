@@ -83,7 +83,7 @@ class _OperatorManagerDialogState extends State<OperatorManagerDialog> {
 
   void _addNew() {
     // New operator copies the Default operator's selection (all items).
-    final defaultOp = OperatorProfile.defaultProfile;
+    const defaultOp = OperatorProfile.defaultProfile;
     _startEditing(OperatorProfile(
       id: generateOperatorId(),
       name: '',

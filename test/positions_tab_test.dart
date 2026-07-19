@@ -12,9 +12,9 @@ void main() {
   group('PositionsTab — empty states', () {
     testWidgets('shows "No cameras" when camera list is empty', (tester) async {
       await tester.pumpWidget(_wrap(PositionsTab(
-        cameras: [],
-        positions: [],
-        people: [],
+        cameras: const [],
+        positions: const [],
+        people: const [],
         heightRanges: const [],
         onResponse: (_) {},
       )));
@@ -29,8 +29,8 @@ void main() {
 
       await tester.pumpWidget(_wrap(PositionsTab(
         cameras: [cam],
-        positions: [],
-        people: [],
+        positions: const [],
+        people: const [],
         heightRanges: const [],
         onResponse: (_) {},
       )));
@@ -49,8 +49,8 @@ void main() {
 
       await tester.pumpWidget(_wrap(PositionsTab(
         cameras: [cam1, cam2],
-        positions: [],
-        people: [],
+        positions: const [],
+        people: const [],
         heightRanges: const [],
         onResponse: (_) {},
       )));
@@ -74,7 +74,7 @@ void main() {
       await tester.pumpWidget(_wrap(PositionsTab(
         cameras: [cam],
         positions: positions,
-        people: [],
+        people: const [],
         heightRanges: const [],
         onResponse: (_) {},
       )));
