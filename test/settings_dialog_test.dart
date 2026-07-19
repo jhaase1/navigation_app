@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:navigation_app/models/height_range.dart';
-import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/services/height_range_store.dart';
 import 'package:navigation_app/utils/height_utils.dart';
 import 'package:navigation_app/widgets/settings_dialog.dart';
@@ -30,17 +29,12 @@ Widget _settingsDialog({
             onConnectPanasonic: (_) async {},
             onResponse: (_) {},
             positions: const [],
-            people: const [],
             heightRanges: heightRanges,
             onPositionsChanged: () {},
-            onPeopleChanged: () {},
             onServicesChanged: () {},
             onHeightRangesChanged: onHeightRangesChanged ?? () {},
             onAllDataChanged: () {},
             onDeviceConfigSaved: (_, __) {},
-            operators: [OperatorProfile.defaultProfile],
-            activeOperator: OperatorProfile.defaultProfile,
-            onOperatorChanged: (_) {},
             onOperatorsChanged: () {},
           ),
         ),

@@ -17,8 +17,8 @@ import '../services/people_store.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
 import 'operator_panel.dart';
+import 'people_manager_dialog.dart';
 import 'service_tab.dart';
-import 'basic_tab.dart';
 import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
@@ -248,6 +248,49 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
   }
 
+  void _showOperatorPicker(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Switch Operator'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _operators.map((op) {
+            final selected = op.id == _activeOperator.id;
+            return ListTile(
+              leading: Icon(selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked),
+              title: Text(op.name),
+              onTap: () {
+                _setActiveOperator(op);
+                Navigator.pop(ctx);
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openPeopleManager(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => PeopleManagerDialog(
+        positions: _positions,
+        cameras: _panasonicCameras,
+        heightRanges: _heightRanges,
+        onSaved: _loadPeople,
+      ),
+    );
+  }
+
   void _showSettingsDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -281,14 +324,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onConnectPanasonic: _connectPanasonic,
             onResponse: (_) {},
             positions: _positions,
-            people: _people,
             heightRanges: _heightRanges,
             onPositionsChanged: () async {
               await _loadPositions();
-              setDialogState(() {});
-            },
-            onPeopleChanged: () async {
-              await _loadPeople();
               setDialogState(() {});
             },
             onServicesChanged: () async {
@@ -309,12 +347,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               setDialogState(() {});
             },
             onDeviceConfigSaved: _applyDeviceConfig,
-            operators: _operators,
-            activeOperator: _activeOperator,
-            onOperatorChanged: (op) {
-              _setActiveOperator(op);
-              setDialogState(() {});
-            },
             onOperatorsChanged: () async {
               await _loadOperators();
               setDialogState(() {});
@@ -361,6 +393,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         appBar: AppBar(
           title: const Text('Multi-device control app'),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.person_add),
+              tooltip: 'Manage People',
+              onPressed: () => _openPeopleManager(context),
+            ),
             IconButton(
               icon: const Icon(Icons.settings),
               onPressed: () => _showSettingsDialog(context),
@@ -428,6 +465,52 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       appBar: AppBar(
         title: const Text('Roland V-160HD Control'),
         actions: [
+          Tooltip(
+            message: 'Switch operator',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _showOperatorPicker(context),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_activeOperator.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _mockMode
+                            ? Colors.orange.shade100
+                            : Colors.blue.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _mockMode ? 'Demo' : 'Live',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _mockMode
+                              ? Colors.orange.shade800
+                              : Colors.blue.shade800,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            tooltip: 'Manage People',
+            onPressed: () => _openPeopleManager(context),
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => _showSettingsDialog(context),
@@ -435,7 +518,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         ],
       ),
       body: DefaultTabController(
-        length: 4,
+        length: 3,
         child: Column(
           children: [
             const TabBar(
@@ -443,7 +526,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 Tab(text: 'Service'),
                 Tab(text: 'Panel'),
                 Tab(text: 'Positions'),
-                Tab(text: 'Switching'),
               ],
             ),
             Expanded(
@@ -473,11 +555,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     people: _people,
                     heightRanges: _heightRanges,
                     onResponse: (_) {},
-                  ),
-                  BasicTab(
-                    rolandConnected: _rolandConnected,
-                    onRolandResponse: (_) {},
-                    rolandService: _rolandService,
                   ),
                 ],
               ),

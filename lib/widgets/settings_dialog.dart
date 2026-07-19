@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/height_range.dart';
 import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
-import '../models/person.dart';
 import '../models/position.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/config_bundle.dart';
@@ -12,7 +11,6 @@ import 'connections_dialog.dart';
 import 'height_range_manager_dialog.dart';
 import 'master_control_widget.dart';
 import 'operator_manager_dialog.dart';
-import 'people_manager_dialog.dart';
 import 'pinp_tab.dart';
 import 'position_manager_dialog.dart';
 import 'service_manager_dialog.dart';
@@ -30,19 +28,14 @@ class SettingsDialog extends StatelessWidget {
   final Function(int) onConnectPanasonic;
   final ValueChanged<String> onResponse;
   final List<Position> positions;
-  final List<Person> people;
   final List<HeightRange> heightRanges;
   final VoidCallback onPositionsChanged;
-  final VoidCallback onPeopleChanged;
   final VoidCallback onServicesChanged;
   final VoidCallback onHeightRangesChanged;
   final VoidCallback onAllDataChanged;
   final DeviceConfigCallback onDeviceConfigSaved;
 
   // Operator
-  final List<OperatorProfile> operators;
-  final OperatorProfile activeOperator;
-  final ValueChanged<OperatorProfile> onOperatorChanged;
   final VoidCallback onOperatorsChanged;
 
   const SettingsDialog({
@@ -59,54 +52,16 @@ class SettingsDialog extends StatelessWidget {
     required this.onConnectPanasonic,
     required this.onResponse,
     required this.positions,
-    required this.people,
     required this.heightRanges,
     required this.onPositionsChanged,
-    required this.onPeopleChanged,
     required this.onServicesChanged,
     required this.onHeightRangesChanged,
     required this.onAllDataChanged,
     required this.onDeviceConfigSaved,
-    required this.operators,
-    required this.activeOperator,
-    required this.onOperatorChanged,
     required this.onOperatorsChanged,
   });
 
   // ── Operator ─────────────────────────────────────────────────────────────
-
-  void _showOperatorPicker(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Switch Operator'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: operators
-              .map((op) {
-                final selected = op.id == activeOperator.id;
-                return ListTile(
-                  leading: Icon(selected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked),
-                  title: Text(op.name),
-                  onTap: () {
-                    onOperatorChanged(op);
-                    Navigator.pop(ctx);
-                  },
-                );
-              })
-              .toList(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _openOperatorManager(BuildContext context) {
     showDialog(
@@ -188,18 +143,6 @@ class SettingsDialog extends StatelessWidget {
   }
 
   // ── Data managers ─────────────────────────────────────────────────────────
-
-  void _openPeopleManager(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => PeopleManagerDialog(
-        positions: positions,
-        cameras: panasonicCameras,
-        heightRanges: heightRanges,
-        onSaved: onPeopleChanged,
-      ),
-    );
-  }
 
   void _openPositionManager(BuildContext context) {
     showDialog(
@@ -431,27 +374,21 @@ class SettingsDialog extends StatelessWidget {
               // Operator
               _sectionHeader('Operator'),
               _tile(
-                icon: Icons.person,
-                title: 'Active: ${activeOperator.name}',
-                subtitle: 'Tap to switch operator',
-                onTap: () => _showOperatorPicker(context),
-              ),
-              _tile(
                 icon: Icons.people_outline,
                 title: 'Manage Operators',
                 subtitle: 'Add, remove, or configure operator panels',
                 onTap: () => _openOperatorManager(context),
               ),
+              _tile(
+                icon: Icons.dashboard_customize,
+                title: 'Preset Labels & Visibility',
+                subtitle: 'Name macros and presets, assign visibility tiers',
+                onTap: () => _openMasterControl(context),
+              ),
               const SizedBox(height: 4),
 
               // Manage
               _sectionHeader('Manage'),
-              _tile(
-                icon: Icons.people,
-                title: 'Manage People',
-                subtitle: 'Create profiles with per-position presets',
-                onTap: () => _openPeopleManager(context),
-              ),
               _tile(
                 icon: Icons.place,
                 title: 'Manage Positions',
@@ -480,12 +417,6 @@ class SettingsDialog extends StatelessWidget {
                 title: 'Connections',
                 subtitle: 'Configure device IPs and connect/disconnect',
                 onTap: () => _openConnections(context),
-              ),
-              _tile(
-                icon: Icons.dashboard_customize,
-                title: 'Preset Labels & Visibility',
-                subtitle: 'Name macros and presets, assign visibility tiers',
-                onTap: () => _openMasterControl(context),
               ),
               _tile(
                 icon: Icons.picture_in_picture,
