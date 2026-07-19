@@ -5,6 +5,7 @@ import '../models/role.dart';
 import '../models/scene.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/config_bundle.dart';
+import '../services/device_config_store.dart';
 import 'connections_dialog.dart';
 import 'master_control_widget.dart';
 import 'order_manager_dialog.dart';
@@ -33,6 +34,7 @@ class SettingsDialog extends StatelessWidget {
   final VoidCallback onRolesChanged;
   final VoidCallback onOrdersChanged;
   final VoidCallback onAllDataChanged;
+  final DeviceConfigCallback onDeviceConfigSaved;
 
   const SettingsDialog({
     super.key,
@@ -55,6 +57,7 @@ class SettingsDialog extends StatelessWidget {
     required this.onRolesChanged,
     required this.onOrdersChanged,
     required this.onAllDataChanged,
+    required this.onDeviceConfigSaved,
   });
 
   void _openConnections(BuildContext context) {
@@ -68,6 +71,7 @@ class SettingsDialog extends StatelessWidget {
         onConnectRoland: onConnectRoland,
         panasonicCameras: panasonicCameras,
         onConnectPanasonic: onConnectPanasonic,
+        onSaved: onDeviceConfigSaved,
       ),
     );
   }
@@ -235,7 +239,8 @@ class SettingsDialog extends StatelessWidget {
           '  • ${bundle.scenes.length} scene${bundle.scenes.length == 1 ? '' : 's'}\n'
           '  • ${bundle.people.length} person${bundle.people.length == 1 ? '' : 's'}\n'
           '  • ${bundle.roles.length} role${bundle.roles.length == 1 ? '' : 's'}\n'
-          '  • ${bundle.orders.length} service order${bundle.orders.length == 1 ? '' : 's'}',
+          '  • ${bundle.orders.length} service order${bundle.orders.length == 1 ? '' : 's'}'
+          '${bundle.cameras != null ? '\n  • ${bundle.cameras!.length} camera${bundle.cameras!.length == 1 ? '' : 's'} + Roland IP' : ''}',
         ),
         actions: [
           TextButton(
@@ -252,6 +257,12 @@ class SettingsDialog extends StatelessWidget {
 
     if (confirmed != true || !context.mounted) return;
     await bundle.saveToStores();
+    if (bundle.rolandIp != null || bundle.cameras != null) {
+      onDeviceConfigSaved(
+        bundle.rolandIp ?? DeviceConfigStore.defaultRolandIp,
+        bundle.cameras ?? DeviceConfigStore.defaultCameras,
+      );
+    }
     onAllDataChanged();
     onResponse('Configuration imported successfully');
   }

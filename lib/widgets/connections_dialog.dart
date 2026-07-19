@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/panasonic_camera_config.dart';
+import '../services/device_config_store.dart';
 
-class ConnectionsDialog extends StatelessWidget {
+typedef DeviceConfigCallback = void Function(
+    String rolandIp, List<CameraEntry> cameras);
+
+class ConnectionsDialog extends StatefulWidget {
   final TextEditingController rolandIpController;
   final ValueNotifier<bool> rolandConnected;
   final ValueNotifier<bool> rolandConnecting;
@@ -9,6 +13,7 @@ class ConnectionsDialog extends StatelessWidget {
   final VoidCallback onConnectRoland;
   final List<PanasonicCameraConfig> panasonicCameras;
   final Function(int) onConnectPanasonic;
+  final DeviceConfigCallback onSaved;
 
   const ConnectionsDialog({
     super.key,
@@ -19,7 +24,72 @@ class ConnectionsDialog extends StatelessWidget {
     required this.onConnectRoland,
     required this.panasonicCameras,
     required this.onConnectPanasonic,
+    required this.onSaved,
   });
+
+  @override
+  State<ConnectionsDialog> createState() => _ConnectionsDialogState();
+}
+
+class _ConnectionsDialogState extends State<ConnectionsDialog> {
+  // Local editable copies of camera name/ip — separate from the live
+  // PanasonicCameraConfig objects so add/remove can be previewed before save.
+  late final List<TextEditingController> _nameControllers;
+  late final List<TextEditingController> _ipControllers;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameControllers = widget.panasonicCameras
+        .map((c) => TextEditingController(text: c.name))
+        .toList();
+    _ipControllers = widget.panasonicCameras
+        .map((c) => TextEditingController(text: c.ipController.text))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _nameControllers) {
+      c.dispose();
+    }
+    for (final c in _ipControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addCamera() {
+    setState(() {
+      _nameControllers
+          .add(TextEditingController(text: 'Camera ${_nameControllers.length + 1}'));
+      _ipControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeCamera(int index) {
+    setState(() {
+      _nameControllers[index].dispose();
+      _ipControllers[index].dispose();
+      _nameControllers.removeAt(index);
+      _ipControllers.removeAt(index);
+    });
+  }
+
+  List<CameraEntry> _buildEntries() => List.generate(
+        _nameControllers.length,
+        (i) => CameraEntry(
+          name: _nameControllers[i].text.trim().isEmpty
+              ? 'Camera ${i + 1}'
+              : _nameControllers[i].text.trim(),
+          ip: _ipControllers[i].text.trim(),
+        ),
+      );
+
+  void _save() {
+    widget.onSaved(widget.rolandIpController.text.trim(), _buildEntries());
+    Navigator.of(context).pop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,13 +104,13 @@ class ConnectionsDialog extends StatelessWidget {
             children: [
               // Roland
               ValueListenableBuilder<bool>(
-                valueListenable: rolandConnected,
+                valueListenable: widget.rolandConnected,
                 builder: (context, connected, _) =>
                     ValueListenableBuilder<bool>(
-                  valueListenable: rolandConnecting,
+                  valueListenable: widget.rolandConnecting,
                   builder: (context, connecting, _) =>
                       ValueListenableBuilder<String>(
-                    valueListenable: rolandConnectionError,
+                    valueListenable: widget.rolandConnectionError,
                     builder: (context, error, _) => Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -53,7 +123,7 @@ class ConnectionsDialog extends StatelessWidget {
                         ]),
                         const SizedBox(height: 12),
                         TextField(
-                          controller: rolandIpController,
+                          controller: widget.rolandIpController,
                           enabled: !connected && !connecting,
                           decoration: const InputDecoration(
                             labelText: 'IP Address',
@@ -63,7 +133,7 @@ class ConnectionsDialog extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         FilledButton(
-                          onPressed: connecting ? null : onConnectRoland,
+                          onPressed: connecting ? null : widget.onConnectRoland,
                           style: FilledButton.styleFrom(
                               backgroundColor: connected ? Colors.red : null),
                           child: connecting
@@ -82,34 +152,72 @@ class ConnectionsDialog extends StatelessWidget {
               const SizedBox(height: 24),
 
               // Panasonic cameras
-              const Text('Panasonic Cameras',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  const Text('Panasonic Cameras',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _addCamera,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add'),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
-              ...List.generate(panasonicCameras.length, (index) {
-                final camera = panasonicCameras[index];
+              ...List.generate(_nameControllers.length, (index) {
+                final isLive = index < widget.panasonicCameras.length;
+                final connected = isLive
+                    ? widget.panasonicCameras[index].isConnected
+                    : ValueNotifier(false);
+                final connecting = isLive
+                    ? widget.panasonicCameras[index].isConnecting
+                    : ValueNotifier(false);
+                final error = isLive
+                    ? widget.panasonicCameras[index].connectionError
+                    : ValueNotifier('');
+
                 return ValueListenableBuilder<bool>(
-                  valueListenable: camera.isConnected,
-                  builder: (context, connected, _) =>
+                  valueListenable: connected,
+                  builder: (context, conn, _) =>
                       ValueListenableBuilder<bool>(
-                    valueListenable: camera.isConnecting,
-                    builder: (context, connecting, _) =>
+                    valueListenable: connecting,
+                    builder: (context, cnting, _) =>
                         ValueListenableBuilder<String>(
-                      valueListenable: camera.connectionError,
-                      builder: (context, error, _) => Column(
+                      valueListenable: error,
+                      builder: (context, err, _) => Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           if (index > 0) const SizedBox(height: 16),
                           Row(children: [
-                            Text(camera.name,
-                                style: const TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 12),
-                            _statusDot(connected),
+                            Expanded(
+                              child: TextField(
+                                controller: _nameControllers[index],
+                                enabled: !conn && !cnting,
+                                decoration: const InputDecoration(
+                                  labelText: 'Name',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _statusDot(conn),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red),
+                              tooltip: 'Remove camera',
+                              onPressed: conn || cnting
+                                  ? null
+                                  : () => _removeCamera(index),
+                            ),
                           ]),
                           const SizedBox(height: 8),
                           TextField(
-                            controller: camera.ipController,
-                            enabled: !connected && !connecting,
+                            controller: _ipControllers[index],
+                            enabled: !conn && !cnting,
                             decoration: const InputDecoration(
                               labelText: 'IP Address',
                               border: OutlineInputBorder(),
@@ -118,18 +226,20 @@ class ConnectionsDialog extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           FilledButton(
-                            onPressed: connecting
+                            onPressed: !isLive || cnting
                                 ? null
-                                : () => onConnectPanasonic(index),
+                                : () => widget.onConnectPanasonic(index),
                             style: FilledButton.styleFrom(
-                                backgroundColor: connected ? Colors.red : null),
-                            child: connecting
-                                ? _spinner()
-                                : Text(connected ? 'Disconnect' : 'Connect'),
+                                backgroundColor: conn ? Colors.red : null),
+                            child: !isLive
+                                ? const Text('Save first')
+                                : cnting
+                                    ? _spinner()
+                                    : Text(conn ? 'Disconnect' : 'Connect'),
                           ),
-                          if (error.isNotEmpty) ...[
+                          if (err.isNotEmpty) ...[
                             const SizedBox(height: 8),
-                            _errorBox(error),
+                            _errorBox(err),
                           ],
                         ],
                       ),
@@ -144,7 +254,11 @@ class ConnectionsDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Save & Close'),
         ),
       ],
     );

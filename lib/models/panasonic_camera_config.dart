@@ -15,4 +15,11 @@ class PanasonicCameraConfig {
     required String ipAddress,
     this.service,
   }) : ipController = TextEditingController(text: ipAddress);
+
+  void dispose() {
+    ipController.dispose();
+    isConnected.dispose();
+    isConnecting.dispose();
+    connectionError.dispose();
+  }
 }

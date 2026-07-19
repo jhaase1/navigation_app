@@ -9,6 +9,7 @@ import '../services/panasonic_service.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
+import '../services/device_config_store.dart';
 import '../services/people_store.dart';
 import '../services/role_store.dart';
 import '../services/scene_store.dart';
@@ -54,15 +55,46 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   @override
   void initState() {
     super.initState();
-    _panasonicCameras.addAll([
-      PanasonicCameraConfig(name: 'Camera 1', ipAddress: '10.0.1.10'),
-      PanasonicCameraConfig(name: 'Camera 2', ipAddress: '10.0.1.11'),
-      PanasonicCameraConfig(name: 'Camera 3', ipAddress: '10.0.1.12'),
-    ]);
+    _loadDeviceConfig();
     _loadScenes();
     _loadPeople();
     _loadRoles();
     _loadOrders();
+  }
+
+  Future<void> _loadDeviceConfig() async {
+    final rolandIp = await DeviceConfigStore.loadRolandIp();
+    final cameras = await DeviceConfigStore.loadCameras();
+    if (!mounted) return;
+    setState(() {
+      _rolandIpController.text = rolandIp;
+      _panasonicCameras
+        ..clear()
+        ..addAll(cameras.map(
+            (e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
+    });
+  }
+
+  void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
+    // Disconnect and dispose cameras that are being replaced.
+    for (final c in _panasonicCameras) {
+      c.isConnected.value = false;
+      c.service = null;
+      c.dispose();
+    }
+    setState(() {
+      _rolandIpController.text = rolandIp;
+      if (_rolandConnected.value) {
+        _rolandService.disconnect();
+        _rolandConnected.value = false;
+        _rolandService = MockRolandService();
+      }
+      _panasonicCameras
+        ..clear()
+        ..addAll(entries.map(
+            (e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
+    });
+    DeviceConfigStore.save(rolandIp, entries);
   }
 
   @override
@@ -245,6 +277,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onRolesChanged: _loadRoles,
             onOrdersChanged: _loadOrders,
             onAllDataChanged: _loadAll,
+            onDeviceConfigSaved: _applyDeviceConfig,
           ),
         );
       },

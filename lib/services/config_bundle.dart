@@ -8,6 +8,7 @@ import '../models/person.dart';
 import '../models/role.dart';
 import '../models/scene.dart';
 import '../models/service_order.dart';
+import 'device_config_store.dart';
 import 'people_store.dart';
 import 'role_store.dart';
 import 'scene_store.dart';
@@ -27,6 +28,12 @@ class ConfigBundle {
   /// visibility name (matches [ItemVisibility.name]).
   final Map<String, Map<String, String>> visibilities;
 
+  /// Roland V-160HD IP address. Null means "not included in this bundle".
+  final String? rolandIp;
+
+  /// Panasonic camera list. Null means "not included in this bundle".
+  final List<CameraEntry>? cameras;
+
   const ConfigBundle({
     required this.scenes,
     required this.people,
@@ -34,6 +41,8 @@ class ConfigBundle {
     required this.orders,
     this.presetNames = const {},
     this.visibilities = const {},
+    this.rolandIp,
+    this.cameras,
   });
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +52,9 @@ class ConfigBundle {
         'serviceOrders': orders.map((o) => o.toJson()).toList(),
         if (presetNames.isNotEmpty) 'presetNames': presetNames,
         if (visibilities.isNotEmpty) 'visibilities': visibilities,
+        if (rolandIp != null) 'rolandIp': rolandIp,
+        if (cameras != null)
+          'cameras': cameras!.map((c) => c.toJson()).toList(),
       };
 
   factory ConfigBundle.fromJson(Map<String, dynamic> json) => ConfigBundle(
@@ -60,6 +72,10 @@ class ConfigBundle {
             .toList(),
         presetNames: _parseStringStringMaps(json['presetNames']),
         visibilities: _parseStringStringMaps(json['visibilities']),
+        rolandIp: json['rolandIp'] as String?,
+        cameras: (json['cameras'] as List<dynamic>?)
+            ?.map((c) => CameraEntry.fromJson(c as Map<String, dynamic>))
+            .toList(),
       );
 
   static Map<String, Map<String, String>> _parseStringStringMaps(dynamic raw) {
@@ -110,6 +126,9 @@ class ConfigBundle {
       }
     }
 
+    final rolandIp = await DeviceConfigStore.loadRolandIp();
+    final cameras = await DeviceConfigStore.loadCameras();
+
     return ConfigBundle(
       scenes: results[0] as List<Scene>,
       people: results[1] as List<Person>,
@@ -117,6 +136,8 @@ class ConfigBundle {
       orders: results[3] as List<ServiceOrder>,
       presetNames: presetNames,
       visibilities: visibilities,
+      rolandIp: rolandIp,
+      cameras: cameras,
     );
   }
 
@@ -128,6 +149,11 @@ class ConfigBundle {
       PeopleStore.saveAll(people),
       RoleStore.saveAll(roles),
       ServiceOrderStore.saveAll(orders),
+      if (rolandIp != null || cameras != null)
+        DeviceConfigStore.save(
+          rolandIp ?? DeviceConfigStore.defaultRolandIp,
+          cameras ?? DeviceConfigStore.defaultCameras,
+        ),
     ]);
 
     for (final entry in presetNames.entries) {
