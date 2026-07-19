@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
 import '../models/role.dart';
@@ -10,14 +11,14 @@ import '../services/abstract/roland_service_abstract.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
 import '../services/device_config_store.dart';
+import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/role_store.dart';
 import '../services/scene_store.dart';
 import '../services/service_order_store.dart';
-import '../services/visibility_store.dart';
-import 'basic_tab.dart';
-import 'filtered_control_widget.dart';
+import 'operator_panel.dart';
 import 'order_tab.dart';
+import 'basic_tab.dart';
 import 'scenes_tab.dart';
 import 'settings_dialog.dart';
 
@@ -44,6 +45,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
 
+  // Operators
+  List<OperatorProfile> _operators = [OperatorProfile.defaultProfile];
+  OperatorProfile _activeOperator = OperatorProfile.defaultProfile;
+
   // Shared data
   List<Scene> _scenes = [];
   List<Person> _people = [];
@@ -56,6 +61,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   void initState() {
     super.initState();
     _loadDeviceConfig();
+    _loadOperators();
     _loadScenes();
     _loadPeople();
     _loadRoles();
@@ -75,8 +81,26 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     });
   }
 
+  Future<void> _loadOperators() async {
+    final operators = await OperatorStore.loadAll();
+    final activeId = await OperatorStore.loadActiveId();
+    if (!mounted) return;
+    final active = operators.firstWhere(
+      (o) => o.id == activeId,
+      orElse: () => operators.first,
+    );
+    setState(() {
+      _operators = operators;
+      _activeOperator = active;
+    });
+  }
+
+  void _setActiveOperator(OperatorProfile op) {
+    setState(() => _activeOperator = op);
+    OperatorStore.saveActiveId(op.id);
+  }
+
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
-    // Disconnect and dispose cameras that are being replaced.
     for (final c in _panasonicCameras) {
       c.isConnected.value = false;
       c.service = null;
@@ -122,16 +146,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) setState(() => _roles = roles);
   }
 
+  Future<void> _loadOrders() async {
+    final orders = await ServiceOrderStore.loadAll();
+    if (mounted) setState(() => _serviceOrders = orders);
+  }
+
   void _loadAll() {
     _loadScenes();
     _loadPeople();
     _loadRoles();
     _loadOrders();
-  }
-
-  Future<void> _loadOrders() async {
-    final orders = await ServiceOrderStore.loadAll();
-    if (mounted) setState(() => _serviceOrders = orders);
   }
 
   Future<void> _connectAll() async {
@@ -278,11 +302,47 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onOrdersChanged: _loadOrders,
             onAllDataChanged: _loadAll,
             onDeviceConfigSaved: _applyDeviceConfig,
+            operators: _operators,
+            activeOperator: _activeOperator,
+            onOperatorChanged: (op) {
+              _setActiveOperator(op);
+              setDialogState(() {});
+            },
+            onOperatorsChanged: () async {
+              await _loadOperators();
+              setDialogState(() {});
+            },
           ),
         );
       },
     );
   }
+
+  // ── Operator selector ────────────────────────────────────────────────────
+
+  Widget _buildOperatorSelector({bool compact = false}) {
+    if (_operators.length <= 1 && _operators.first.isDefault) {
+      return const SizedBox.shrink();
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      children: _operators.map((op) {
+        final selected = op.id == _activeOperator.id;
+        return ChoiceChip(
+          label: Text(op.name,
+              style: TextStyle(
+                  fontSize: compact ? 12 : 14,
+                  fontWeight:
+                      selected ? FontWeight.bold : FontWeight.normal)),
+          selected: selected,
+          onSelected: (_) => _setActiveOperator(op),
+        );
+      }).toList(),
+    );
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -310,7 +370,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 'No devices connected',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -330,7 +390,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+              _buildOperatorSelector(),
+              const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: _connectingAll ? null : _connectAll,
                 icon: _connectingAll
@@ -341,7 +403,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                             strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.power_settings_new),
-                label: Text(_connectingAll ? 'Connecting...' : 'Connect All'),
+                label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -366,33 +428,32 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         ],
       ),
       body: DefaultTabController(
-        length: 5,
+        length: 4,
         child: Column(
           children: [
             const TabBar(
               tabs: [
-                Tab(text: 'Basic'),
-                Tab(text: 'Advanced'),
-                Tab(text: 'Scenes'),
                 Tab(text: 'Order'),
+                Tab(text: 'Panel'),
+                Tab(text: 'Scenes'),
                 Tab(text: 'Switching'),
               ],
             ),
             Expanded(
               child: TabBarView(
                 children: [
-                  FilteredControlWidget(
-                    title: 'Basic',
-                    filter: ItemVisibility.basic,
+                  OrderTab(
+                    cameras: _panasonicCameras,
+                    people: _people,
+                    roles: _roles,
+                    scenes: _scenes,
+                    orders: _serviceOrders,
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    cameras: _panasonicCameras,
                     onResponse: (r) => setState(() => _masterResponse = r),
                   ),
-                  FilteredControlWidget(
-                    title: 'Advanced',
-                    filter: ItemVisibility.expanded,
+                  OperatorPanel(
+                    operator: _activeOperator,
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
@@ -403,16 +464,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     cameras: _panasonicCameras,
                     scenes: _scenes,
                     people: _people,
-                    onResponse: (r) => setState(() => _masterResponse = r),
-                  ),
-                  OrderTab(
-                    cameras: _panasonicCameras,
-                    people: _people,
-                    roles: _roles,
-                    scenes: _scenes,
-                    orders: _serviceOrders,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
                     onResponse: (r) => setState(() => _masterResponse = r),
                   ),
                   BasicTab(
