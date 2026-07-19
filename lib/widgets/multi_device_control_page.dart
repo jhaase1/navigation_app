@@ -39,7 +39,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   RolandServiceAbstract _rolandService = MockRolandService();
   final ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
   final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
-  String _rolandResponse = '';
   final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
 
   // Panasonic
@@ -54,8 +53,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Person> _people = [];
   List<Service> _services = [];
   List<HeightRange> _heightRanges = [];
-
-  String _masterResponse = '';
 
   @override
   void initState() {
@@ -183,7 +180,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
-        _rolandResponse = 'Mock Roland V-160HD Connected';
       });
       return;
     }
@@ -196,9 +192,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
-      });
-      service.responseStream.listen((data) {
-        setState(() => _rolandResponse = data.toString());
       });
     } catch (e) {
       setState(() {
@@ -286,7 +279,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onConnectRoland: _connectRoland,
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
-            onResponse: (r) => setState(() => _masterResponse = r),
+            onResponse: (_) {},
             positions: _positions,
             people: _people,
             heightRanges: _heightRanges,
@@ -464,7 +457,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     heightRanges: _heightRanges,
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
-                    onResponse: (r) => setState(() => _masterResponse = r),
+                    onResponse: (_) {},
                   ),
                   OperatorPanel(
                     operator: _activeOperator,
@@ -472,33 +465,20 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
-                    onResponse: (r) => setState(() => _masterResponse = r),
+                    onResponse: (_) {},
                   ),
                   PositionsTab(
                     cameras: _panasonicCameras,
                     positions: _positions,
                     people: _people,
                     heightRanges: _heightRanges,
-                    onResponse: (r) => setState(() => _masterResponse = r),
+                    onResponse: (_) {},
                   ),
                   BasicTab(
                     rolandConnected: _rolandConnected,
-                    onRolandResponse: (r) =>
-                        setState(() => _rolandResponse = r),
+                    onRolandResponse: (_) {},
                     rolandService: _rolandService,
                   ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Last Roland Response: $_rolandResponse',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  Text('Last Response: $_masterResponse',
-                      style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
