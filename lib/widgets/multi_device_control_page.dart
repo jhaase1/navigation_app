@@ -391,7 +391,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (!isConnected) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Multi-device control app'),
           actions: [
             IconButton(
               icon: const Icon(Icons.person_add),
