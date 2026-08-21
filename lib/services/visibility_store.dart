@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'backup/config_mutation_notifier.dart';
 
 /// Whether a macro/preset button should appear in OperatorPanel at all,
 /// for every operator (including Default). This is a global suppression
@@ -32,10 +33,12 @@ class VisibilityStore {
   static ItemVisibility _parse(String raw) =>
       ItemVisibility.values.byName(_legacyNames[raw] ?? raw);
 
-  /// Bumped every time [save] persists a change, so widgets that cache
+  /// Bumped every time a write lands under [keyPrefix], so widgets that cache
   /// visibility from an earlier [loadAll] (e.g. an already-mounted
   /// OperatorPanel) know to reload without a callback threaded through the
-  /// widget tree.
+  /// widget tree. ConfigBundle imports bump it directly after their
+  /// transaction commits, because their writes go through the restore
+  /// journal rather than through this class.
   static final ValueNotifier<int> changes = ValueNotifier(0);
 
   /// Returns all saved visibilities for [deviceKey] as a map of itemIndex -> visibility.
@@ -44,29 +47,41 @@ class VisibilityStore {
     final raw = prefs.getString(_key(deviceKey));
     if (raw == null) return {};
     final decoded = jsonDecode(raw) as Map<String, dynamic>;
-    return decoded
-        .map((k, v) => MapEntry(int.parse(k), _parse(v as String)));
+    return decoded.map((k, v) => MapEntry(int.parse(k), _parse(v as String)));
   }
 
   /// Saves [visibility] for [itemIndex] on [deviceKey].
   static Future<void> save(
       String deviceKey, int itemIndex, ItemVisibility visibility) async {
-    final prefs = await SharedPreferences.getInstance();
-    final existing = await loadAll(deviceKey);
-    existing[itemIndex] = visibility;
-    await prefs.setString(_key(deviceKey),
-        jsonEncode(existing.map((k, v) => MapEntry('$k', v.name))));
-    changes.value++;
+    await ConfigMutationNotifier.instance.runExclusive(() async {
+      final prefs = await SharedPreferences.getInstance();
+      final existing = await loadAll(deviceKey);
+      existing[itemIndex] = visibility;
+      final persisted = await prefs.setString(_key(deviceKey),
+          jsonEncode(existing.map((k, v) => MapEntry('$k', v.name))));
+      if (!persisted) {
+        await prefs.reload();
+        throw StateError('Could not persist item visibility');
+      }
+      changes.value++;
+      await ConfigMutationNotifier.instance.notify();
+    });
   }
 
   /// Writes an already-encoded itemIndex→visibility-name JSON map straight
-  /// under [deviceKey] -- for bulk writers (e.g. a ConfigBundle import) that
-  /// don't go through [save]'s per-item read-modify-write. Bumps [changes]
-  /// the same as [save] does, so this is the one choke point any writer of
-  /// this key needs to go through to keep already-mounted listeners in sync.
+  /// under [deviceKey] -- for bulk writers that don't go through [save]'s
+  /// per-item read-modify-write. Takes the same mutation lock, bumps
+  /// [changes], and notifies the backup engine, so a caller cannot persist
+  /// config behind the engine's back.
   static Future<void> saveRawJson(String deviceKey, String rawJson) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key(deviceKey), rawJson);
-    changes.value++;
+    await ConfigMutationNotifier.instance.runExclusive(() async {
+      final prefs = await SharedPreferences.getInstance();
+      if (!await prefs.setString(_key(deviceKey), rawJson)) {
+        await prefs.reload();
+        throw StateError('Could not persist item visibility');
+      }
+      changes.value++;
+      await ConfigMutationNotifier.instance.notify();
+    });
   }
 }
