@@ -15,22 +15,42 @@ class DeviceConfigStore {
   static const _rolandIpKey = 'roland_ip';
   static const _camerasKey = 'panasonic_cameras';
 
-  static const String defaultRolandIp = '10.0.1.20';
-  static const List<CameraEntry> defaultCameras = [
-    CameraEntry(name: 'Camera 1', ip: '10.0.1.10'),
-    CameraEntry(name: 'Camera 2', ip: '10.0.1.11'),
-    CameraEntry(name: 'Camera 3', ip: '10.0.1.12'),
-  ];
+  /// Set via `flutter run --dart-define=MOCK_RIG=true`
+  /// (tools/mock_server/dev.sh does this automatically), so a dev build
+  /// defaults to tools/mock_server/run.py's addresses instead of the real
+  /// church network, regardless of whatever real-device IPs a previous,
+  /// non-mock run of this same build saved to SharedPreferences.
+  static const bool mockRig = bool.fromEnvironment('MOCK_RIG');
 
-  static Future<String> loadRolandIp() async {
+  static String rolandIpFor({bool mock = mockRig}) =>
+      mock ? '127.0.0.1' : '10.0.1.20';
+
+  static List<CameraEntry> camerasFor({bool mock = mockRig}) => mock
+      ? const [
+          CameraEntry(name: 'Camera 1', ip: '127.0.0.2'),
+          CameraEntry(name: 'Camera 2', ip: '127.0.0.3'),
+          CameraEntry(name: 'Camera 3', ip: '127.0.0.4'),
+        ]
+      : const [
+          CameraEntry(name: 'Camera 1', ip: '10.0.1.10'),
+          CameraEntry(name: 'Camera 2', ip: '10.0.1.11'),
+          CameraEntry(name: 'Camera 3', ip: '10.0.1.12'),
+        ];
+
+  static String get defaultRolandIp => rolandIpFor();
+  static List<CameraEntry> get defaultCameras => camerasFor();
+
+  static Future<String> loadRolandIp({bool mock = mockRig}) async {
+    if (mock) return rolandIpFor(mock: true);
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_rolandIpKey) ?? defaultRolandIp;
+    return prefs.getString(_rolandIpKey) ?? rolandIpFor(mock: false);
   }
 
-  static Future<List<CameraEntry>> loadCameras() async {
+  static Future<List<CameraEntry>> loadCameras({bool mock = mockRig}) async {
+    if (mock) return camerasFor(mock: true);
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_camerasKey);
-    if (raw == null) return defaultCameras;
+    if (raw == null) return camerasFor(mock: false);
     final list = jsonDecode(raw) as List<dynamic>;
     return list
         .map((e) => CameraEntry.fromJson(e as Map<String, dynamic>))
