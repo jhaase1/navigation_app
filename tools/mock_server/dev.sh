@@ -1,7 +1,7 @@
 #!/bin/bash
 # Start the mock rig and the app together, wired to point at each other.
 #
-#   ./tools/mock_server/dev.sh                   switcher only, flutter run -d macos
+#   ./tools/mock_server/dev.sh                   switcher only, flutter run on this OS's desktop device
 #   ./tools/mock_server/dev.sh --cameras         switcher + 3 cameras (needs sudo)
 #   ./tools/mock_server/dev.sh --device chrome   any other flutter device
 #
@@ -21,7 +21,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-DEVICE="macos"
+case "$(uname -s)" in
+  Darwin) DEVICE="macos" ;;
+  Linux) DEVICE="linux" ;;
+  MINGW*|MSYS*|CYGWIN*) DEVICE="windows" ;;
+  *) DEVICE="" ;;
+esac
 CAMERAS=0
 ROLAND_PORT=8023
 
@@ -34,6 +39,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ -z "$DEVICE" ]]; then
+  echo "Couldn't map $(uname -s) to a flutter desktop device -- pass one explicitly with --device." >&2
+  exit 1
+fi
 
 rig_cmd=(python3 tools/mock_server/run.py)
 if [[ "$CAMERAS" == 1 ]]; then
