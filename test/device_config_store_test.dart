@@ -79,6 +79,39 @@ void main() {
     });
   });
 
+  group('DeviceConfigStore — mock rig addresses', () {
+    test('rolandIpFor(mock: true) returns the mock rig address', () {
+      expect(DeviceConfigStore.rolandIpFor(mock: true), '127.0.0.1');
+    });
+
+    test('rolandIpFor(mock: false) returns the real church address', () {
+      expect(DeviceConfigStore.rolandIpFor(mock: false), '10.0.1.20');
+    });
+
+    test('camerasFor(mock: true) returns the mock rig loopback addresses',
+        () {
+      final cams = DeviceConfigStore.camerasFor(mock: true);
+      expect(cams.map((c) => c.ip), ['127.0.0.2', '127.0.0.3', '127.0.0.4']);
+    });
+
+    test('camerasFor(mock: false) returns the real camera addresses', () {
+      final cams = DeviceConfigStore.camerasFor(mock: false);
+      expect(cams.map((c) => c.ip), ['10.0.1.10', '10.0.1.11', '10.0.1.12']);
+    });
+
+    test('loadRolandIp ignores saved prefs when mockRig is active', () async {
+      await DeviceConfigStore.save('10.99.99.99', []);
+      expect(await DeviceConfigStore.loadRolandIp(mock: true), '127.0.0.1');
+    });
+
+    test('loadCameras ignores saved prefs when mockRig is active', () async {
+      await DeviceConfigStore.save(
+          '10.99.99.99', [const CameraEntry(name: 'Saved', ip: '9.9.9.9')]);
+      final cams = await DeviceConfigStore.loadCameras(mock: true);
+      expect(cams.map((c) => c.ip), ['127.0.0.2', '127.0.0.3', '127.0.0.4']);
+    });
+  });
+
   group('DeviceConfigStore — save atomicity', () {
     test('save persists Roland IP and cameras together', () async {
       await DeviceConfigStore.save('10.99.99.99', [

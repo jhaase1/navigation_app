@@ -13,11 +13,22 @@ the failures the app currently cannot survive.
 ## Running it
 
 ```bash
-sudo python3 tools/mock_server/run.py          # switcher + 3 cameras
-python3 tools/mock_server/run.py --no-cameras  # switcher only, no root
+./tools/mock_server/setup-no-sudo.sh           # once ever (needs sudo that one time)
+python3 tools/mock_server/run.py               # switcher + 3 cameras, no root
+python3 tools/mock_server/run.py --no-cameras  # switcher only
 ```
 
-Then in the app, **Settings → Connections**:
+Or use `tools/mock_server/dev.sh`, which starts the rig and the app together
+already pointed at each other (see its `--help`).
+
+Skip `setup-no-sudo.sh` and cameras still work — `run.py` just asks for sudo
+the moment a bind actually needs it (see "Why cameras need a privileged port"
+below), instead of demanding it up front every single run.
+
+If you're launching the app yourself rather than through `dev.sh`, pass
+`--dart-define=MOCK_RIG=true` to `flutter run` so it defaults to this rig's
+addresses (`DeviceConfigStore.mockRig`) instead of the real church network —
+otherwise you'll need to set these in **Settings → Connections** by hand:
 
 | Device   | Address     |
 |----------|-------------|
@@ -34,12 +45,25 @@ server entirely.
 
 No dependencies beyond the Python 3 standard library.
 
-### Why it needs root
+### Why cameras need a privileged port
 
-Only for the cameras. `PanasonicService`'s `ipRegex`
-(`panasonic_service.dart:346`) accepts a bare dotted quad and offers no way to
-specify a port, so each mock camera has to answer on its own address at port
-80. Both aliasing `lo0` and binding a port below 1024 are privileged.
+`PanasonicService`'s `ipRegex` (`panasonic_service.dart:346`) accepts a bare
+dotted quad and offers no way to specify a port, so each mock camera has to
+answer on its own address at port 80 — normally reserved for root.
+
+`tools/mock_server/setup-no-sudo.sh` lifts that reservation for loopback ports
+once, with sudo, so every run after that needs no root at all:
+
+- **Linux**: sets `net.ipv4.ip_unprivileged_port_start=80`, persisted via
+  `/etc/sysctl.d/`. `127.0.0.0/8` already routes to `lo` on Linux (see below),
+  so this is the only privileged step there is.
+- **macOS**: lowers `net.inet.ip.portrange.reservedhigh` below 80, and
+  pre-creates the `127.0.0.2-4` loopback aliases (see next section) so later
+  runs adopt rather than recreate them. Neither survives a reboot on macOS —
+  re-run the script after restarting if `run.py` asks for sudo again.
+
+Run `tools/mock_server/setup-no-sudo.sh --revert` to put a machine back the
+way it was.
 
 `127.0.0.2-4` are used rather than the real `10.0.1.10-12` on purpose: aliasing
 the church's actual camera addresses onto this Mac would shadow the real
@@ -60,19 +84,16 @@ sudo ifconfig lo0 -alias 127.0.0.4
 
 ### On Linux
 
-The aliasing above is macOS-only and the rig skips it: `AliasManager.ensure`
-(`mockrig/netsetup.py:34`) checks `platform.system() == "Darwin"` first, logs
-`Loopback aliasing is macOS-only; skipping on Linux`, and returns. `teardown()`
-then iterates an empty list, so `ifconfig` is never invoked at all. There is
-nothing to clean up by hand.
+Loopback aliasing itself (the section above) is macOS-only and the rig skips
+it: `AliasManager.ensure` (`mockrig/netsetup.py:34`) checks
+`platform.system() == "Darwin"` first, logs `Loopback aliasing is macOS-only;
+skipping on Linux`, and returns. `teardown()` then iterates an empty list, so
+`ifconfig` is never invoked at all. There is nothing to clean up by hand.
 
-Nothing is lost by skipping it. Linux puts `127.0.0.1/8` on `lo`, so the whole
-`127.0.0.0/8` is already local and the cameras bind on `127.0.0.2-4` without
-any alias being added. Root is still needed for port 80:
-
-```bash
-sudo python3 tools/mock_server/run.py
-```
+Nothing is lost by skipping it. Linux puts all of `127.0.0.0/8` on `lo` by
+default, so the cameras bind on `127.0.0.2-4` without any alias being added.
+The only privileged step on Linux is binding port 80 itself, which
+`setup-no-sudo.sh` also takes care of.
 
 Everything else in the rig is standard-library sockets and HTTP, so it runs
 unchanged. The one piece that does not carry over is `drive_macos_app.sh`,
@@ -89,7 +110,7 @@ standard loopback behaviour, not a run we have done.
 is not the mock confirming its own assumptions.
 
 ```bash
-sudo python3 tools/mock_server/run.py        # terminal 1
+python3 tools/mock_server/run.py             # terminal 1 (after setup-no-sudo.sh, once)
 dart run tools/mock_server/verify.dart       # terminal 2
 ```
 

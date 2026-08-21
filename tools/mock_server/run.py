@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Run the mock rig.
 
-    sudo python3 tools/mock_server/run.py            # switcher + 3 cameras
-    python3 tools/mock_server/run.py --no-cameras    # switcher only, no root
+    python3 tools/mock_server/run.py                 # switcher + 3 cameras
+    python3 tools/mock_server/run.py --no-cameras    # switcher only
 
-Root is needed only for the cameras: the app's camera field accepts a bare
-dotted quad with no port (panasonic_service.dart:346), so each camera has to
-answer on its own loopback alias at port 80, and both aliasing lo0 and binding
-a port below 1024 are privileged operations. Aliases created here are removed
-again on exit.
+The app's camera field accepts a bare dotted quad with no port
+(panasonic_service.dart:346), so each camera has to answer on its own
+loopback alias at port 80 -- normally a privileged port. Run
+tools/mock_server/setup-no-sudo.sh once (needs sudo that one time) to lift
+that restriction for your user, and every run after that -- this one
+included -- needs no root at all. Skip that and this still runs cameras
+fine, it just asks for sudo the moment a bind actually needs it, instead of
+demanding it up front. Aliases created here are removed again on exit.
 
 Then point the app at the rig via Settings -> Connections:
 
@@ -63,14 +66,6 @@ def main():
 
     if args.no_cameras:
         camera_ips = []
-    elif args.camera_port < 1024 and os.geteuid() != 0:
-        sys.exit(
-            "Cameras need root: binding port "
-            f"{args.camera_port} and adding loopback aliases are privileged.\n"
-            "  Run:  sudo python3 " + " ".join(sys.argv) + "\n"
-            "  Or:   python3 " + sys.argv[0] + " --no-cameras   "
-            "(switcher only, no root)"
-        )
 
     cameras = [
         st.CameraState(
@@ -108,6 +103,18 @@ def main():
         roland_mock.start()
         farm.start()
         inspector.start()
+    except PermissionError as exc:
+        inspector.stop()
+        farm.stop()
+        roland_mock.stop()
+        aliases.teardown()
+        sys.exit(
+            f"\nCan't bind port {args.camera_port}: {exc}\n"
+            "This system still treats it as a privileged port.\n"
+            "  One-time fix:  tools/mock_server/setup-no-sudo.sh\n"
+            "  Or just this once:  sudo python3 " + " ".join(sys.argv) + "\n"
+            "  Or skip cameras:    python3 " + sys.argv[0] + " --no-cameras"
+        )
     except OSError as exc:
         inspector.stop()
         farm.stop()
@@ -129,7 +136,7 @@ def main():
     for cam in cameras:
         print(f"    {cam.name:<16}{cam.ip}")
     if not cameras:
-        print("    (cameras disabled -- run with sudo to enable them)")
+        print("    (cameras disabled -- drop --no-cameras to enable them)")
     print()
     print(f"  Inspector:  http://{args.inspector_host}:{args.inspector_port}")
     print("  Keep the app in LIVE mode; Demo mode never touches the network.")
