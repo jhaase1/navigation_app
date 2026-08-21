@@ -101,23 +101,27 @@ class _ServiceManagerDialogState extends State<ServiceManagerDialog> {
     };
     if (mounted) {
       setState(() {
-        _macroDropdownItems = _numberDropdownItems((n) => macroNames[n]);
+        _macroDropdownItems = _numberDropdownItems(
+            (n) => macroNames[n], (n) => 'Macro $n');
         _presetDropdownItemsByCamera = {
           for (final entry in cameraNames.entries)
-            entry.key: _numberDropdownItems((n) => entry.value[n - 1]),
+            entry.key: _numberDropdownItems(
+                (n) => entry.value[n - 1], (n) => 'Preset $n'),
         };
       });
     }
   }
 
   static List<DropdownMenuItem<int?>> _numberDropdownItems(
-      String? Function(int displayNumber) nameFor) {
+      String? Function(int displayNumber) nameFor,
+      String Function(int displayNumber) fallbackFor) {
     return [
       const DropdownMenuItem<int?>(value: null, child: Text('—')),
       for (var n = 1; n <= 100; n++)
         DropdownMenuItem<int?>(
           value: n,
-          child: Text(formatItemLabel(nameFor(n), '$n')),
+          child: Text(
+              formatItemLabel(nameFor(n), '$n', fallback: fallbackFor(n))),
         ),
     ];
   }
@@ -551,7 +555,7 @@ class _ServiceManagerDialogState extends State<ServiceManagerDialog> {
                 value:
                     s.cameraPresetIndex == null ? null : s.cameraPresetIndex! + 1,
                 items: _presetDropdownItemsByCamera[s.cameraIp] ??
-                    _numberDropdownItems((_) => null),
+                    _numberDropdownItems((_) => null, (n) => 'Preset $n'),
                 onChanged: (v) => setState(
                     () => s.cameraPresetIndex = v == null ? null : v - 1),
               ),

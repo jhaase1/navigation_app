@@ -956,6 +956,26 @@ void main() {
       expect(find.byType(DropdownButton<int?>), findsOneWidget);
     });
 
+    testWidgets('an unnamed macro shows "Macro N", not just the bare number',
+        (tester) async {
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: const [], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add Step'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<int?>));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Macro 7'), findsOneWidget);
+      expect(find.text('7'), findsNothing);
+    });
+
     testWidgets('a named macro shows "name (number)" in the dropdown',
         (tester) async {
       await PresetNameStore.save('roland_', 7, 'Entrance');
@@ -992,7 +1012,7 @@ void main() {
 
       await tester.tap(find.byType(DropdownButton<int?>));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('7').last);
+      await tester.tap(find.text('Macro 7').last);
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).first, 'Mass');
@@ -1034,6 +1054,35 @@ void main() {
     });
 
     testWidgets(
+        'an unnamed preset shows "Preset N", not just the bare number',
+        (tester) async {
+      final cam = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
+      addTearDown(cam.dispose);
+
+      await _open(
+          tester,
+          (_) => ServiceManagerDialog(
+              positions: const [], cameras: [cam], onSaved: () {}));
+      await tester.tap(find.text('Add Service'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add Step'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Shot'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<String?>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cam 1').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButton<int?>));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Preset 4'), findsOneWidget);
+      expect(find.text('4'), findsNothing);
+    });
+
+    testWidgets(
         'selecting a preset on a shot step persists the 0-based index on save',
         (tester) async {
       final cam = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10');
@@ -1057,7 +1106,7 @@ void main() {
 
       await tester.tap(find.byType(DropdownButton<int?>));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('4').last);
+      await tester.tap(find.text('Preset 4').last);
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).first, 'Mass');
