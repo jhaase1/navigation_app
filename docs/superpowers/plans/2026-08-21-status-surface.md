@@ -1669,9 +1669,11 @@ reviewers or confirmed against the engine:
 **Interfaces:**
 - Consumes: Task 5's class; `PullResult` / `PullOutcome`, `PushResult` /
   `PushOutcome`, `AppFault`.
-- Produces: `@visibleForTesting Future<void> handleEvent(Object event)`, and
-  the private fold — `_enqueue`, `_onPull`, `_onPush`, `_raise`,
-  `_clearQuestion`, `_raiseQuestion`, `_applyConditions`.
+- Produces: `@visibleForTesting Future<void> handleEvent(Object event)`;
+  `@visibleForTesting void handleEventUnserialized(Object event)` — pushes an
+  event through `_enqueue` exactly as the stream listener does, so the error
+  path can be exercised; and the private fold — `_enqueue`, `_onPull`,
+  `_onPush`, `_raise`, `_clearQuestion`, `_raiseQuestion`, `_applyConditions`.
 
 - [ ] **Step 1: Add the fold to the class**
 
@@ -1679,11 +1681,33 @@ Insert immediately after `start()`:
 
 ```dart
   void _enqueue(Future<void> Function() work) {
-    _fold = _fold.then((_) => work()).catchError((Object _) {});
+    _fold = _fold.then((_) => work()).catchError((Object error) async {
+      // Never silently. A fold that throws leaves the pill showing facts from
+      // before the event — stale, confident and wrong, which is the precise
+      // failure this surface exists to remove. `ConfigBundle.fromStores()`
+      // alone can throw: it `jsonDecode`s every `preset_names_*` value with no
+      // guard (`config_bundle.dart:180-190`), so one corrupt key is enough.
+      final fault = AppFault.backup(
+        BackupFailureKind.unknown,
+        'The backup status could not be updated.',
+        operation: 'status',
+        targetIdentity: service?.targetIdentity,
+        cause: error,
+      );
+      await log.recordFault(fault);
+      _raise(fault);
+      _applyConditions();
+    });
   }
 
   /// Folds one scheduler event into the status. Public for tests: the matrix
   /// here is ordinary logic and does not need timers to exercise.
+  /// Queues [event] the way the stream listener does — including the error
+  /// path, which awaiting `handleEvent` directly would bypass.
+  @visibleForTesting
+  void handleEventUnserialized(Object event) =>
+      _enqueue(() => handleEvent(event));
+
   @visibleForTesting
   Future<void> handleEvent(Object event) async {
     if (event is AppFault) {
@@ -1881,12 +1905,31 @@ test:
       expect(controller.status.value.state, BackupPillState.needsReview);
     });
 
-    test('a hard failure outranks a question whichever arrived last', () async {
+    test('a hard failure raised after a question outranks it', () async {
       await controller.handleEvent(const PullResult(PullOutcome.conflict));
       expect(controller.status.value.state, BackupPillState.needsReview);
 
       await controller.handleEvent(offline('push'));
       expect(controller.status.value.state, BackupPillState.failing);
+    });
+
+    test('a question raised after a hard failure does NOT outrank it',
+        () async {
+      // The discriminating direction, and the only one that separates
+      // Global Constraint 4 from "latest event wins". Its neighbours above
+      // both expect whatever arrived last, so a naive most-recent-wins
+      // implementation passes them and fails here.
+      //
+      // The push failure is still unresolved: the pull completing says
+      // nothing about whether the upload works. Amber here would tell the
+      // operator to review a divergence while their edits are stranded.
+      await controller.handleEvent(offline('push'));
+      expect(controller.status.value.state, BackupPillState.failing);
+
+      await controller.handleEvent(const PullResult(PullOutcome.conflict));
+
+      expect(controller.status.value.state, BackupPillState.failing);
+      expect(controller.status.value.activeCondition!.operation, 'push');
     });
 
     test('a pull that applies remote content clears a divergence', () async {
@@ -1918,6 +1961,21 @@ test:
       await controller.handleEvent(const PullResult(PullOutcome.targetEmptied));
       expect(controller.status.value.state, BackupPillState.failing);
       expect(controller.status.value.label(clock), 'Backup missing');
+    });
+
+    test('a fold that throws goes red, it does not go quiet', () async {
+      // One corrupt `preset_names_*` key is enough to make
+      // `ConfigBundle.fromStores()` throw. Swallowing that leaves the pill
+      // showing whatever it last computed, forever.
+      SharedPreferences.setMockInitialValues({
+        'preset_names_10.0.1.10': 'not json',
+      });
+
+      controller.handleEventUnserialized(const PullResult(PullOutcome.applied));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.status.value.state, BackupPillState.failing);
+      expect(controller.log.entries.value.first.kind, 'unknown');
     });
 
     test('a retry storm collapses in the log but stays on the pill', () async {
@@ -2007,7 +2065,7 @@ test:
 - [ ] **Step 4: Run the owning test file**
 
 Run: `flutter test test/backup/backup_controller_test.dart`
-Expected: `All tests passed!` (16 tests)
+Expected: `All tests passed!` (18 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -3404,6 +3462,15 @@ phase.
   /// reversing it.
   Future<ResolutionResult> restoreRevision(BackupRevision revision) =>
       _single(() => _withStorageBoundary('resolve', () async {
+            // Captured BEFORE the fetch. "Did local change while this ran"
+            // has to cover the download too — reading these afterwards makes
+            // the freshness guard blind to the exact window it exists for,
+            // and leaves `localChangedDuringResolve` unreachable. `adoptRemote`
+            // reads them in this order for the same reason.
+            final generation =
+                await ConfigMutationNotifier.instance.generation();
+            final localHash = canonicalHash(await readBundleJson());
+
             final raw = await target.fetch(revision);
             final decoded = _decodeRevision(revision, raw);
             // Throws before anything is written anywhere.
@@ -3411,9 +3478,6 @@ phase.
 
             final json = canonicalJsonEncode(decoded);
             final hash = canonicalHash(decoded);
-            final generation =
-                await ConfigMutationNotifier.instance.generation();
-            final localHash = canonicalHash(await readBundleJson());
 
             final head = await target.latest();
 
@@ -3673,26 +3737,56 @@ void main() {
       expect((await service.pull()).outcome, PullOutcome.nothingToDo);
     });
 
-    test('an interrupted restore finishes on the next pull, never reverses',
+    test('an edit landing mid-restore aborts it rather than racing it',
         () async {
-      // Upload lands, the process dies before the apply. The extra revision
-      // is a child of the head, so branch 6 applies it: the restore completes
-      // rather than being undone.
       await setPositions(['Pulpit']);
       await service.push();
       final tuesday = (await service.history()).first;
       await setPositions(['Pulpit', 'Lectern']);
       await service.push();
 
-      // Stand in for the kill: the upload succeeds, the apply does not.
+      // The operator saves something while the body is downloading.
       target.beforeNextFetch(() => setPositions(['Pulpit', 'Lectern', 'X']));
       final result = await service.restoreRevision(tuesday);
-      expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
-      expect(target.revisions, hasLength(3));
 
-      // Whatever the operator did next, the restored revision is the head and
-      // pull can never reach back past it to the pre-restore state.
-      expect((await target.latest())!.id, result.revision!.id);
+      expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
+      expect((await PositionStore.loadAll()).map((p) => p.name),
+          ['Pulpit', 'Lectern', 'X'],
+          reason: 'their edit stands; the restore did not overwrite it');
+    });
+
+    test('an upload that lands without its apply is completed by the next pull',
+        () async {
+      // The process-kill window: `_appendRevision` succeeded and
+      // `_applyRevision` never ran. Reconstructed by hand, because killing the
+      // isolate between two awaits is not something the mock can stage — and
+      // an assertion that never runs a pull cannot claim anything about what
+      // the next pull does.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final tuesday = (await service.history()).first;
+      await setPositions(['Pulpit', 'Lectern']);
+      await service.push();
+
+      // Exactly what restoreRevision does before it applies.
+      final body = await service.fetchBody(tuesday);
+      await target.put(
+        body,
+        contentHash: 'restored',
+        parentRevisionId: (await target.latest())!.id,
+        deviceLabel: 'Mac mini',
+      );
+
+      final result = await service.pull();
+
+      expect(result.outcome, PullOutcome.applied,
+          reason: 'the appended restore is a linear descendant of our pointer');
+      expect((await PositionStore.loadAll()).map((p) => p.name), ['Pulpit'],
+          reason: 'the restore completes rather than being reversed');
+      expect((await BackupPointer.load()).revisionId,
+          (await target.latest())!.id);
+      expect((await service.push()).outcome, PushOutcome.noOp,
+          reason: 'stores, pointer and head all agree');
     });
 
     test('restoring the current head rebases rather than duplicating it',
@@ -3709,13 +3803,12 @@ void main() {
     });
   });
 }
-}
 ```
 
 - [ ] **Step 5: Run the owning test file and the suite it builds on**
 
 Run: `flutter test test/backup/backup_resolution_test.dart test/backup/backup_service_push_test.dart`
-Expected: `All tests passed!` (10 new tests, push suite still green)
+Expected: `All tests passed!` (11 new tests, push suite still green)
 
 - [ ] **Step 6: Commit**
 
@@ -4134,18 +4227,51 @@ and first-run adoption is treated as its own question rather than a conflict.
     }
   }
 
+  /// Disk first, memory only if the disk took it.
+  ///
+  /// The reverse order — which an earlier draft used — lets the two disagree:
+  /// a refused `setString` leaves memory saying "deferred" over a disk that
+  /// says nothing, so the operator's decision looks recorded until the next
+  /// restart brings the same question back. `_clearDeferred` had the mirror
+  /// bug, where a cleared deferral resurrected. Both now fail closed: on a
+  /// refused write **neither** changes, so they cannot drift apart, and the
+  /// refusal is logged rather than swallowed.
+  ///
+  /// Neither throws. This is bookkeeping about a question the operator has
+  /// already been asked; failing the whole resolution over it would report a
+  /// successful upload as a failure.
   Future<void> deferConflict() async {
     final id = conflictRevision?.id;
     if (id == null) return;
-    deferredRevisionId = id;
     final prefs = await SharedPreferences.getInstance();
-    if (!await prefs.setString(suppressedKey, id)) await prefs.reload();
+    if (!await prefs.setString(suppressedKey, id)) {
+      await prefs.reload();
+      await log.recordFault(AppFault.backup(
+        BackupFailureKind.storageWriteFailed,
+        'Could not record that you chose to decide later. '
+        'This will be asked again.',
+        operation: 'resolve',
+        targetIdentity: service?.targetIdentity,
+      ));
+      return;
+    }
+    deferredRevisionId = id;
   }
 
   Future<void> _clearDeferred() async {
-    deferredRevisionId = null;
+    if (deferredRevisionId == null) return;
     final prefs = await SharedPreferences.getInstance();
-    if (!await prefs.remove(suppressedKey)) await prefs.reload();
+    if (!await prefs.remove(suppressedKey)) {
+      await prefs.reload();
+      await log.recordFault(AppFault.backup(
+        BackupFailureKind.storageWriteFailed,
+        'Could not clear a deferred conflict.',
+        operation: 'resolve',
+        targetIdentity: service?.targetIdentity,
+      ));
+      return;
+    }
+    deferredRevisionId = null;
   }
 ```
 
@@ -4210,6 +4336,19 @@ import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
 import 'package:navigation_app/services/config_bundle.dart';
 import 'package:navigation_app/services/position_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+/// Refuses exactly the deferral key, the way
+/// `test/backup/backup_pointer_test.dart` refuses the pointer's.
+class _RefuseDeferralWriteStore extends InMemorySharedPreferencesStore {
+  _RefuseDeferralWriteStore() : super.withData(const {});
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key == 'flutter.${BackupController.suppressedKey}') return false;
+    return super.setValue(valueType, key, value);
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -4315,6 +4454,48 @@ void main() {
     await relaunched.dispose();
   });
 
+  test('a head that moved again re-points the question and drops the deferral',
+      () async {
+    // ResolutionOutcome.remoteMovedAgain was handled in `_resolve` and
+    // exercised nowhere. The operator is now being asked about a revision
+    // they have never seen, so their earlier "decide later" cannot stand.
+    await diverge();
+    await controller.deferConflict();
+    final deferredAbout = controller.conflictRevision!.id;
+
+    // A third machine writes while the dialog is open.
+    await target.put(emptyBundle,
+        contentHash: 'newest',
+        parentRevisionId: null,
+        deviceLabel: 'A third machine');
+
+    final outcome = await controller.resolveKeepMine();
+
+    expect(outcome, ResolutionOutcome.remoteMovedAgain);
+    expect(controller.conflictRevision!.id, isNot(deferredAbout));
+    expect(controller.deferralApplies, isFalse);
+    expect(controller.status.value.state, BackupPillState.needsReview);
+  });
+
+  test('a refused write leaves the deferral off BOTH memory and disk',
+      () async {
+    // Memory and disk must never disagree: a decision that looks recorded and
+    // is not comes back as the same question after a restart, and the operator
+    // has no way to tell why. The store double below is the pattern
+    // `test/backup/backup_pointer_test.dart:6-19` already uses.
+    await diverge();
+    SharedPreferencesStorePlatform.instance = _RefuseDeferralWriteStore();
+
+    await controller.deferConflict();
+
+    expect(controller.deferredRevisionId, isNull);
+    expect(
+        (await SharedPreferences.getInstance())
+            .getString(BackupController.suppressedKey),
+        isNull);
+    expect(controller.log.entries.value.first.kind, 'storageWriteFailed');
+  });
+
   test('a resolve that fails once and then succeeds does not stay red',
       () async {
     await diverge();
@@ -4335,10 +4516,15 @@ void main() {
 }
 ```
 
+`shared_preferences_platform_interface` is already a transitive dependency and
+already imported this way by `test/backup/backup_pointer_test.dart:4` — no
+pubspec change. Register the double inside the one test that needs it; the
+`setUp` above resets `SharedPreferences` for every other.
+
 - [ ] **Step 3: Run the owning test file**
 
 Run: `flutter test test/backup/conflict_resolution_test.dart`
-Expected: `All tests passed!` (4 tests)
+Expected: `All tests passed!` (6 tests)
 
 - [ ] **Step 4: Commit**
 
@@ -4667,8 +4853,10 @@ and controller construction — with `package:flutter/material.dart` and
 
     expect(find.textContaining('Could not download their copy'), findsOneWidget);
   });
-}
 ```
+
+(These go inside the reused `main()`, so the fragment ends with the last test —
+do not add a closing brace of its own.)
 
 - [ ] **Step 4: Run the owning test file**
 
@@ -5714,6 +5902,31 @@ independently are merged into one row and marked *both*.
 | MINOR, `gpt-5.6-sol` 13b / `grok-4.6` | "The promised 'Deferred' row is not implemented; only an unqualified header line exists." | **Found still unfixed on a second audit** — deviation D6's own table claimed the row existed. Now rendered as a `Deferred` chip on the pinned row, gated on `deferralApplies`. |
 | MAJOR, `gpt-5.6-sol` 16c | "Task 14 declares a Class 2 settings-field obligation but supplies no widget test for the field, default, save action, or first-push recovery." | **Found still unfixed on a second audit.** Task 17 gains `device_name_dialog_test.dart`: a typed name saves and unblocks `require()`, a worthless one is refused and saves nothing, and reopening offers the saved name back rather than a blank field. |
 | MAJOR, `gpt-5.6-sol` 16d | "No resolution test covers … restart persistence." | **Found still unfixed on a second audit.** `start()` read the deferred id back and nothing asserted it. Task 14 gains `a deferral survives a relaunch`. |
+
+### Round 3 — `gpt-5.6-sol`, read-only, relayed by a peer session
+
+Five blockers, filed against the plan as it stood after round 2's fold. I
+re-verified each independently before touching anything; **all five held**, and
+two were worse than filed. One further defect of the same class turned up while
+checking.
+
+| Filed | Finding | Verified? | What changed |
+|---|---|---|---|
+| BLOCKER 1 | Task 12's test block has 19 `{` against 20 `}` — it will not compile. | **Yes.** A brace-balance sweep over every `dart` fence (strings and comments stripped, strings first so a `//` inside a literal is not mistaken for a comment) found it. | Stray brace removed. |
+| — (found while checking) | A **second** unbalanced fence: Task 15's test fragment carries a closing `}` for a `main()` that lives in Task 14's file, which the reader is told to reuse. | Same sweep. | Brace removed, and the fragment now says in words that it goes inside the reused `main()`. |
+| BLOCKER 2 | `an interrupted restore finishes on the next pull, never reverses` never calls `service.pull()`. | **Yes — and worse.** The test also asserts the wrong outcome. `restoreRevision` read `generation` and `localHash` *after* its `fetch`, so the mutation `beforeNextFetch` injects is already reflected in the expected values, `_applyRevision`'s guard matches, and the outcome is `resolved`, not `localChangedDuringResolve`. The test fails as written. | Two fixes. `restoreRevision` now captures freshness **before** the fetch, matching `adoptRemote` — otherwise the guard is blind to the window it exists for and `localChangedDuringResolve` is unreachable. The test is split: one for a mid-restore edit, and a new `an upload that lands without its apply is completed by the next pull` that reconstructs the post-kill state by hand and asserts on stores, pointer, a real `pull()`, and a following no-op `push()`. |
+| BLOCKER 3 | The two precedence tests both expect whatever arrived last, so a naive most-recent-wins implementation passes both. The discriminating case — `offline('push')` **then** conflict, which Global Constraint 4 requires to stay red — is never constructed. | **Yes.** The implementation is correct (`_onPull` removes only `'pull'`), but nothing proved it. | Neighbour renamed to what it actually shows, and the missing direction added, asserting both the state and that the surviving condition is the push. |
+| BLOCKER 4 | `_enqueue` swallows every exception via an empty `catchError`. | **Yes**, and it is reachable: `ConfigBundle.fromStores()` `jsonDecode`s every `preset_names_*` value with no guard (`config_bundle.dart:180-190`), so one corrupt key throws inside the fold. The pill would keep showing pre-event facts forever. | The handler records an `unknown` fault and raises it. New test drives it through `_enqueue` — via a `handleEventUnserialized` seam, because awaiting `handleEvent` directly bypasses the very error path under test. |
+| BLOCKER 5 | `deferConflict` mutates memory before a `setString` that can fail; `_clearDeferred` has the mirror bug. Memory and disk drift, and the drift only shows up after a restart. | **Yes**, and inconsistent with this codebase's own convention — `BackupPointer.save` rolls back and `ConfigMutationNotifier._notify` throws rather than let the two disagree. | Both now write disk first and mutate memory only on success, so a refused write leaves **neither** changed; the refusal is logged rather than swallowed. Neither throws: this is bookkeeping about a question already asked, and failing a successful upload over it would be a worse lie. Two new tests — a refused write (using the `InMemorySharedPreferencesStore` double `test/backup/backup_pointer_test.dart:6-19` already uses, verified present) and `remoteMovedAgain`, an outcome `_resolve` handled and nothing exercised. |
+
+The peer also relayed, and had already retracted, a claim that Task 4's stated
+dependency on Task 3 makes a 1→4→3 probe order impossible. It does depend on
+Task 3 — that is stated deliberately, and the retraction was correct.
+
+Why round 3 happened at all: Daniel is evaluating whether a local model can
+execute this plan task by task. Four of these five would have surfaced as
+*executor* failures — a model faithfully reproducing the plan's own bug, or
+passing a test that cannot discriminate — and been blamed on the model.
 
 ### Standing questions, as answered
 
