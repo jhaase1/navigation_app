@@ -384,12 +384,47 @@ mechanism. **Task 6's brief must repeat this.**
    operator-visible failure label passes it — and Global Constraint 7 makes copy
    a spec surface.
 
+### Task 3 — `gpt-5.6-terra`, high effort, reviewed the diff
+
+**IMPLEMENTATION DEFECT: none.** The `lastSuccessKey` addition was the correct
+correction to the plan's fence, and the `RestoreJournal` split is exactly the
+old fixed-key list plus that one key — nothing that used to be journalled
+stopped being journalled. JSON round-trips correctly (omitted `read` restores
+`dismissed:false`, omitted `ok` restores `isFailure:true`); `toUtc()` then
+`DateTime.parse()` preserves the instant, so the 14-day boundary does not shift.
+
+**PLAN DEFECTS — five. This is the first time review caught what tests did not.**
+
+Severity is mine, not Terra's, and reflects what an operator actually feels
+during a service.
+
+| # | Defect | Severity | Who must guard it |
+|---|---|---|---|
+| 3a | **Success and failure share one fingerprint namespace.** `recordSuccess(kind:'offline', operation:'push', targetIdentity:'drive:folder-1')` produces byte-for-byte the fingerprint of the matching `AppFault`. On collision `copyWith` keeps the ORIGINAL `isFailure`, so a "Backed up" row can stay flagged a failure — or a failure row can render as OK. | **HIGH — this is the green-over-broken family** | **Tasks 5 and 6**, which are the first callers of `recordSuccess`. Their briefs must forbid a success `kind` that collides with any `BackupFailureKind.name`. |
+| 3b | **`load()` never re-bounds.** Age, row-cap, byte-cap and newest-first sorting are enforced only in `_record`. Open the app after 20 days away and expired rows load and stay visible until the next fault. | MEDIUM — user-visible, not dangerous | Task 10 sweep, or a `_bounded` call inside `load()`. |
+| 3c | **The 64 KiB cap is not hard.** `_bounded`'s trim loop stops at `kept.length > 1`, and `_truncate` covers only `message`/`detail` — never the fingerprint, whose `operation` and `targetIdentity` are unbounded. One oversized row persists over the cap. | LOW in practice — those fields are engine-set, not operator input | Task 10 sweep. |
+| 3d | **`lastDetail` is not "from the most recent occurrence"** as its doc comment claims. A later same-fingerprint fault carrying no `cause` keeps the old one, because `copyWith`'s null means "keep". Stale technical detail shown to the operator. | LOW | Task 10 sweep. |
+| 3e | **`_persist()` can throw** despite the stated contract that it must not. A throwing `setString`, `getInstance` or `reload` escapes. The contract exists so a log write cannot take down the backup operation that produced the entry. | LOW — SharedPreferences rarely throws | Task 10 sweep. |
+
+**Test gaps (all TEST DEFECTS):** the byte test uses 250 rows so it never
+exercises one oversized row surviving the `length > 1` guard; no cold-load test
+for reverse order, expired rows, or an over-cap stored log; no
+success/fault collision test; no "new occurrence has no detail" test; restart
+coverage checks only `dismissed`/`count`, not `isFailure`, `lastDetail` or
+timestamps; nothing proves `backup_log` is deliberately left out of a rollback.
+
+**Note the pattern.** 3a is the same shape as Task 2's enum-index assertion: not
+a bug in the task that produced it, but a loaded gun aimed at a later task. Two
+for two. Read every review for what it implies about the NEXT task, not just
+this one.
+
 ### Metrics so far (do not collapse these — brief §7)
 
 | task | first-pass | repairs used | reviewer caught a code defect tests missed | pipeline |
 |---|---|---|---|---|
 | 1 (mechanical) | pass | 0 | not reviewed | pass |
 | 2 (substantive) | pass | 0 | **no** | pass |
+| 3 (substantive) | pass | 0 | **YES — 5 plan defects** | pass |
 
 Two clean transcriptions is not yet evidence about Ornith's judgment: Tasks 1
 and 2 shipped code byte-identical to the plan's fences. The Terra tier has not
