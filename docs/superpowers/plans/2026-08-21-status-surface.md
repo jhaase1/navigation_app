@@ -2038,6 +2038,8 @@ pinned and cannot be dismissed, and dismissing a history row persists.
 - [ ] **Step 1: Implement**
 
 ```dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/backup/backup_controller.dart';
@@ -2047,48 +2049,66 @@ import '../../services/backup/relative_time.dart';
 
 const double _popoverWidth = 400;
 
-/// Anchors the panel under [context]'s widget — the pill — and dismisses on a
-/// tap outside. `showDialog` with a transparent barrier gives that dismissal
-/// for free and traps focus correctly; a bare `Overlay` entry would need both
-/// hand-written.
+/// Anchors the panel under [context]'s widget — the pill — and closes on a tap
+/// anywhere else.
+///
+/// An `OverlayEntry` with a `TapRegion`, **not** `showDialog`. A dialog route
+/// lays a barrier over the whole screen even when the barrier is transparent,
+/// so the first tap after opening the popover is swallowed dismissing it: an
+/// operator who glances at the pill mid-service then pays two taps to reach a
+/// camera preset instead of one. An overlay entry only occupies its own rect,
+/// and `WidgetsApp` already installs the `TapRegionSurface` that reports
+/// outside taps (`widgets/app.dart:1836`), so the tap both closes this and
+/// lands on whatever was under it.
 Future<void> showBackupLogPopover(
   BuildContext context,
   BackupController controller,
 ) {
+  final overlay = Overlay.of(context);
   final anchor = context.findRenderObject() as RenderBox?;
-  final overlayBox =
-      Overlay.of(context).context.findRenderObject() as RenderBox;
+  final overlayBox = overlay.context.findRenderObject() as RenderBox;
   final origin = anchor == null
       ? Offset.zero
       : anchor.localToGlobal(anchor.size.bottomLeft(Offset.zero),
           ancestor: overlayBox);
   final maxLeft = (overlayBox.size.width - _popoverWidth - 8).clamp(8.0, 8.0e3);
 
-  return showDialog<void>(
-    context: context,
-    barrierColor: Colors.transparent,
-    builder: (_) => Stack(
-      children: [
-        Positioned(
-          left: origin.dx.clamp(8.0, maxLeft),
-          top: origin.dy + 8,
-          width: _popoverWidth,
-          child: Material(
-            elevation: 8,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: _BackupLogPanel(controller: controller),
-          ),
+  final closed = Completer<void>();
+  late final OverlayEntry entry;
+  void close() {
+    if (closed.isCompleted) return;
+    entry.remove();
+    closed.complete();
+  }
+
+  entry = OverlayEntry(
+    builder: (_) => Positioned(
+      left: origin.dx.clamp(8.0, maxLeft),
+      top: origin.dy + 8,
+      width: _popoverWidth,
+      child: TapRegion(
+        onTapOutside: (_) => close(),
+        child: Material(
+          elevation: 8,
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: _BackupLogPanel(controller: controller, onClose: close),
         ),
-      ],
+      ),
     ),
   );
+
+  overlay.insert(entry);
+  return closed.future;
 }
 
 class _BackupLogPanel extends StatelessWidget {
-  const _BackupLogPanel({required this.controller});
+  const _BackupLogPanel({required this.controller, required this.onClose});
 
   final BackupController controller;
+
+  /// Closes the popover before opening anything that takes over the screen.
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -2216,6 +2236,19 @@ class _BackupLogPanel extends StatelessWidget {
                 ],
               ),
             ),
+            // Deviation D6 promises this mark. Without it the operator's
+            // "decide later" is invisible on the row it was about, and the
+            // pinned amber row reads as though they never answered.
+            if (isConflict && controller.deferralApplies)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: swatch.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('Deferred',
+                    style: TextStyle(fontSize: 10, color: swatch.shade800)),
+              ),
           ],
         ),
       );
@@ -2325,6 +2358,47 @@ void main() {
     expect(prefs.getString('backup_log'), contains('"read":true'));
   });
 
+  testWidgets('a tap outside closes it AND reaches what was underneath',
+      (tester) async {
+    // The reason this is an overlay and not a dialog route. A transparent
+    // barrier still eats the tap, which during a service costs the operator a
+    // wasted press on a dead screen before they can hit a camera preset.
+    var pressedBehind = 0;
+    final controller = BackupController.disabled();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Column(
+            children: [
+              TextButton(
+                onPressed: () => showBackupLogPopover(context, controller),
+                child: const Text('open'),
+              ),
+              const SizedBox(height: 300),
+              TextButton(
+                onPressed: () => pressedBehind++,
+                child: const Text('camera preset'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('Backup'), findsOneWidget);
+
+    await tester.tap(find.text('camera preset'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Backup'), findsNothing, reason: 'the popover closed');
+    expect(pressedBehind, 1,
+        reason: 'and the tap was not swallowed by a barrier');
+  });
+
   testWidgets('the active condition is pinned and has no dismiss control',
       (tester) async {
     final controller = BackupController.disabled();
@@ -2359,7 +2433,7 @@ void main() {
 - [ ] **Step 3: Run the owning test files**
 
 Run: `flutter test test/backup/backup_log_popover_test.dart`
-Expected: `All tests passed!` (2 tests)
+Expected: `All tests passed!` (3 tests)
 
 - [ ] **Step 4: Commit**
 
@@ -4218,6 +4292,29 @@ void main() {
     expect(prefs.getString(BackupController.suppressedKey), isNull);
   });
 
+  test('a deferral survives a relaunch', () async {
+    // `start()` reads it back; nothing proved that until now, and the whole
+    // point of persisting it is the machine that gets closed for the week.
+    await diverge();
+    await controller.deferConflict();
+    final deferred = controller.deferredRevisionId;
+    expect(deferred, isNotNull);
+
+    final relaunched = BackupController.forService(
+      service,
+      scheduler: BackupScheduler(
+        service: service,
+        debounce: const Duration(milliseconds: 1),
+        sweepInterval: const Duration(days: 1),
+        sleep: (_) async {},
+      ),
+    );
+    await relaunched.start();
+
+    expect(relaunched.deferredRevisionId, deferred);
+    await relaunched.dispose();
+  });
+
   test('a resolve that fails once and then succeeds does not stay red',
       () async {
     await diverge();
@@ -4241,7 +4338,7 @@ void main() {
 - [ ] **Step 3: Run the owning test file**
 
 Run: `flutter test test/backup/conflict_resolution_test.dart`
-Expected: `All tests passed!` (3 tests)
+Expected: `All tests passed!` (4 tests)
 
 - [ ] **Step 4: Commit**
 
@@ -4462,7 +4559,10 @@ In `backup_log_popover.dart`'s `_header`, replace the single Retry button with:
 ```dart
           if (BackupStatus.isQuestion(status.activeCondition?.kind ?? ''))
             TextButton(
-              onPressed: () => showConflictDialog(context, controller),
+              onPressed: () {
+                onClose();
+                showConflictDialog(context, controller);
+              },
               child: Text(
                 status.activeCondition!.kind == BackupStatus.adoptionKind
                     ? 'Choose'
@@ -4988,6 +5088,7 @@ field.
 - Create: `lib/widgets/backup/device_name_dialog.dart`
 - Modify: `lib/widgets/backup/conflict_dialog.dart` (name before uploading)
 - Modify: `lib/services/backup/app_fault.dart` (one new kind)
+- Test: `test/backup/device_label_test.dart`, `test/backup/device_name_dialog_test.dart`
 - Modify: `lib/services/backup/backup_status.dart` (its pill copy)
 - Modify: `lib/services/backup/backup_controller.dart` (wire the label into
   the service, and the naming action into the popover)
@@ -5301,12 +5402,88 @@ void main() {
 }
 ```
 
-- [ ] **Step 4: Run the owning test files**
+- [ ] **Step 4: Write the one wiring test for the field**
 
-Run: `flutter test test/backup/device_label_test.dart test/backup/backup_status_test.dart`
+This task declares a Class 2 obligation and the first draft delivered no test
+for it — the field, the offered default, and the save were asserted nowhere.
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/device_label.dart';
+import 'package:navigation_app/widgets/backup/device_name_dialog.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  Future<void> open(WidgetTester tester, BackupController controller) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () => nameThisMachine(context, controller),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a typed name is saved and unblocks the first backup',
+      (tester) async {
+    final controller = BackupController.disabled();
+    addTearDown(controller.dispose);
+    await open(tester, controller);
+
+    await tester.enterText(find.byType(TextField), 'Sanctuary Mac mini');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(await DeviceLabel.load(), 'Sanctuary Mac mini');
+    expect(await DeviceLabel.require(), 'Sanctuary Mac mini');
+  });
+
+  testWidgets('a worthless name is refused and nothing is saved',
+      (tester) async {
+    final controller = BackupController.disabled();
+    addTearDown(controller.dispose);
+    await open(tester, controller);
+
+    await tester.enterText(find.byType(TextField), 'localhost');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(await DeviceLabel.load(), isNull,
+        reason: 'a machine labelled localhost is a lie the conflict UI '
+            'would repeat back');
+    expect(find.textContaining('not specific enough'), findsOneWidget);
+  });
+
+  testWidgets('reopening it offers the saved name back, not a blank field',
+      (tester) async {
+    // The collision check used to count this machine's own revisions, which
+    // blanked the field the moment the name started working.
+    await DeviceLabel.save('Sanctuary Mac mini');
+    final controller = BackupController.disabled();
+    addTearDown(controller.dispose);
+    await open(tester, controller);
+
+    expect(find.widgetWithText(TextField, 'Sanctuary Mac mini'),
+        findsOneWidget);
+  });
+}
+```
+
+- [ ] **Step 5: Run the owning test files**
+
+Run: `flutter test test/backup/device_label_test.dart test/backup/device_name_dialog_test.dart test/backup/backup_status_test.dart`
 Expected: `All tests passed!`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/services/backup/device_label.dart \
@@ -5314,8 +5491,11 @@ git add lib/services/backup/device_label.dart \
         lib/services/backup/backup_status.dart \
         lib/services/backup/backup_controller.dart \
         lib/services/backup/restore_journal.dart \
+        lib/widgets/backup/device_name_dialog.dart \
+        lib/widgets/backup/conflict_dialog.dart \
         lib/widgets/settings_dialog.dart \
-        test/backup/device_label_test.dart
+        test/backup/device_label_test.dart \
+        test/backup/device_name_dialog_test.dart
 git commit -m "feat(backup): explicit machine naming with rejected defaults"
 ```
 
@@ -5437,10 +5617,10 @@ reader should attack:
   Should it be cached against the generation counter?
 - **`restoreRevision` re-downloads bytes it already holds** so that there is
   one apply path with one freshness guard. One wasted Drive round trip.
-- **The popover is a `showDialog` route.** Tapping the pill mid-service puts a
-  barrier over the camera buttons until the operator taps once to dismiss. An
-  `OverlayEntry` would need its own outside-tap barrier and would behave the
-  same; if that is wrong, it is wrong in a way this plan has not seen.
+- **The popover is an `OverlayEntry` + `TapRegion`, and nothing owns it but the
+  future it returns.** If the page is torn down while it is open the entry
+  leaks. There is one route in this app, so it cannot happen today; it would
+  the moment there are two.
 - **The device-name collision check reads `list(limit: 50)`,** so two machines
   named while the target is unreachable can still collide until their first
   push.
@@ -5461,8 +5641,10 @@ Stated here rather than discovered at merge:
 4. **No integration test drives the pill through the mock rig.** The rig fakes
    the Roland and the cameras, not a backup target, and adding one would be
    ops work outside this lane.
-5. **The popover is not keyboard-navigable** beyond what `showDialog` gives for
-   free. Nobody operates this app by keyboard today.
+5. **The popover is not keyboard-navigable and does not trap focus.** That is
+   the price of it being a non-blocking overlay rather than a dialog route —
+   the right trade during a service, and nobody operates this app by keyboard
+   today.
 6. **Deviations D1 and D6 change spec-stated behaviour.** Both are argued
    above, both were attacked in review, and D1's one real hole — a failed push
    hidden across a restart — is closed by Task 9's start-up resume rather than
@@ -5528,6 +5710,10 @@ independently are merged into one row and marked *both*.
 | MINOR, `grok-4.6` | Task 4's test group uses `RestoreJournal` without naming the import. | Import named in the task. |
 | MINOR, `grok-4.6` | The File Structure blurb promised a `force` path on `_applyRevision` that Task 12 never adds. | Removed from the blurb; the freshness abort is the intended behaviour. |
 | MINOR, `grok-4.6` | Unused `relative_time.dart` import on the controller at Task 14 would fail `flutter analyze` before Task 16 uses it. | The import note moved to Task 16, where the first use is. |
+| MINOR, `grok-4.6` | "`showDialog` as the popover is a modal route. Tapping the pill during a service blocks camera buttons." | **Initially waved off, then verified and fixed.** A transparent barrier is still a barrier: the first tap after opening is spent dismissing it. Rebuilt as an `OverlayEntry` + `TapRegion`; `WidgetsApp` already installs the `TapRegionSurface` it needs (`widgets/app.dart:1836`). New test asserts the outside tap both closes the popover **and** reaches the button under it. |
+| MINOR, `gpt-5.6-sol` 13b / `grok-4.6` | "The promised 'Deferred' row is not implemented; only an unqualified header line exists." | **Found still unfixed on a second audit** — deviation D6's own table claimed the row existed. Now rendered as a `Deferred` chip on the pinned row, gated on `deferralApplies`. |
+| MAJOR, `gpt-5.6-sol` 16c | "Task 14 declares a Class 2 settings-field obligation but supplies no widget test for the field, default, save action, or first-push recovery." | **Found still unfixed on a second audit.** Task 17 gains `device_name_dialog_test.dart`: a typed name saves and unblocks `require()`, a worthless one is refused and saves nothing, and reopening offers the saved name back rather than a blank field. |
+| MAJOR, `gpt-5.6-sol` 16d | "No resolution test covers … restart persistence." | **Found still unfixed on a second audit.** `start()` read the deferred id back and nothing asserted it. Task 14 gains `a deferral survives a relaunch`. |
 
 ### Standing questions, as answered
 
