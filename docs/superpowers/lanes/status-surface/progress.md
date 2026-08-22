@@ -66,20 +66,18 @@ All files below were captured from the built macOS app with
 - The active condition is not persisted across restart (deviation D1). Task
   9's startup resume re-proves a pending failure, but does not remove that
   persistence gap.
-- Controller startup has an unguarded status-refresh failure path.
-  `BackupController._start()` calls `_refreshFacts()` directly before it
-  installs event and mutation subscriptions or starts the scheduler, while the
-  page calls `unawaited(_backup.start())`. A corrupt persisted
-  `preset_names_*` value makes `ConfigBundle.fromStores()` throw a
-  `FormatException`; startup then stops and the pill remains grey `Not backed
-  up` while the controller and scheduler are dead. Impact in Phase 3 is low
-  because production uses `BackupController.disabled()` and grey is truthful.
-  Impact in Phase 4 with a real Drive target is high: this becomes the silent
-  failure the surface exists to expose. The known fix shape is to route the
-  startup fact refresh through the same guard used by the serialized fold, or
-  catch the startup error and raise a status fault. No fix is implemented in
-  this lane; Daniel decides at the merge gate whether to fix it before merge or
-  carry it to Lane 3b.
+- ~~Controller startup has an unguarded status-refresh failure path.~~
+  **FIXED after the gate review, authorized by Daniel — commit `af2fc86`.**
+  `BackupController._start()` now routes its fact refresh through the same
+  `_enqueue` guard the serialized fold uses, so a corrupt persisted
+  `preset_names_*` value produces a red `unknown`/`status` condition instead of
+  a `FormatException` that `unawaited(_backup.start())` swallowed. Startup
+  deliberately CONTINUES after the failure: subscriptions are installed and the
+  scheduler starts, because a running scheduler can recover and a half-started
+  controller cannot. Verified before and after with the same probe that found
+  it — before: threw, pill `notBackedUp`, nothing logged; after: no throw, pill
+  `failing` reading `Backup failing`, fault logged as `unknown`.
+
 - Lane 3b must restore the omitted `Deferred` badge.
 - The mandated aggregate integration command is not green. Its exact invocation
   fails on device ambiguity, and the macOS-targeted aggregate also fails while
