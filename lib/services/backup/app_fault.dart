@@ -14,6 +14,7 @@ enum BackupFailureKind {
   storageFull,
   storageWriteFailed,
   conflict,
+  adoptionChoice,
   unsupportedSchema,
   malformedRemote,
   targetMissing,
@@ -75,6 +76,7 @@ class AppFault implements Exception {
     'targetMissing',
     'malformedRemote',
     'conflict',
+    'adoptionChoice',
   };
 
   /// Retryable, but only on the slow periodic sweep. A tight backoff loop
