@@ -172,7 +172,7 @@ class BackupController with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     await log.load();
     if (_disposed) return;
-    await _refreshFacts();
+    await _enqueue(_refreshFacts);
     if (_disposed) return;
 
     final scheduler = _scheduler;
@@ -192,7 +192,7 @@ class BackupController with WidgetsBindingObserver {
     await scheduler.onAppStart();
   }
 
-  void _enqueue(Future<void> Function() work) {
+  Future<void> _enqueue(Future<void> Function() work) {
     _fold = _fold.then((_) => work()).catchError((Object error) async {
       // Never silently. A fold that throws leaves the pill showing facts from
       // before the event — stale, confident and wrong, which is the precise
@@ -210,6 +210,7 @@ class BackupController with WidgetsBindingObserver {
       _raise(fault);
       _applyConditions();
     });
+    return _fold;
   }
 
   /// Folds one scheduler event into the status. Public for tests: the matrix

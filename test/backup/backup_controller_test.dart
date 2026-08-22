@@ -18,6 +18,7 @@ void main() {
 
   late MockBackupTarget target;
   late BackupService service;
+  late BackupScheduler scheduler;
   late BackupController controller;
   late DateTime clock;
 
@@ -32,14 +33,15 @@ void main() {
       readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
       localIsPristine: ConfigBundle.localIsPristine,
     );
+    scheduler = BackupScheduler(
+      service: service,
+      debounce: const Duration(milliseconds: 1),
+      sweepInterval: const Duration(days: 1),
+      sleep: (_) async {},
+    );
     controller = BackupController.forService(
       service,
-      scheduler: BackupScheduler(
-        service: service,
-        debounce: const Duration(milliseconds: 1),
-        sweepInterval: const Duration(days: 1),
-        sleep: (_) async {},
-      ),
+      scheduler: scheduler,
       log: BackupLog(now: () => clock),
       now: () => clock,
     );
@@ -206,6 +208,25 @@ void main() {
   });
 
   group('end to end, through the real scheduler', () {
+    test('a corrupt startup fact goes red without stopping the controller',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'preset_names_10.0.1.10': 'not json',
+      });
+
+      await expectLater(controller.start(), completes);
+
+      expect(controller.status.value.state, BackupPillState.failing);
+      expect(controller.status.value.activeCondition?.kind, 'unknown');
+      expect(controller.status.value.activeCondition?.operation, 'status');
+      expect(
+        controller.log.entries.value.map((entry) => entry.kind),
+        contains('unknown'),
+      );
+      expect(scheduler.pullCount, 1,
+          reason: 'startup must continue through the scheduler first pull');
+    });
+
     test('an edit is backed up and the pill goes green', () async {
       await controller.start();
       expect(controller.status.value.state, BackupPillState.notBackedUp);
