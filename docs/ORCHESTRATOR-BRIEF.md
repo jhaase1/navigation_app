@@ -83,6 +83,23 @@ osascript -e 'tell application "Terminal" to activate' \
   on *"Is this a project you created or one you trust?"* it is sitting there
   doing nothing — add the path to `projects` in `~/.claude.json` with that flag.
   This silently ate one test run before it was found.
+- **Ornith has exactly four tools and you cannot add more.**
+  `mcp__qwen-websearch__web_search, Read, Edit, Bash`. Verified 2026-08-22 four
+  ways: `--tools default`, `--tools "Read,Edit,Write,Bash,Glob,Grep"`, a clean
+  environment with every inherited `CLAUDE_*` var scrubbed, and without `--bare`
+  plus `--dangerously-skip-permissions`. Write stays disabled in all four
+  ("Write is disabled for this session, in subagents as well as here"). The gate
+  is the `[claude-code:unrecognized_model]` path — above the CLI's reach.
+  **Consequence for briefs: there is no `Write` tool. Ornith creates new files
+  with a Bash heredoc** (`Edit` needs an existing target). This is how all three
+  successful trials worked; do not write a brief that assumes `Write`.
+- **Never spawn Ornith from inside your own Bash tool.** Your session leaks 11
+  `CLAUDE_*` vars — including `CLAUDE_CODE_CHILD_SESSION` and your
+  `CLAUDE_CODE_MESSAGING_SOCKET`/`_TOKEN` — and the child inherits your identity,
+  reporting tools as "disabled for subagents". Spawn via `osascript` into a fresh
+  Terminal (not a child process), and scrub `CLAUDE_*` in the wrapper to be sure:
+  `for v in $(env | grep -oE "^CLAUDE[A-Z_]*=" | tr -d '='); do unset "$v"; done`
+  This contaminated an entire round of testing before it was caught.
 - **Ornith cannot message you back — tested, negative.** Two runs asked it to
   call `SendMessage` back to the supervising session; neither delivered. The
   alias uses `--bare`, which appears to strip the tool. **Do not build the loop
