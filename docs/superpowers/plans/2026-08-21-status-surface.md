@@ -89,11 +89,11 @@ Recorded here because reviewers should attack them directly.
 
 | # | Spec says | This plan does | Why |
 |---|---|---|---|
-| D1 | "The active condition is … stored outside the historical ring so eviction can never remove it." | The active condition is held **in memory** on `BackupController` and is **not persisted**. History is persisted. | What the requirement protects against is *eviction*, and a separate in-memory field satisfies that. Persisting it would leave a red "Sign-in expired" pill across a restart that no completed operation has re-proved — a stale claim, in a surface built to stop stale claims. On restart the pill falls back to head/dirty facts until the first operation returns. |
+| D1 | "The active condition is … stored outside the historical ring so eviction can never remove it." | The active condition is held **in memory** on `BackupController` and is **not persisted**. History is persisted. **Task 8 makes app start resume a pending push**, so a failure that was real before the restart re-proves itself within seconds. | What the requirement protects against is *eviction*, and a separate in-memory field satisfies that. Persisting it would leave a red "Sign-in expired" pill across a restart that no completed operation has re-proved — a stale claim, in a surface built to stop stale claims. `gpt-5.6-sol` rejected D1 on the grounds that a restart could hide a failed push behind a successful pull; that hole was real and is closed by the start-up resume rather than by persisting the claim. `grok-4.6` independently accepted D1. |
 | D2 | "Dirty — whether the local canonical hash differs from the durable head", and "3 changes pending". | Dirty is computed from the **hash**. The number comes from the mutation generation counter and is shown **only when the hash also differs**. | `OperatorStore.saveActiveId` calls `notify()` (`operator_store.dart:47-55`), so switching operator bumps the generation without changing bundle content. Counting alone would flash amber on every operator switch. Hash alone has no number to show. |
 | D3 | "Widget tests — all five pill states; tappable in each; header pins; timestamp ladder boundaries; width cap with a pathological message." | The **derivation** and the **time ladder** are pure functions with Class 1 tests. The pill and popover get **one thin Class 2 wiring test each** and screenshots for everything visual. | `docs/learned/verification.md` says "this file wins where they differ", classes layout and chrome as Class 3 (screenshots, no unit tests), and names "re-running a logic matrix through `pumpWidget`" an anti-pattern. |
 | D4 | Phase 3 is listed as "Status surface — pill, popover, log, conflict UI, revision-history picker", implying UI work. | Lane 3b adds **three public methods to `BackupService`** (`adoptRemote`, `keepLocalAsNewRevision`, `restoreRevision`). | The spec's three conflict actions have no engine path today: `push()` refuses outright when `head.id != pointer.revisionId` (`backup_service.dart:274`), and there is no public adopt or restore. The buttons cannot exist without them. |
-| D5 | Silent on what happens after restoring an older revision. | Restore applies the old revision **and immediately pushes it as a new revision parented on the current head**. | Decided by Daniel, 21 Aug 2026. Restore-and-stop leaves the pointer on an ancestor of the head, which the next pull classifies as a non-descendant divergence — the operator would get "Needs review" seconds after a restore they just performed deliberately. |
+| D5 | Silent on what happens after restoring an older revision. | Restore **uploads the old revision's content as a new head first, then applies it locally**. | Decided by Daniel, 21 Aug 2026. Restore-and-stop leaves the pointer on an ancestor of the head, which the next pull classifies as a non-descendant divergence — the operator would get "Needs review" seconds after a restore they performed deliberately. The *order* is a review correction: both reviewers found that applying first moves the pointer onto the ancestor, so a failed or interrupted upload leaves the next pull matching branch 6 (`backup_service.dart:165-176`) and **silently re-applying the revision the operator just undid**. Uploading first makes every failure a safe one. |
 
 ---
 
@@ -131,9 +131,10 @@ Recorded here because reviewers should attack them directly.
 
 | File | Change |
 |---|---|
-| `lib/services/backup/backup_service.dart` | Add `adoptRemote`, `keepLocalAsNewRevision`, `restoreRevision`, and a `force` path on `_applyRevision`. |
+| `lib/services/backup/backup_service.dart` | Extract one fork-checked `_appendRevision` primitive, put `push()` on it, and add `adoptRemote`, `keepLocalAsNewRevision`, `restoreRevision`, `history` and `fetchBody`. |
 | `lib/services/backup/backup_controller.dart` | Route resolution outcomes; persist per-revision suppression. |
-| `lib/widgets/settings_dialog.dart:445-460` | A "Backup" section: device name field and revision history. |
+| `lib/widgets/settings_dialog.dart:445-460` | A "Backup" section: device name and revision history. The controller field is **optional** — required would break `test/settings_dialog_test.dart:27`. |
+| `lib/widgets/backup/device_name_dialog.dart` | `nameThisMachine(...)`, called from Settings and from the conflict dialog before any upload. |
 
 **New persisted keys — the Tier 3 surface**
 
@@ -334,7 +335,7 @@ void main() {
 - [ ] **Step 3: Run the owning test file**
 
 Run: `flutter test test/backup/relative_time_test.dart`
-Expected: `All tests passed!` (13 tests)
+Expected: `All tests passed!` (11 tests)
 
 - [ ] **Step 4: Commit**
 
@@ -354,7 +355,15 @@ names by name.
 
 **Files:**
 - Create: `lib/services/backup/backup_status.dart`
+- Modify: `lib/services/backup/app_fault.dart:8-21` and `:69-78` (one new kind)
 - Test: `test/backup/backup_status_test.dart`
+
+Add `adoptionChoice,` to `BackupFailureKind` and `'adoptionChoice'` to
+`_needsHuman`. First run with local data and a non-empty remote is a real
+branch in the engine already (`PullOutcome.needsAdoptionChoice`,
+`backup_service.dart:132`) and it is **not** a two-machine conflict: on a
+brand-new iPad there is no other machine in the story. Giving it its own kind
+is what lets the dialog ask the right question.
 
 **Interfaces:**
 - Consumes: `AppFault` (`app_fault.dart`), `compactAge` (Task 1).
@@ -385,6 +394,14 @@ class BackupStatus {
   /// [AppFault.kind] for a divergence. Amber, not red: it is a question, not
   /// a failure.
   static const String conflictKind = 'conflict';
+
+  /// First run holding local data against a non-empty remote. Also a
+  /// question, and a different one: nobody else has edited anything, this
+  /// machine simply has to say which copy wins.
+  static const String adoptionKind = 'adoptionChoice';
+
+  static bool isQuestion(String kind) =>
+      kind == conflictKind || kind == adoptionKind;
 
   /// The unresolved operation-specific state, if any.
   final AppFault? activeCondition;
@@ -418,7 +435,7 @@ class BackupStatus {
   /// Checking the hash first shows green while the credentials are dead.
   BackupPillState get state {
     final condition = activeCondition;
-    if (condition != null && condition.kind != conflictKind) {
+    if (condition != null && !isQuestion(condition.kind)) {
       return BackupPillState.failing;
     }
     if (condition != null) return BackupPillState.needsReview;
@@ -447,7 +464,9 @@ class BackupStatus {
       case BackupPillState.failing:
         return failureLabels[activeCondition!.kind] ?? 'Backup failing';
       case BackupPillState.needsReview:
-        return 'Needs review';
+        return activeCondition!.kind == adoptionKind
+            ? 'Choose a copy'
+            : 'Needs review';
       case BackupPillState.notBackedUp:
         return 'Not backed up';
       case BackupPillState.pending:
@@ -467,6 +486,10 @@ class BackupStatus {
     bool? isDirty,
     int? pendingCount,
     DateTime? lastSuccessAt,
+    // Without this, a manual import or an emptied target leaves the popover
+    // saying "Last backed up 5 minutes ago" about a configuration that has
+    // never been backed up at all.
+    bool clearLastSuccess = false,
     bool? configured,
   }) =>
       BackupStatus(
@@ -475,7 +498,8 @@ class BackupStatus {
         hasDurableHead: hasDurableHead ?? this.hasDurableHead,
         isDirty: isDirty ?? this.isDirty,
         pendingCount: pendingCount ?? this.pendingCount,
-        lastSuccessAt: lastSuccessAt ?? this.lastSuccessAt,
+        lastSuccessAt:
+            clearLastSuccess ? null : (lastSuccessAt ?? this.lastSuccessAt),
         configured: configured ?? this.configured,
       );
 
@@ -586,19 +610,42 @@ void main() {
     expect(s.label(now), 'Sign-in expired');
   });
 
-  test('a conflict does not hide a concurrent hard failure', () {
-    // Precedence, not recency: red outranks amber whichever arrived last.
-    final s = backedUp.copyWith(activeCondition: fault(BackupFailureKind.storageFull));
-    expect(s.state, BackupPillState.failing);
-    expect(s.label(now), 'Drive full');
+  test('a hard failure outranks a conflict regardless of which arrived last',
+      () {
+    // The earlier draft of this test set ONE condition and claimed to prove
+    // precedence between two. It could not fail for the reason it named.
+    // BackupStatus holds a single activeCondition, so precedence between two
+    // simultaneous conditions is the CONTROLLER's job (Task 5) — what this
+    // function must guarantee is only that a conflict-kind condition and a
+    // hard-failure condition land in different states.
+    final conflicted =
+        backedUp.copyWith(activeCondition: fault(BackupFailureKind.conflict));
+    final failing =
+        backedUp.copyWith(activeCondition: fault(BackupFailureKind.storageFull));
+
+    expect(conflicted.state, BackupPillState.needsReview);
+    expect(failing.state, BackupPillState.failing);
+    expect(failing.label(now), 'Drive full');
+    // Enum order IS the precedence order, and the controller relies on it.
+    expect(BackupPillState.failing.index,
+        lessThan(BackupPillState.needsReview.index));
   });
 
   test('every backup failure kind has copy that is not the fallback', () {
     for (final kind in BackupFailureKind.values) {
-      if (kind == BackupFailureKind.conflict) continue;
+      if (BackupStatus.isQuestion(kind.name)) continue;
       expect(BackupStatus.failureLabels[kind.name], isNotNull,
           reason: '${kind.name} has no pill copy');
     }
+  });
+
+  test('first-run adoption is amber, and asks its own question', () {
+    final s = backedUp.copyWith(
+        hasDurableHead: false,
+        activeCondition: fault(BackupFailureKind.adoptionChoice));
+    expect(s.state, BackupPillState.needsReview);
+    expect(s.label(now), 'Choose a copy',
+        reason: 'a brand-new iPad has no "other machine" to conflict with');
   });
 
   test('equal statuses compare equal so the AppBar does not rebuild', () {
@@ -611,12 +658,14 @@ void main() {
 - [ ] **Step 3: Run the owning test file**
 
 Run: `flutter test test/backup/backup_status_test.dart`
-Expected: `All tests passed!` (12 tests)
+Expected: `All tests passed!` (13 tests)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add lib/services/backup/backup_status.dart test/backup/backup_status_test.dart
+git add lib/services/backup/backup_status.dart \
+        lib/services/backup/app_fault.dart \
+        test/backup/backup_status_test.dart
 git commit -m "feat(backup): three-fact status model with ordered precedence"
 ```
 
@@ -1005,19 +1054,30 @@ void main() {
     expect(log.entries.value, hasLength(2));
   });
 
-  test('the auth failure survives a retry storm that would evict it', () async {
+  test('the row cap CAN evict an old auth failure — which is why the pill '
+      'holds the active condition instead', () async {
+    // The earlier draft of this test pushed 500 faults that all shared one
+    // fingerprint. They collapsed to a single row, the 200-row cap was never
+    // approached, and the assertion would have passed even if `_bounded`
+    // returned its input untouched. It proved nothing.
+    //
+    // The honest version: 250 DISTINCT fingerprints do evict, and the log is
+    // therefore NOT where an unresolved condition is kept alive. That is the
+    // controller's in-memory active condition (Task 5, deviation D1).
     final log = newLog();
     await log.recordFault(AppFault.backup(
         BackupFailureKind.authExpired, 'Sign in again.',
         operation: 'pull', targetIdentity: 'drive:folder-1'));
-    for (var i = 0; i < 500; i++) {
+    for (var i = 0; i < 250; i++) {
       clock = clock.add(const Duration(seconds: 30));
-      await log.recordFault(socketTimeout(i));
+      await log.recordFault(AppFault.backup(
+          BackupFailureKind.transientServer, 'Drive error $i',
+          operation: 'push-$i', targetIdentity: 'drive:folder-1'));
     }
-    expect(
-      log.entries.value.map((e) => e.kind),
-      contains('authExpired'),
-    );
+
+    expect(log.entries.value, hasLength(BackupLog.maxRows));
+    expect(log.entries.value.map((e) => e.kind), isNot(contains('authExpired')),
+        reason: 'history is bounded; the ACTIVE condition is held elsewhere');
   });
 
   test('a dismissed row does not absorb the next occurrence', () async {
@@ -1158,6 +1218,8 @@ typing.
 
 ```dart
   group('localIsPristine', () {
+    // Needs `import 'package:navigation_app/services/backup/restore_journal.dart';`
+    // added to this file — `config_bundle_test.dart` does not import it today.
     test('a machine that has never been configured is pristine', () async {
       SharedPreferences.setMockInitialValues({});
       expect(await ConfigBundle.localIsPristine(), isTrue);
@@ -1229,6 +1291,23 @@ end-to-end test drives a real `BackupService` and `BackupScheduler` over
 `MockBackupTarget`** so the matrix tests are not vacuous: it proves the
 subscription actually fires.
 
+**Rewritten after review.** Four defects in the first draft, all found by both
+reviewers or confirmed against the engine:
+
+- **The fold was not serialized.** `unawaited(handleEvent(event))` let an older
+  `_refreshFacts` finish after a newer one and write stale facts under the
+  current condition — including "Not backed up" over a revision that exists.
+- **Facts were read from a raw pointer,** with no target-identity check. After
+  an account or folder change the controller could keep reading the old
+  target's pointer and paint green over an empty one.
+- **A conflict outcome left the operation's earlier transport failure
+  standing.** Because a hard failure outranks a question, the popover would
+  offer "Retry now" forever and the resolution UI became unreachable.
+- **`PullOutcome.nothingToDo` cleared a fork warning.** `nothingToDo` only
+  means `head.id == pointer` (`backup_service.dart:146-148`); after we win a
+  fork race our own revision *is* the head, so the very next pull erased the
+  warning while the sibling sat there.
+
 **Files:**
 - Create: `lib/services/backup/backup_controller.dart`
 - Test: `test/backup/backup_controller_test.dart`
@@ -1245,7 +1324,8 @@ subscription actually fires.
   `Future<void> start()`, `Future<void> retryNow()`,
   `Future<void> dismiss(String fingerprint)`, `Future<void> dispose()`,
   `@visibleForTesting Future<void> handleEvent(Object event)`;
-  factories `BackupController.disabled()`, `BackupController.forService(...)`,
+  factories `BackupController.disabled()`,
+  `BackupController.forService(BackupService, {BackupScheduler?, BackupLog?, DateTime Function()?, Future<void> Function()? stageScenario})`,
   `BackupController.forEnvironment()`.
 
 - [ ] **Step 1: Implement**
@@ -1289,9 +1369,20 @@ class BackupController with WidgetsBindingObserver {
   final BackupScheduler? _scheduler;
   final BackupLog log;
   final DateTime Function() _now;
+  final Future<void> Function()? _stageScenario;
 
   /// Insertion-ordered, so the most recently raised hard failure is last.
   final Map<String, AppFault> _conditions = <String, AppFault>{};
+
+  /// One in-flight fold at a time.
+  ///
+  /// `BackupService` serialises its own operations, but this class did not:
+  /// with `unawaited(handleEvent(...))` a fault handler could yield while
+  /// persisting its log row, a newer success could clear the condition, and
+  /// the older handler could then resume and write stale facts over it. Last
+  /// writer wins, and the last writer was whichever handler happened to
+  /// finish last.
+  Future<void> _fold = Future<void>.value();
 
   StreamSubscription<Object>? _events;
   StreamSubscription<int>? _mutations;
@@ -1299,7 +1390,7 @@ class BackupController with WidgetsBindingObserver {
   final ValueNotifier<BackupStatus> status =
       ValueNotifier<BackupStatus>(const BackupStatus());
 
-  /// The remote revision behind the current conflict, for lane 3b's dialog.
+  /// The remote revision behind the current question, for lane 3b's dialog.
   BackupRevision? conflictRevision;
 
   BackupController._({
@@ -1307,8 +1398,10 @@ class BackupController with WidgetsBindingObserver {
     required BackupScheduler? scheduler,
     required this.log,
     required DateTime Function() now,
+    Future<void> Function()? stageScenario,
   })  : _scheduler = scheduler,
-        _now = now;
+        _now = now,
+        _stageScenario = stageScenario;
 
   /// No target. Phase 3's production configuration: the pill reads
   /// "Not backed up" and nothing ever contacts anything.
@@ -1325,24 +1418,15 @@ class BackupController with WidgetsBindingObserver {
     BackupScheduler? scheduler,
     BackupLog? log,
     DateTime Function()? now,
+    Future<void> Function()? stageScenario,
   }) =>
       BackupController._(
         service: service,
         scheduler: scheduler ?? BackupScheduler(service: service),
         log: log ?? BackupLog(now: now),
         now: now ?? DateTime.now,
+        stageScenario: stageScenario,
       );
-
-  factory BackupController.forEnvironment() {
-    if (!useMockTarget) return BackupController.disabled();
-    return BackupController.forService(BackupService(
-      target: MockBackupTarget(),
-      targetIdentity: 'mock:in-memory',
-      deviceLabel: () async => 'This machine',
-      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
-      localIsPristine: ConfigBundle.localIsPristine,
-    ));
-  }
 
   bool get canRetry => _scheduler != null;
 
@@ -1354,11 +1438,19 @@ class BackupController with WidgetsBindingObserver {
     final scheduler = _scheduler;
     if (scheduler == null) return;
 
-    _events = scheduler.events.listen((event) => unawaited(handleEvent(event)));
+    // Awaited, and before the first pull: a scenario staged afterwards would
+    // race the pull it exists to set up.
+    await _stageScenario?.call();
+
+    _events = scheduler.events.listen((event) => _enqueue(() => handleEvent(event)));
     _mutations = ConfigMutationNotifier.instance.onMutated
-        .listen((_) => unawaited(_refreshFacts()));
+        .listen((_) => _enqueue(_refreshFacts));
     scheduler.start();
     await scheduler.onAppStart();
+  }
+
+  void _enqueue(Future<void> Function() work) {
+    _fold = _fold.then((_) => work()).catchError((Object _) {});
   }
 
   /// Folds one scheduler event into the status. Public for tests: the matrix
@@ -1378,26 +1470,33 @@ class BackupController with WidgetsBindingObserver {
   }
 
   Future<void> _onPull(PullResult result) async {
+    // The operation COMPLETED — it reached the target and came back with an
+    // answer. Whatever that answer is, this operation's transport failure is
+    // no longer true. Leaving it standing was how a recovered network could
+    // permanently hide the resolution actions: a hard failure outranks a
+    // question, so the popover offered "Retry now" forever.
+    _conditions.remove('pull');
+
     switch (result.outcome) {
-      case PullOutcome.nothingToDo:
       case PullOutcome.applied:
       case PullOutcome.adopted:
       case PullOutcome.rebased:
-        // A clean round trip clears this operation's failure AND any
-        // divergence: both have just been disproved. It does NOT clear a
-        // failed push — that condition is keyed separately.
-        _conditions.remove('pull');
-        _conditions.remove(_conflictKey);
-        conflictRevision = null;
-        if (result.outcome == PullOutcome.applied ||
-            result.outcome == PullOutcome.adopted) {
-          await log.recordSuccess(
-            operation: 'pull',
-            kind: 'restored',
-            message: 'Configuration restored from the backup.',
-            targetIdentity: service?.targetIdentity,
-          );
-        }
+        // Local and remote now hold the same content. That disproves a
+        // divergence.
+        _clearQuestion();
+        await log.recordSuccess(
+          operation: 'pull',
+          kind: 'restored',
+          message: 'Configuration restored from the backup.',
+          targetIdentity: service?.targetIdentity,
+        );
+        await _markConfirmedStored();
+      case PullOutcome.nothingToDo:
+        // Deliberately does NOT clear a question. `nothingToDo` means only
+        // `head.id == pointer` (`backup_service.dart:146-148`). After we win
+        // a fork race our own revision IS the head, so clearing here would
+        // erase the fork warning while the sibling is still sitting in the
+        // store — and the other machine would be the only one that knew.
         await _markConfirmedStored();
       case PullOutcome.targetEmptied:
         _raise(AppFault.backup(
@@ -1408,20 +1507,26 @@ class BackupController with WidgetsBindingObserver {
         ));
         await log.recordFault(_conditions['pull']!);
       case PullOutcome.conflict:
-        await _raiseConflict(result.revision,
-            'Another machine saved a different configuration.');
+        await _raiseQuestion(
+          result.revision,
+          BackupFailureKind.conflict,
+          'Another machine saved a different configuration.',
+        );
       case PullOutcome.needsAdoptionChoice:
-        await _raiseConflict(result.revision,
-            'This device has configuration of its own and has never been backed up.');
+        await _raiseQuestion(
+          result.revision,
+          BackupFailureKind.adoptionChoice,
+          'This device has settings of its own and has never been backed up.',
+        );
     }
   }
 
   Future<void> _onPush(PushResult result) async {
+    _conditions.remove('push');
+
     switch (result.outcome) {
       case PushOutcome.uploaded:
-        _conditions.remove('push');
-        _conditions.remove(_conflictKey);
-        conflictRevision = null;
+        _clearQuestion();
         await log.recordSuccess(
           operation: 'push',
           kind: 'uploaded',
@@ -1430,25 +1535,28 @@ class BackupController with WidgetsBindingObserver {
         );
         await _markConfirmedStored();
       case PushOutcome.noOp:
-        // Nothing changed, so nothing is logged — but the round trip did
-        // prove the bytes are there.
-        _conditions.remove('push');
-        _conditions.remove(_conflictKey);
-        conflictRevision = null;
+        // The bytes at the head ARE ours — that does disprove a divergence.
+        // Nothing is logged; nothing happened.
+        _clearQuestion();
         await _markConfirmedStored();
       case PushOutcome.conflict:
-        await _raiseConflict(result.remoteRevision,
-            'Another machine saved a different configuration.');
+        await _raiseQuestion(
+          result.remoteRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved a different configuration.',
+        );
       case PushOutcome.forked:
-        await _raiseConflict(
-            result.siblings?.first,
-            'Another machine saved a different configuration at the same '
-            'moment. Both copies were kept.');
+        await _raiseQuestion(
+          result.siblings?.first,
+          BackupFailureKind.conflict,
+          'Another machine saved a different configuration at the same '
+          'moment. Both copies were kept.',
+        );
     }
   }
 
   void _raise(AppFault fault) {
-    final key = fault.kind == BackupStatus.conflictKind
+    final key = BackupStatus.isQuestion(fault.kind)
         ? _conflictKey
         : (fault.operation ?? 'unknown');
     // Remove before insert so insertion order tracks recency.
@@ -1456,10 +1564,19 @@ class BackupController with WidgetsBindingObserver {
     _conditions[key] = fault;
   }
 
-  Future<void> _raiseConflict(BackupRevision? revision, String message) async {
+  void _clearQuestion() {
+    _conditions.remove(_conflictKey);
+    conflictRevision = null;
+  }
+
+  Future<void> _raiseQuestion(
+    BackupRevision? revision,
+    BackupFailureKind kind,
+    String message,
+  ) async {
     conflictRevision = revision;
     final fault = AppFault.backup(
-      BackupFailureKind.conflict,
+      kind,
       message,
       operation: 'resolve',
       targetIdentity: service?.targetIdentity,
@@ -1479,11 +1596,26 @@ class BackupController with WidgetsBindingObserver {
         : status.value.copyWith(activeCondition: chosen);
   }
 
-  /// Records "this machine's configuration is stored at the target" — and only
-  /// when that is actually true. Any successful operation calls it; the
-  /// pointer check decides whether it means anything.
-  Future<void> _markConfirmedStored() async {
+  /// The pointer, but only when it belongs to the target we are talking to.
+  ///
+  /// `BackupService` makes this check internally
+  /// (`backup_service.dart:101-104`) and does not clear the raw keys when a
+  /// new target is empty. A controller reading `BackupPointer.load()` straight
+  /// would keep reporting the previous account's head — green, over nothing.
+  Future<BackupPointer> _pointer() async {
+    final backup = service;
+    if (backup == null) return const BackupPointer();
     final pointer = await BackupPointer.load();
+    return pointer.matchesTarget(backup.targetIdentity)
+        ? pointer
+        : const BackupPointer();
+  }
+
+  /// Records "this machine's configuration is stored at the target" — and only
+  /// when that is actually true. Any completed operation calls it; the pointer
+  /// check decides whether it means anything.
+  Future<void> _markConfirmedStored() async {
+    final pointer = await _pointer();
     final localHash = canonicalHash((await ConfigBundle.fromStores()).toJson());
     if (!pointer.isCleanAgainst(localHash)) return;
     final prefs = await SharedPreferences.getInstance();
@@ -1494,7 +1626,7 @@ class BackupController with WidgetsBindingObserver {
   }
 
   Future<void> _refreshFacts() async {
-    final pointer = await BackupPointer.load();
+    final pointer = await _pointer();
     final localHash = canonicalHash((await ConfigBundle.fromStores()).toJson());
     final generation = await ConfigMutationNotifier.instance.generation();
     final synced = await ConfigMutationNotifier.instance.syncedGeneration();
@@ -1509,7 +1641,14 @@ class BackupController with WidgetsBindingObserver {
       // every time the operator changes.
       isDirty: pointer.isProvenanced && pointer.recordedHash != localHash,
       pendingCount: (generation - synced).clamp(0, 1 << 30),
-      lastSuccessAt: lastRaw == null ? null : DateTime.parse(lastRaw).toLocal(),
+      // No durable head means no backup to be aged. A stored timestamp from
+      // before a manual import or an emptied target would otherwise have the
+      // popover saying "Last backed up 5 minutes ago" about a configuration
+      // that has never been backed up at all.
+      lastSuccessAt: pointer.isProvenanced && lastRaw != null
+          ? DateTime.parse(lastRaw).toLocal()
+          : null,
+      clearLastSuccess: !pointer.isProvenanced || lastRaw == null,
     );
   }
 
@@ -1544,6 +1683,7 @@ class BackupController with WidgetsBindingObserver {
     await _events?.cancel();
     await _mutations?.cancel();
     await _scheduler?.stop();
+    await _fold;
     // `status` and `log.entries` are deliberately NOT disposed. They outlive
     // any one widget, tests tear down in an order that would otherwise use
     // them after disposal, and two undisposed ValueNotifiers on an
@@ -1551,6 +1691,9 @@ class BackupController with WidgetsBindingObserver {
   }
 }
 ```
+
+`BackupController.forEnvironment()` is added in Task 8, where the demo
+scenarios it stages are defined.
 
 - [ ] **Step 2: Write the behavioral test**
 
@@ -1560,6 +1703,7 @@ import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/services/backup/app_fault.dart';
 import 'package:navigation_app/services/backup/backup_controller.dart';
 import 'package:navigation_app/services/backup/backup_log.dart';
+import 'package:navigation_app/services/backup/backup_pointer.dart';
 import 'package:navigation_app/services/backup/backup_scheduler.dart';
 import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/backup_status.dart';
@@ -1625,32 +1769,58 @@ void main() {
       expect(controller.status.value.activeCondition, isNull);
     });
 
-    test('a hard failure outranks a conflict whichever arrived last', () async {
+    test('a completed pull clears its transport failure even when the answer '
+        'is a conflict', () async {
+      // Otherwise: push conflicts, a pull fails offline, the network comes
+      // back, and every later pull returns conflict — so the stale offline
+      // fault never clears, outranks the question, and the popover offers
+      // "Retry now" instead of "Review". The resolution UI becomes
+      // permanently unreachable.
+      await controller.handleEvent(offline('pull'));
+      expect(controller.status.value.state, BackupPillState.failing);
+
+      await controller.handleEvent(const PullResult(PullOutcome.conflict));
+
+      expect(controller.status.value.state, BackupPillState.needsReview);
+    });
+
+    test('a hard failure outranks a question whichever arrived last', () async {
       await controller.handleEvent(const PullResult(PullOutcome.conflict));
       expect(controller.status.value.state, BackupPillState.needsReview);
 
-      await controller.handleEvent(offline('pull'));
+      await controller.handleEvent(offline('push'));
       expect(controller.status.value.state, BackupPillState.failing);
     });
 
-    test('a clean round trip clears a divergence', () async {
+    test('a pull that applies remote content clears a divergence', () async {
       await controller.handleEvent(const PullResult(PullOutcome.conflict));
-      expect(controller.conflictRevision, isNull); // no revision on this result
       await controller.handleEvent(const PullResult(PullOutcome.applied));
       expect(controller.status.value.state, isNot(BackupPillState.needsReview));
+    });
+
+    test('nothingToDo does NOT clear a fork warning', () async {
+      // We uploaded second, so our revision IS latest and the next pull says
+      // nothingToDo. The sibling is still in the store. Clearing here would
+      // leave the other machine as the only one that knows.
+      await controller.handleEvent(const PushResult(PushOutcome.forked));
+      expect(controller.status.value.state, BackupPillState.needsReview);
+
+      await controller.handleEvent(const PullResult(PullOutcome.nothingToDo));
+
+      expect(controller.status.value.state, BackupPillState.needsReview);
+    });
+
+    test('first-run adoption is its own question, not a conflict', () async {
+      await controller.handleEvent(
+          const PullResult(PullOutcome.needsAdoptionChoice));
+      expect(controller.status.value.activeCondition!.kind, 'adoptionChoice');
+      expect(controller.status.value.label(clock), 'Choose a copy');
     });
 
     test('an emptied target raises targetMissing, never silence', () async {
       await controller.handleEvent(const PullResult(PullOutcome.targetEmptied));
       expect(controller.status.value.state, BackupPillState.failing);
       expect(controller.status.value.label(clock), 'Backup missing');
-    });
-
-    test('a fork tells the operator both copies were kept', () async {
-      await controller.handleEvent(const PushResult(PushOutcome.forked));
-      expect(controller.status.value.state, BackupPillState.needsReview);
-      expect(controller.log.entries.value.first.message,
-          contains('Both copies were kept'));
     });
 
     test('a retry storm collapses in the log but stays on the pill', () async {
@@ -1661,6 +1831,37 @@ void main() {
       expect(controller.log.entries.value, hasLength(1));
       expect(controller.log.entries.value.single.count, 20);
       expect(controller.status.value.state, BackupPillState.failing);
+    });
+  });
+
+  group('facts', () {
+    test('a pointer from another target is not this target\'s head', () async {
+      // Account or folder changed. The old pointer is still in prefs and the
+      // engine ignores it; the controller must too, or it paints green over
+      // an empty target.
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+      await BackupPointer.save(
+        revisionId: 'rev-from-elsewhere',
+        recordedHash: 'whatever',
+        targetIdentity: 'drive:some-other-folder',
+      );
+
+      await controller.handleEvent(const PullResult(PullOutcome.nothingToDo));
+
+      expect(controller.status.value.hasDurableHead, isFalse);
+      expect(controller.status.value.state, BackupPillState.notBackedUp);
+    });
+
+    test('no durable head means no "last backed up" age', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          BackupLog.lastSuccessKey, clock.toUtc().toIso8601String());
+
+      await controller.handleEvent(const PullResult(PullOutcome.targetEmptied));
+
+      expect(controller.status.value.lastSuccessAt, isNull,
+          reason: 'a stale age would date a configuration by a backup it has '
+              'no claim to');
     });
   });
 
@@ -1675,6 +1876,23 @@ void main() {
       expect(target.revisions, hasLength(1));
       expect(controller.status.value.state, BackupPillState.backedUp);
       expect(controller.status.value.label(clock), 'Backed up just now');
+    });
+
+    test('a slow first event cannot repaint the pill after a later success',
+        () async {
+      // The serialization test. With an unawaited fold, the pull from
+      // start() could finish its fact refresh AFTER the push below and write
+      // its empty pointer over a green pill.
+      target.delayNextBy(const Duration(milliseconds: 40));
+      final starting = controller.start();
+
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+      await starting;
+      await controller.retryNow();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(controller.status.value.state, BackupPillState.backedUp,
+          reason: 'a stale refresh must not outlive the operation it describes');
     });
 
     test('a failing target paints the pill red through the subscription',
@@ -1699,7 +1917,6 @@ void main() {
         Position(id: 'p1', name: 'Pulpit'),
         Position(id: 'p2', name: 'Lectern'),
       ]);
-      // The debounced push has not run.
       await Future<void>.delayed(Duration.zero);
 
       expect(controller.status.value.state, BackupPillState.pending);
@@ -1734,7 +1951,7 @@ void main() {
 - [ ] **Step 3: Run the owning test file**
 
 Run: `flutter test test/backup/backup_controller_test.dart`
-Expected: `All tests passed!` (12 tests)
+Expected: `All tests passed!` (16 tests)
 
 - [ ] **Step 4: Commit**
 
@@ -1746,7 +1963,359 @@ git commit -m "feat(backup): controller folding engine events into pill status"
 
 ---
 
-### Task 6: The AppBar pill
+### Task 6: The log popover
+
+**Test-policy class:** 3 presentation, with **one** Class 2 wiring test
+covering the two behaviours that are not layout: the active condition is
+pinned and cannot be dismissed, and dismissing a history row persists.
+
+**Files:**
+- Create: `lib/widgets/backup/backup_log_popover.dart`
+- Test: `test/backup/backup_log_popover_test.dart`
+
+**Interfaces:**
+- Consumes: `BackupController` (`status`, `log`, `canRetry`, `retryNow`,
+  `dismiss`), `BackupLogEntry`, `relativeAge` (Task 1). Does **not** depend on
+  the pill: it is anchored to whatever `BuildContext` opens it.
+- Produces: `Future<void> showBackupLogPopover(BuildContext context, BackupController controller)`.
+
+- [ ] **Step 1: Implement**
+
+```dart
+import 'package:flutter/material.dart';
+
+import '../../services/backup/backup_controller.dart';
+import '../../services/backup/backup_log.dart';
+import '../../services/backup/backup_status.dart';
+import '../../services/backup/relative_time.dart';
+
+const double _popoverWidth = 400;
+
+/// Anchors the panel under [context]'s widget — the pill — and dismisses on a
+/// tap outside. `showDialog` with a transparent barrier gives that dismissal
+/// for free and traps focus correctly; a bare `Overlay` entry would need both
+/// hand-written.
+Future<void> showBackupLogPopover(
+  BuildContext context,
+  BackupController controller,
+) {
+  final anchor = context.findRenderObject() as RenderBox?;
+  final overlayBox =
+      Overlay.of(context).context.findRenderObject() as RenderBox;
+  final origin = anchor == null
+      ? Offset.zero
+      : anchor.localToGlobal(anchor.size.bottomLeft(Offset.zero),
+          ancestor: overlayBox);
+  final maxLeft = (overlayBox.size.width - _popoverWidth - 8).clamp(8.0, 8.0e3);
+
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.transparent,
+    builder: (_) => Stack(
+      children: [
+        Positioned(
+          left: origin.dx.clamp(8.0, maxLeft),
+          top: origin.dy + 8,
+          width: _popoverWidth,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: _BackupLogPanel(controller: controller),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _BackupLogPanel extends StatelessWidget {
+  const _BackupLogPanel({required this.controller});
+
+  final BackupController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<BackupStatus>(
+      valueListenable: controller.status,
+      builder: (context, status, _) {
+        return ValueListenableBuilder<List<BackupLogEntry>>(
+          valueListenable: controller.log.entries,
+          builder: (context, entries, _) {
+            final active = status.activeCondition;
+            // The pinned row is shown once. While it is active it is filtered
+            // out of history; when it clears it reappears there as an ordinary
+            // dismissable row, so the recovery does not erase the evidence.
+            final history = [
+              for (final e in entries)
+                if (e.fingerprint != active?.fingerprint) e
+            ];
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _header(context, status),
+                const Divider(height: 1),
+                if (active != null)
+                  _pinnedRow(context, active.message, active.kind,
+                      isConflict: BackupStatus.isQuestion(active.kind)),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: history.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('Nothing to report.',
+                              style: TextStyle(color: Colors.black54)),
+                        )
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.zero,
+                          itemCount: history.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 1),
+                          itemBuilder: (context, i) =>
+                              _historyRow(context, history[i]),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _header(BuildContext context, BackupStatus status) {
+    final now = DateTime.now();
+    final at = status.lastSuccessAt;
+    final lines = <String>[
+      at == null
+          ? 'This configuration has never been backed up.'
+          : 'Last backed up ${relativeAge(at, now)}.',
+      if (status.isDirty && status.pendingCount > 0)
+        '${status.pendingCount} change${status.pendingCount == 1 ? '' : 's'} not yet backed up.',
+      if (!status.configured)
+        'Google Drive sign-in arrives in a later update.',
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Backup',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                for (final line in lines)
+                  Text(line,
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.black54)),
+              ],
+            ),
+          ),
+          if (controller.canRetry)
+            TextButton(
+              onPressed: () => controller.retryNow(),
+              child: const Text('Retry now'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// No dismiss control, by design: an unresolved condition is not something
+  /// the operator gets to mark as read.
+  ///
+  /// Coloured by severity, matching the pill. A divergence rendered red here
+  /// while the pill calls it amber contradicts the spec's own "it is a
+  /// question, not a failure".
+  Widget _pinnedRow(
+    BuildContext context,
+    String message,
+    String kind, {
+    required bool isConflict,
+  }) {
+    final swatch = isConflict ? Colors.orange : Colors.red;
+    return Container(
+        color: swatch.shade50,
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(isConflict ? Icons.help_outline : Icons.error_outline,
+                size: 16, color: swatch.shade800),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(message, style: const TextStyle(fontSize: 13)),
+                  Text(kind,
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.black54)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+  }
+
+  Widget _historyRow(BuildContext context, BackupLogEntry entry) {
+    final now = DateTime.now();
+    final subtitle = StringBuffer(entry.kind)
+      ..write(' · ')
+      ..write(relativeAge(entry.lastSeen, now));
+    if (entry.count > 1) subtitle.write(' · ${entry.count}×');
+
+    return Opacity(
+      opacity: entry.dismissed ? 0.45 : 1,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              entry.isFailure ? Icons.warning_amber_rounded : Icons.check,
+              size: 16,
+              color: entry.isFailure ? Colors.orange.shade800 : Colors.green,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Soft-wraps rather than clipping: the width cap is the
+                  // constraint, not the message.
+                  Text(entry.message, style: const TextStyle(fontSize: 13)),
+                  Text(subtitle.toString(),
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.black54)),
+                  if (entry.lastDetail != null)
+                    Text(entry.lastDetail!,
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.black38)),
+                ],
+              ),
+            ),
+            if (!entry.dismissed)
+              IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                tooltip: 'Mark as read',
+                onPressed: () => controller.dismiss(entry.fingerprint),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
+
+- [ ] **Step 2: Write the one wiring test**
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:navigation_app/services/backup/app_fault.dart';
+import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/backup_status.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  // Opened from a plain button, not from the pill: this task ships before the
+  // pill does, and a test that needs the next task's widget cannot run.
+  Future<BackupController> openPopover(WidgetTester tester) async {
+    final controller = BackupController.disabled();
+    addTearDown(controller.dispose);
+    await controller.log.recordFault(AppFault.backup(
+        BackupFailureKind.transientServer, 'Drive returned an error.',
+        operation: 'push', targetIdentity: 'mock:test'));
+    controller.status.value = const BackupStatus(configured: true);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () => showBackupLogPopover(context, controller),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    return controller;
+  }
+
+  testWidgets('a history row can be marked as read, and it sticks',
+      (tester) async {
+    final controller = await openPopover(tester);
+
+    expect(find.text('Drive returned an error.'), findsOneWidget);
+    await tester.tap(find.byTooltip('Mark as read'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Mark as read'), findsNothing);
+    expect(controller.log.entries.value.single.dismissed, isTrue);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('backup_log'), contains('"read":true'));
+  });
+
+  testWidgets('the active condition is pinned and has no dismiss control',
+      (tester) async {
+    final controller = BackupController.disabled();
+    addTearDown(controller.dispose);
+    final fault = AppFault.backup(
+        BackupFailureKind.authExpired, 'Sign in again.',
+        operation: 'pull', targetIdentity: 'mock:test');
+    await controller.log.recordFault(fault);
+    controller.status.value =
+        BackupStatus(configured: true, activeCondition: fault);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () => showBackupLogPopover(context, controller),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // Shown once — pinned — and not as a dismissable history row.
+    expect(find.text('Sign in again.'), findsOneWidget);
+    expect(find.byTooltip('Mark as read'), findsNothing);
+  });
+}
+```
+
+- [ ] **Step 3: Run the owning test files**
+
+Run: `flutter test test/backup/backup_log_popover_test.dart`
+Expected: `All tests passed!` (2 tests)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/widgets/backup/backup_log_popover.dart \
+        test/backup/backup_log_popover_test.dart
+git commit -m "feat(backup): log popover with pinned condition and dismissals"
+```
+
+---
+
+### Task 7: The AppBar pill
 
 **Test-policy class:** 3 presentation, with **one** Class 2 wiring test. The
 five-state matrix is already covered as pure logic in Task 2; re-running it
@@ -1759,9 +2328,10 @@ label and tapping it opens the popover.
 - Test: `test/backup/backup_status_pill_test.dart`
 
 **Interfaces:**
-- Consumes: `BackupController.status`, `BackupStatus.label`,
-  `showBackupLogPopover` (Task 7 — write Task 7 first if executing out of
-  order; the import will not resolve otherwise).
+- Consumes: `BackupController.status`, `BackupStatus.label`, and
+  `showBackupLogPopover` from Task 6 — which is why the popover is built
+  first. The earlier draft had these two the other way round, so following
+  the declared order meant Task 6's test could not compile.
 - Produces: `class BackupStatusPill extends StatefulWidget` taking
   `{required BackupController controller}`.
 
@@ -1961,368 +2531,90 @@ git commit -m "feat(backup): AppBar status pill"
 
 ---
 
-### Task 7: The log popover
-
-**Test-policy class:** 3 presentation, with **one** Class 2 wiring test
-covering the two behaviours that are not layout: the active condition is
-pinned and cannot be dismissed, and dismissing a history row persists.
-
-**Files:**
-- Create: `lib/widgets/backup/backup_log_popover.dart`
-- Test: `test/backup/backup_log_popover_test.dart`
-
-**Interfaces:**
-- Consumes: `BackupController` (`status`, `log`, `canRetry`, `retryNow`,
-  `dismiss`), `BackupLogEntry`, `relativeAge` (Task 1).
-- Produces: `Future<void> showBackupLogPopover(BuildContext context, BackupController controller)`.
-
-- [ ] **Step 1: Implement**
-
-```dart
-import 'package:flutter/material.dart';
-
-import '../../services/backup/backup_controller.dart';
-import '../../services/backup/backup_log.dart';
-import '../../services/backup/backup_status.dart';
-import '../../services/backup/relative_time.dart';
-
-const double _popoverWidth = 400;
-
-/// Anchors the panel under [context]'s widget — the pill — and dismisses on a
-/// tap outside. `showDialog` with a transparent barrier gives that dismissal
-/// for free and traps focus correctly; a bare `Overlay` entry would need both
-/// hand-written.
-Future<void> showBackupLogPopover(
-  BuildContext context,
-  BackupController controller,
-) {
-  final anchor = context.findRenderObject() as RenderBox?;
-  final overlayBox =
-      Overlay.of(context).context.findRenderObject() as RenderBox;
-  final origin = anchor == null
-      ? Offset.zero
-      : anchor.localToGlobal(anchor.size.bottomLeft(Offset.zero),
-          ancestor: overlayBox);
-  final maxLeft = (overlayBox.size.width - _popoverWidth - 8).clamp(8.0, 8.0e3);
-
-  return showDialog<void>(
-    context: context,
-    barrierColor: Colors.transparent,
-    builder: (_) => Stack(
-      children: [
-        Positioned(
-          left: origin.dx.clamp(8.0, maxLeft),
-          top: origin.dy + 8,
-          width: _popoverWidth,
-          child: Material(
-            elevation: 8,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: _BackupLogPanel(controller: controller),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _BackupLogPanel extends StatelessWidget {
-  const _BackupLogPanel({required this.controller});
-
-  final BackupController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<BackupStatus>(
-      valueListenable: controller.status,
-      builder: (context, status, _) {
-        return ValueListenableBuilder<List<BackupLogEntry>>(
-          valueListenable: controller.log.entries,
-          builder: (context, entries, _) {
-            final active = status.activeCondition;
-            // The pinned row is shown once. While it is active it is filtered
-            // out of history; when it clears it reappears there as an ordinary
-            // dismissable row, so the recovery does not erase the evidence.
-            final history = [
-              for (final e in entries)
-                if (e.fingerprint != active?.fingerprint) e
-            ];
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _header(context, status),
-                const Divider(height: 1),
-                if (active != null)
-                  _pinnedRow(context, active.message, active.kind),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 320),
-                  child: history.isEmpty
-                      ? const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text('Nothing to report.',
-                              style: TextStyle(color: Colors.black54)),
-                        )
-                      : ListView.separated(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.zero,
-                          itemCount: history.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(height: 1),
-                          itemBuilder: (context, i) =>
-                              _historyRow(context, history[i]),
-                        ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _header(BuildContext context, BackupStatus status) {
-    final now = DateTime.now();
-    final at = status.lastSuccessAt;
-    final lines = <String>[
-      at == null
-          ? 'This configuration has never been backed up.'
-          : 'Last backed up ${relativeAge(at, now)}.',
-      if (status.isDirty && status.pendingCount > 0)
-        '${status.pendingCount} change${status.pendingCount == 1 ? '' : 's'} not yet backed up.',
-      if (!status.configured)
-        'Google Drive sign-in arrives in a later update.',
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Backup',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                for (final line in lines)
-                  Text(line,
-                      style: const TextStyle(
-                          fontSize: 12, color: Colors.black54)),
-              ],
-            ),
-          ),
-          if (controller.canRetry)
-            TextButton(
-              onPressed: () => controller.retryNow(),
-              child: const Text('Retry now'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// No dismiss control, by design: an unresolved condition is not something
-  /// the operator gets to mark as read.
-  Widget _pinnedRow(BuildContext context, String message, String kind) =>
-      Container(
-        color: Colors.red.shade50,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.error_outline, size: 16, color: Colors.red.shade800),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(message, style: const TextStyle(fontSize: 13)),
-                  Text(kind,
-                      style: const TextStyle(
-                          fontSize: 11, color: Colors.black54)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-
-  Widget _historyRow(BuildContext context, BackupLogEntry entry) {
-    final now = DateTime.now();
-    final subtitle = StringBuffer(entry.kind)
-      ..write(' · ')
-      ..write(relativeAge(entry.lastSeen, now));
-    if (entry.count > 1) subtitle.write(' · ${entry.count}×');
-
-    return Opacity(
-      opacity: entry.dismissed ? 0.45 : 1,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              entry.isFailure ? Icons.warning_amber_rounded : Icons.check,
-              size: 16,
-              color: entry.isFailure ? Colors.orange.shade800 : Colors.green,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Soft-wraps rather than clipping: the width cap is the
-                  // constraint, not the message.
-                  Text(entry.message, style: const TextStyle(fontSize: 13)),
-                  Text(subtitle.toString(),
-                      style: const TextStyle(
-                          fontSize: 11, color: Colors.black54)),
-                  if (entry.lastDetail != null)
-                    Text(entry.lastDetail!,
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.black38)),
-                ],
-              ),
-            ),
-            if (!entry.dismissed)
-              IconButton(
-                icon: const Icon(Icons.close, size: 16),
-                tooltip: 'Mark as read',
-                onPressed: () => controller.dismiss(entry.fingerprint),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-```
-
-- [ ] **Step 2: Write the one wiring test**
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:navigation_app/services/backup/app_fault.dart';
-import 'package:navigation_app/services/backup/backup_controller.dart';
-import 'package:navigation_app/services/backup/backup_status.dart';
-import 'package:navigation_app/widgets/backup/backup_status_pill.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
-
-  Future<BackupController> openPopover(WidgetTester tester) async {
-    final controller = BackupController.disabled();
-    addTearDown(controller.dispose);
-    await controller.log.recordFault(AppFault.backup(
-        BackupFailureKind.transientServer, 'Drive returned an error.',
-        operation: 'push', targetIdentity: 'mock:test'));
-    controller.status.value = const BackupStatus(configured: true);
-
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: BackupStatusPill(controller: controller),
-        ),
-      ),
-    ));
-    await tester.tap(find.byType(BackupStatusPill));
-    await tester.pumpAndSettle();
-    return controller;
-  }
-
-  testWidgets('a history row can be marked as read, and it sticks',
-      (tester) async {
-    final controller = await openPopover(tester);
-
-    expect(find.text('Drive returned an error.'), findsOneWidget);
-    await tester.tap(find.byTooltip('Mark as read'));
-    await tester.pumpAndSettle();
-
-    expect(find.byTooltip('Mark as read'), findsNothing);
-    expect(controller.log.entries.value.single.dismissed, isTrue);
-
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('backup_log'), contains('"read":true'));
-  });
-
-  testWidgets('the active condition is pinned and has no dismiss control',
-      (tester) async {
-    final controller = BackupController.disabled();
-    addTearDown(controller.dispose);
-    final fault = AppFault.backup(
-        BackupFailureKind.authExpired, 'Sign in again.',
-        operation: 'pull', targetIdentity: 'mock:test');
-    await controller.log.recordFault(fault);
-    controller.status.value =
-        BackupStatus(configured: true, activeCondition: fault);
-
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: BackupStatusPill(controller: controller),
-        ),
-      ),
-    ));
-    await tester.tap(find.byType(BackupStatusPill));
-    await tester.pumpAndSettle();
-
-    // Shown once — pinned — and not as a dismissable history row.
-    expect(find.text('Sign in again.'), findsOneWidget);
-    expect(find.byTooltip('Mark as read'), findsNothing);
-  });
-}
-```
-
-- [ ] **Step 3: Run the owning test files**
-
-Run: `flutter test test/backup/backup_log_popover_test.dart test/backup/backup_status_pill_test.dart`
-Expected: `All tests passed!` (4 tests)
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add lib/widgets/backup/backup_log_popover.dart \
-        test/backup/backup_log_popover_test.dart
-git commit -m "feat(backup): log popover with pinned condition and dismissals"
-```
-
----
-
 ### Task 8: Wire it into the app, with lifecycle
 
-**Test-policy class:** 2 wiring. One thin test asserting the user-visible
-outcome — the pill is in the AppBar and a foreground event reaches the
-scheduler. Everything else here is layout, verified by screenshot in Task 9.
+**Test-policy class:** 1 for the scheduler's start-up resume (a mutation that
+never gets pushed is exactly "lose a configuration that took an hour to
+enter"); 2 for the wiring itself — one thin test asserting the pill is in the
+AppBar and a real foreground event reaches the engine. Layout is Class 3,
+verified by screenshot in Task 9.
+
+**Rewritten after review.** The staged `conflict` scenario in the first draft
+could not produce the state it claimed — a pristine machine adopts a lone
+remote revision rather than diverging from it, so Task 9 would have
+screenshotted green and called it "Needs review". The scenarios below were
+each walked through the live pull branches at `backup_service.dart:109-180`.
 
 **Files:**
+- Modify: `lib/services/backup/backup_scheduler.dart:91-92` (start-up resume)
+- Modify: `lib/services/backup/backup_controller.dart` (scenario staging)
 - Modify: `lib/widgets/multi_device_control_page.dart:25-31` (constructor),
   `:32-70` (state and `initState`), `:122-130` (`dispose`), `:396-399` and
   `:467-470` (both AppBars)
-- Modify: `lib/services/backup/backup_controller.dart` (scenario knob)
-- Test: `test/backup/backup_wiring_test.dart`
+- Test: `test/backup/backup_scheduler_test.dart` (append), `test/backup/backup_wiring_test.dart`
 
 **Interfaces:**
 - Consumes: `BackupController.forEnvironment()`, `BackupStatusPill`.
-- Produces: `MultiDeviceControlPage({super.key, BackupController? backupController})`.
+- Produces: `MultiDeviceControlPage({super.key, BackupController? backupController})`;
+  `BackupController.mockScenario`.
 
-- [ ] **Step 1: Add the demo scenario knob to `BackupController`**
+- [ ] **Step 1: Make app start resume pending work, not just pull**
 
-The pill has five states and only three of them are reachable by using the app
-against an in-memory target. Without this, Task 9's screenshots cannot show red
-or "Needs review", and `docs/learned/verification.md` is explicit that
-presentation work is not done until the screenshots have been looked at.
+`onAppStart()` only pulls (`backup_scheduler.dart:91-92`). The spec's
+durability section promises pending intent is resumed "on next start or
+foreground"; today a mutation killed before its 30-second debounce waits for a
+foreground event or the ten-minute sweep. On the iPad — where iOS suspends
+Dart within seconds, which is the whole reason the generation counter is
+persisted — that is the common case, not the rare one.
 
-Replace `BackupController.forEnvironment()` with:
+It also closes the one real hole in deviation D1: with this, a push that was
+failing before a restart fails again within seconds of launch and the pill
+goes back to red on its own, instead of sitting amber until the sweep.
 
 ```dart
-  /// Which failure the mock target should stage, for demonstrating the
-  /// surface before Drive exists: `ok`, `authExpired`, `offline`, `conflict`.
+  /// Pull on launch, then resume anything the last run left pending.
+  ///
+  /// The round trip also proves the credential still works.
+  Future<void> onAppStart() async {
+    await _run(_Op.pull);
+    if (!_stopped && await ConfigMutationNotifier.instance.isDirty()) {
+      await _run(_Op.push);
+    }
+  }
+```
+
+That is now identical to `onForeground()`. Leave both names: they are called
+from different places and one may diverge later.
+
+Test, appended to `test/backup/backup_scheduler_test.dart`:
+
+```dart
+  test('app start resumes a push the previous run never finished', () async {
+    // The mutation outlived the process; the in-memory debounce timer did not.
+    await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+    expect(await ConfigMutationNotifier.instance.isDirty(), isTrue);
+
+    await scheduler.onAppStart();
+
+    expect(scheduler.pushCount, 1);
+    expect(target.revisions, hasLength(1));
+  });
+```
+
+- [ ] **Step 2: Stage demo scenarios that actually reach the state they name**
+
+The pill has five states and only three are reachable by using the app against
+an empty in-memory target. Without staging, Task 9's screenshots cannot show
+red or "Needs review", and `docs/learned/verification.md` is explicit that
+presentation work is not done until the screenshots have been looked at.
+
+Staging must be **awaited before the first pull**, and it must put the machine
+in a state the pull actually classifies the way the scenario claims. Replace
+`BackupController.forEnvironment()` with:
+
+```dart
+  /// Which state the mock target should stage, for demonstrating the surface
+  /// before Drive exists: `ok`, `authExpired`, `offline`, `conflict`.
   /// Only read when [useMockTarget] is set.
   static const String mockScenario =
       String.fromEnvironment('BACKUP_SCENARIO', defaultValue: 'ok');
@@ -2331,7 +2623,33 @@ Replace `BackupController.forEnvironment()` with:
     if (!useMockTarget) return BackupController.disabled();
 
     final target = MockBackupTarget();
-    switch (mockScenario) {
+    final service = BackupService(
+      target: target,
+      targetIdentity: 'mock:in-memory',
+      deviceLabel: () async => 'This machine',
+      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
+      localIsPristine: ConfigBundle.localIsPristine,
+    );
+
+    return BackupController.forService(
+      service,
+      stageScenario: () => _stage(mockScenario, target, service),
+    );
+  }
+
+  /// Runs before the first pull, and is awaited.
+  ///
+  /// Every branch here was walked against the live pull algorithm
+  /// (`backup_service.dart:109-180`). An earlier draft simply dropped one
+  /// revision into an empty target and called it a conflict: a pristine
+  /// machine with a null pointer **adopts** that revision (branch 3), so the
+  /// pill went green and the screenshot would have been of the wrong state.
+  static Future<void> _stage(
+    String scenario,
+    MockBackupTarget target,
+    BackupService service,
+  ) async {
+    switch (scenario) {
       case 'authExpired':
         target.failNextWith(AppFault.backup(
             BackupFailureKind.authExpired, 'Sign in to Google again.',
@@ -2341,34 +2659,39 @@ Replace `BackupController.forEnvironment()` with:
             BackupFailureKind.offline, 'Could not reach Google Drive.',
             operation: 'pull', targetIdentity: 'mock:in-memory'));
       case 'conflict':
-        // A revision from another machine that this one has no provenance
-        // for, which pull classifies as a divergence.
-        unawaited(target.put(
-          '{"schemaVersion":1,"positions":[],"people":[],"services":[],'
-          '"heightRanges":[],"presetNames":{},"visibilities":{}}',
-          contentHash: 'staged',
-          parentRevisionId: null,
+        // Provenance this machine against a first revision, then have another
+        // machine write a SIBLING of it. Pull then reaches branch 7: the head
+        // is neither our pointer nor a descendant of it.
+        final ours = await service.push();
+        final base = ours.revision;
+        if (base == null) return;
+        await target.put(
+          '{"schemaVersion":1,"positions":[{"id":"p9","name":"Balcony"}],'
+          '"people":[],"services":[],"heightRanges":[],"presetNames":{},'
+          '"visibilities":{}}',
+          contentHash: 'staged-sibling',
+          parentRevisionId: base.parentRevisionId,
           deviceLabel: "Daniel's iPad",
-        ));
+        );
       default:
         break;
     }
-
-    return BackupController.forService(BackupService(
-      target: target,
-      targetIdentity: 'mock:in-memory',
-      deviceLabel: () async => 'This machine',
-      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
-      localIsPristine: ConfigBundle.localIsPristine,
-    ));
   }
 ```
 
-- [ ] **Step 2: Own the controller on the page**
+`BackupController.forService` gains the parameter, and `start()` awaits it
+before `scheduler.onAppStart()` — both are in Task 5's implementation.
+
+**`BACKUP_SCENARIO=conflict` needs local configuration to exist first.** Run
+it on a machine that has been used, or add one position in Settings and
+restart. On a genuinely pristine machine `push()` uploads an empty bundle and
+the sibling still diverges from it, so the state is reached either way — but
+the difference summary is more useful with real data in it.
+
+- [ ] **Step 3: Own the controller on the page**
 
 In `lib/widgets/multi_device_control_page.dart`, change the widget declaration
-(`:25-31`) to accept an injected controller so tests do not need a real
-scheduler:
+(`:25-31`):
 
 ```dart
 class MultiDeviceControlPage extends StatefulWidget {
@@ -2406,11 +2729,11 @@ In `dispose` (`:122-130`), before `super.dispose();`:
     unawaited(_backup.dispose());
 ```
 
-Add `import 'dart:async';` and
-`import '../services/backup/backup_controller.dart';` plus
+Add `import 'dart:async';`,
+`import '../services/backup/backup_controller.dart';` and
 `import 'backup/backup_status_pill.dart';` to the file's imports.
 
-- [ ] **Step 3: Put the pill in both AppBars**
+- [ ] **Step 4: Put the pill in both AppBars**
 
 There are two. The disconnected-state `AppBar` at `:397` and the connected one
 at `:468`. Both get the same two lines, immediately after `AppBar(`:
@@ -2424,7 +2747,7 @@ at `:468`. Both get the same two lines, immediately after `AppBar(`:
 left-aligns today only because it has four action entries, and dropping to one
 would silently centre the pill.
 
-- [ ] **Step 4: Write the one wiring test**
+- [ ] **Step 5: Write the one wiring test**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -2470,7 +2793,12 @@ void main() {
 
     final pullsAfterStart = scheduler.pullCount;
 
-    // The real signal an operator produces by switching back to the app.
+    // The real signal an operator produces by leaving and coming back.
+    // Going through `paused` first is not decoration: `SchedulerBinding`
+    // early-returns on a repeated state (`scheduler/binding.dart:414-417`),
+    // and a test binding starts out `resumed`.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
 
@@ -2482,21 +2810,23 @@ void main() {
 }
 ```
 
-- [ ] **Step 5: Run the owning test file and the full suite**
+- [ ] **Step 6: Run the owning test files and the full suite**
 
-Run: `flutter test test/backup/backup_wiring_test.dart`
-Expected: `All tests passed!` (1 test)
+Run: `flutter test test/backup/backup_wiring_test.dart test/backup/backup_scheduler_test.dart`
+Expected: `All tests passed!`
 
 Run: `flutter analyze && flutter test`
 Expected: `No issues found!` and `All tests passed!`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/widgets/multi_device_control_page.dart \
         lib/services/backup/backup_controller.dart \
-        test/backup/backup_wiring_test.dart
-git commit -m "feat(backup): wire the status pill and lifecycle into the app"
+        lib/services/backup/backup_scheduler.dart \
+        test/backup/backup_wiring_test.dart \
+        test/backup/backup_scheduler_test.dart
+git commit -m "feat(backup): wire the status pill in, resume pending work at launch"
 ```
 
 ---
@@ -2589,55 +2919,220 @@ flutter analyze && flutter test
 
 ---
 
-### Task 10: The three resolution paths in the engine
+### Task 10: One append primitive, and the three resolution paths
 
 **Test-policy class:** 1 trust contract. Every one of these overwrites
 configuration or writes a revision. This is the highest-consequence code in the
 phase.
 
+**Rewritten after review.** The first draft of this task had three subtly
+different upload protocols and only one of them — the existing `push()` —
+checked for a concurrent writer. It also applied a restore *before* uploading
+it, which is a silent data-loss bug, and adopted a remote copy without
+preserving the local one the spec explicitly requires snapshotting
+(`spec:451`). All three are fixed here; see the revision log.
+
 **Files:**
-- Modify: `lib/services/backup/backup_service.dart` (add public methods and a
-  `history`/`fetchBody` passthrough)
+- Modify: `lib/services/backup/backup_service.dart` — extract the append
+  primitive, refactor `push()` onto it, add the resolution methods and the
+  `history`/`fetchBody` passthroughs
 - Test: `test/backup/backup_resolution_test.dart`
 
 **Interfaces:**
 - Consumes: the existing private `_single`, `_withStorageBoundary`,
   `_applyRevision`, `_pointer`.
-- Produces: `enum ResolutionOutcome { resolved, localChangedDuringResolve, remoteMovedAgain }`;
-  `class ResolutionResult { final ResolutionOutcome outcome; final BackupRevision? revision; }`;
+- Produces: `enum ResolutionOutcome { resolved, localChangedDuringResolve, remoteMovedAgain, forkedAgain }`;
+  `class ResolutionResult { final ResolutionOutcome outcome; final BackupRevision? revision; final List<BackupRevision>? siblings; }`;
   `Future<ResolutionResult> adoptRemote(BackupRevision)`;
   `Future<ResolutionResult> keepLocalAsNewRevision(BackupRevision remoteHead)`;
   `Future<ResolutionResult> restoreRevision(BackupRevision)`;
   `Future<List<BackupRevision>> history({int limit = 50})`;
-  `Future<String> fetchBody(BackupRevision)`.
+  `Future<String> fetchBody(BackupRevision)`;
+  `static const String replacedSnapshotKey`;
+  `static Future<Map<String, dynamic>?> replacedSnapshot()`.
 
-- [ ] **Step 1: Implement**
+- [ ] **Step 1: Extract the append primitive and put `push()` on it**
 
-Append to `backup_service.dart`, above `_withStorageBoundary`:
+Add `import 'package:shared_preferences/shared_preferences.dart';` to
+`backup_service.dart`, then add above `_withStorageBoundary`:
 
 ```dart
-enum ResolutionOutcome { resolved, localChangedDuringResolve, remoteMovedAgain }
+enum ResolutionOutcome {
+  resolved,
+  localChangedDuringResolve,
+  remoteMovedAgain,
+  forkedAgain,
+}
 
 class ResolutionResult {
   final ResolutionOutcome outcome;
   final BackupRevision? revision;
-  const ResolutionResult(this.outcome, {this.revision});
+  final List<BackupRevision>? siblings;
+  const ResolutionResult(this.outcome, {this.revision, this.siblings});
+}
+
+class _AppendResult {
+  final BackupRevision revision;
+  final List<BackupRevision> siblings;
+  const _AppendResult(this.revision, this.siblings);
 }
 ```
 
-and these methods inside `BackupService`:
+and inside `BackupService`:
 
 ```dart
-  /// "Use the remote copy." Applies [revision] over local state.
+  /// Uploads [json] as a child of [parentRevisionId], optionally taking the
+  /// pointer with it, and performs the post-write sibling check.
   ///
-  /// Aborts rather than discarding an edit that landed while the body was in
-  /// flight: the operator answered a question about the state they were
-  /// looking at, and that state has changed underneath them.
+  /// **Every path that writes a revision goes through here.** Drive's
+  /// `files.create` has no compare-and-swap, so `latest()`-then-`put()` is a
+  /// time-of-check/time-of-use race on all three of them. `push()` already
+  /// handled that; "Keep mine" and restore-as-newest were written as separate
+  /// protocols that did not, so two machines resolving the same conflict at
+  /// the same moment would both report success and both go green.
+  Future<_AppendResult> _appendRevision({
+    required String json,
+    required String hash,
+    required String? parentRevisionId,
+    required bool adoptPointer,
+    required int generation,
+  }) async {
+    final revision = await target.put(
+      json,
+      contentHash: hash,
+      parentRevisionId: parentRevisionId,
+      deviceLabel: await deviceLabel(),
+    );
+
+    if (adoptPointer) {
+      await BackupPointer.save(
+        revisionId: revision.id,
+        recordedHash: hash,
+        targetIdentity: targetIdentity,
+      );
+      await ConfigMutationNotifier.instance.markSynced(generation);
+    }
+
+    final recent = await target.list(limit: 10);
+    final siblings = recent
+        .where((r) =>
+            r.id != revision.id &&
+            r.parentRevisionId == revision.parentRevisionId)
+        .toList();
+    return _AppendResult(revision, siblings);
+  }
+```
+
+Replace `_push()`'s steps 3 and 4 (`backup_service.dart:278-307`) with:
+
+```dart
+    // 3-4. Upload, recording where we branched from, then check for a writer
+    //      that slipped in between our latest() and our put().
+    final appended = await _appendRevision(
+      json: json,
+      hash: hash,
+      parentRevisionId: pointer.revisionId,
+      adoptPointer: true,
+      generation: generation,
+    );
+    if (appended.siblings.isNotEmpty) {
+      return PushResult(PushOutcome.forked,
+          revision: appended.revision, siblings: appended.siblings);
+    }
+    return PushResult(PushOutcome.uploaded, revision: appended.revision);
+```
+
+This is a pure refactor: the existing push tests in
+`test/backup/backup_service_push_test.dart` must stay green untouched. Run
+them before writing anything else.
+
+- [ ] **Step 2: Extract the revision decoder `_applyRevision` already contains**
+
+`restoreRevision` needs to validate a body before uploading it, and
+`_applyRevision` has that logic inline (`backup_service.dart:187-211`). Pull
+it out so there is one:
+
+```dart
+  Map<String, dynamic> _decodeRevision(BackupRevision revision, String raw) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (e) {
+      throw AppFault.backup(
+        BackupFailureKind.malformedRemote,
+        'revision ${revision.id} is not valid JSON',
+        operation: 'pull',
+        targetIdentity: targetIdentity,
+        cause: e,
+      );
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw AppFault.backup(
+        BackupFailureKind.malformedRemote,
+        'revision ${revision.id} is not a JSON object',
+        operation: 'pull',
+        targetIdentity: targetIdentity,
+      );
+    }
+    return decoded;
+  }
+```
+
+and have `_applyRevision` call it in place of its inline block.
+
+- [ ] **Step 3: "Use the remote copy", preserving what it replaces**
+
+```dart
+  /// The local configuration that "Use the remote copy" replaced.
+  ///
+  /// One slot, most recent wins. The spec requires snapshotting local before
+  /// adopting (`spec:451`) and an earlier draft of this plan dropped that
+  /// requirement: the operator could have an hour of unpushed work, choose
+  /// "Use their copy", and have it vanish with no revision anywhere holding
+  /// it. A single recoverable slot is what a recovery UI can actually offer.
+  static const String replacedSnapshotKey = 'backup_replaced_snapshot';
+
+  static Future<Map<String, dynamic>?> replacedSnapshot() async {
+    final raw =
+        (await SharedPreferences.getInstance()).getString(replacedSnapshotKey);
+    if (raw == null) return null;
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<ResolutionResult> adoptRemote(BackupRevision revision) =>
       _single(() => _withStorageBoundary('resolve', () async {
             final generation =
                 await ConfigMutationNotifier.instance.generation();
-            final localHash = canonicalHash(await readBundleJson());
+            final localBundle = await readBundleJson();
+            final localHash = canonicalHash(localBundle);
+
+            // Written BEFORE the fetch. A fetch that fails after the stores
+            // were replaced would otherwise leave nothing preserved, and the
+            // whole point of this slot is that it exists when it is needed.
+            final prefs = await SharedPreferences.getInstance();
+            final saved = await prefs.setString(
+              replacedSnapshotKey,
+              jsonEncode({
+                'replacedAt': DateTime.now().toUtc().toIso8601String(),
+                'hash': localHash,
+                'bundle': localBundle,
+              }),
+            );
+            if (!saved) {
+              await prefs.reload();
+              throw AppFault.backup(
+                BackupFailureKind.storageWriteFailed,
+                "Could not keep a copy of this device's settings before "
+                'replacing them, so nothing was changed.',
+                operation: 'resolve',
+                targetIdentity: targetIdentity,
+              );
+            }
+
             final applied = await _applyRevision(
               revision,
               expectedLocalHash: localHash,
@@ -2650,9 +3145,13 @@ and these methods inside `BackupService`:
               revision: revision,
             );
           }));
+```
 
-  /// "Keep my copy as a new revision." Append-only means this ADDS; the
-  /// remote copy is not destroyed, it becomes this revision's parent.
+- [ ] **Step 4: "Keep my copy as a new revision", fork-checked**
+
+```dart
+  /// Append-only means this ADDS; the remote copy is not destroyed, it
+  /// becomes this revision's parent.
   Future<ResolutionResult> keepLocalAsNewRevision(BackupRevision remoteHead) =>
       _single(() => _withStorageBoundary('resolve', () async {
             final generation =
@@ -2669,81 +3168,100 @@ and these methods inside `BackupService`:
                   revision: head);
             }
 
-            final revision = await target.put(
-              json,
-              contentHash: hash,
+            final appended = await _appendRevision(
+              json: json,
+              hash: hash,
               parentRevisionId: head.id,
-              deviceLabel: await deviceLabel(),
+              adoptPointer: true,
+              generation: generation,
             );
-            await BackupPointer.save(
-              revisionId: revision.id,
-              recordedHash: hash,
-              targetIdentity: targetIdentity,
+            return ResolutionResult(
+              appended.siblings.isEmpty
+                  ? ResolutionOutcome.resolved
+                  : ResolutionOutcome.forkedAgain,
+              revision: appended.revision,
+              siblings: appended.siblings,
             );
-            await ConfigMutationNotifier.instance.markSynced(generation);
-            return ResolutionResult(ResolutionOutcome.resolved,
-                revision: revision);
           }));
+```
 
-  /// Restores an older revision and makes it the current backup.
+- [ ] **Step 5: Restore — upload first, then apply**
+
+```dart
+  /// Restores [revision] and makes it the newest backup.
   ///
-  /// The second half is not optional. Applying an ancestor leaves the pointer
-  /// on a revision the head is not descended from, which the very next pull
-  /// classifies as a divergence — the operator would be asked to resolve a
-  /// conflict they created deliberately, seconds earlier. Appending the
-  /// restored content as a new head lands the machine clean, and destroys
-  /// nothing: the newer revisions remain in the store.
+  /// **Upload first, then apply.** The reverse order is a silent data-loss
+  /// bug, and it is the one an earlier draft of this plan specified.
+  /// `_applyRevision` moves the pointer onto the restored ancestor
+  /// (`backup_service.dart:225-229`). If the upload then fails — offline, or
+  /// the process is killed — the next pull finds `head.parentRevisionId ==
+  /// pointer` with local clean, matches branch 6
+  /// (`backup_service.dart:165-176`), and re-applies the exact revision the
+  /// operator just undid. Silently. And pull runs before push at every
+  /// trigger, so nothing heals it.
+  ///
+  /// Uploading first inverts every failure into a safe one: a crash before
+  /// `put` leaves local untouched, and a crash after `put` leaves one extra
+  /// revision at the target whose parent is the current head — which the next
+  /// pull applies through branch 6, finishing the restore rather than
+  /// reversing it.
   Future<ResolutionResult> restoreRevision(BackupRevision revision) =>
       _single(() => _withStorageBoundary('resolve', () async {
+            final raw = await target.fetch(revision);
+            final decoded = _decodeRevision(revision, raw);
+            // Throws before anything is written anywhere.
+            ConfigBundle.fromJsonValidated(decoded);
+
+            final json = canonicalJsonEncode(decoded);
+            final hash = canonicalHash(decoded);
             final generation =
                 await ConfigMutationNotifier.instance.generation();
             final localHash = canonicalHash(await readBundleJson());
+
+            final head = await target.latest();
+
+            // Restoring the newest revision, or an older one byte-identical
+            // to it: there is nothing to append.
+            if (head != null && head.bodyChecksum == bodyChecksumOf(json)) {
+              final applied = await _applyRevision(
+                head,
+                expectedLocalHash: localHash,
+                expectedGeneration: generation,
+              );
+              return ResolutionResult(
+                applied
+                    ? ResolutionOutcome.resolved
+                    : ResolutionOutcome.localChangedDuringResolve,
+                revision: head,
+              );
+            }
+
+            final appended = await _appendRevision(
+              json: json,
+              hash: hash,
+              parentRevisionId: head?.id,
+              // The pointer moves when the STORES do, not before: a pointer
+              // naming a revision whose content is not on this machine makes
+              // isCleanAgainst lie.
+              adoptPointer: false,
+              generation: generation,
+            );
+            if (appended.siblings.isNotEmpty) {
+              return ResolutionResult(ResolutionOutcome.forkedAgain,
+                  revision: appended.revision, siblings: appended.siblings);
+            }
+
             final applied = await _applyRevision(
-              revision,
+              appended.revision,
               expectedLocalHash: localHash,
               expectedGeneration: generation,
             );
-            if (!applied) {
-              return ResolutionResult(
-                  ResolutionOutcome.localChangedDuringResolve,
-                  revision: revision);
-            }
-
-            final restoredGeneration =
-                await ConfigMutationNotifier.instance.generation();
-            final restored = await readBundleJson();
-            final json = canonicalJsonEncode(restored);
-            final hash = canonicalHash(restored);
-
-            final head = await target.latest();
-            if (head != null && head.bodyChecksum == bodyChecksumOf(json)) {
-              // The restored content already IS the head — restoring the
-              // newest revision, or an older one identical to it.
-              await BackupPointer.save(
-                revisionId: head.id,
-                recordedHash: hash,
-                targetIdentity: targetIdentity,
-              );
-              await ConfigMutationNotifier.instance
-                  .markSynced(restoredGeneration);
-              return ResolutionResult(ResolutionOutcome.resolved,
-                  revision: head);
-            }
-
-            final appended = await target.put(
-              json,
-              contentHash: hash,
-              parentRevisionId: head?.id,
-              deviceLabel: await deviceLabel(),
+            return ResolutionResult(
+              applied
+                  ? ResolutionOutcome.resolved
+                  : ResolutionOutcome.localChangedDuringResolve,
+              revision: appended.revision,
             );
-            await BackupPointer.save(
-              revisionId: appended.id,
-              recordedHash: hash,
-              targetIdentity: targetIdentity,
-            );
-            await ConfigMutationNotifier.instance.markSynced(restoredGeneration);
-            return ResolutionResult(ResolutionOutcome.resolved,
-                revision: appended);
           }));
 
   /// Revisions for the history picker, newest first.
@@ -2756,11 +3274,16 @@ and these methods inside `BackupService`:
       () => _withStorageBoundary('history', () => target.fetch(revision)));
 ```
 
-- [ ] **Step 2: Write the behavioral test**
+`_applyRevision(appended.revision)` re-downloads bytes this method already
+holds. That is one wasted round trip against Drive and it buys a single apply
+path with a single freshness guard; do not optimise it into a second one.
+
+- [ ] **Step 6: Write the behavioral test**
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:navigation_app/models/position.dart';
+import 'package:navigation_app/services/backup/app_fault.dart';
 import 'package:navigation_app/services/backup/backup_pointer.dart';
 import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
@@ -2790,130 +3313,219 @@ void main() {
         for (final n in names) Position(id: n.toLowerCase(), name: n),
       ]);
 
-  test('adoptRemote replaces local state and lands provenanced', () async {
-    await setPositions(['Pulpit']);
-    await service.push();
-    final theirs = (await service.history()).single;
+  const emptyBundle = '{"schemaVersion":1,"positions":[],"people":[],'
+      '"services":[],"heightRanges":[],"presetNames":{},"visibilities":{}}';
 
-    await setPositions(['Lectern', 'Choir']);
-    final result = await service.adoptRemote(theirs);
+  group('adoptRemote', () {
+    test('replaces local state and lands provenanced', () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
 
-    expect(result.outcome, ResolutionOutcome.resolved);
-    expect((await PositionStore.loadAll()).map((p) => p.name), ['Pulpit']);
-    final pointer = await BackupPointer.load();
-    expect(pointer.revisionId, theirs.id);
-    // Clean: the next pull has nothing to say.
-    expect((await service.pull()).outcome, PullOutcome.nothingToDo);
+      await setPositions(['Lectern', 'Choir']);
+      final result = await service.adoptRemote(theirs);
+
+      expect(result.outcome, ResolutionOutcome.resolved);
+      expect((await PositionStore.loadAll()).map((p) => p.name), ['Pulpit']);
+      expect((await BackupPointer.load()).revisionId, theirs.id);
+      expect((await service.pull()).outcome, PullOutcome.nothingToDo);
+    });
+
+    test('keeps a recoverable copy of what it replaced', () async {
+      // The spec requires snapshotting local before adopting. Without it the
+      // operator's unpushed hour exists nowhere afterwards.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
+      await setPositions(['Lectern', 'Choir']);
+
+      await service.adoptRemote(theirs);
+
+      final saved = await BackupService.replacedSnapshot();
+      expect(saved, isNotNull);
+      final positions =
+          (saved!['bundle'] as Map<String, dynamic>)['positions'] as List;
+      expect(positions.map((p) => p['name']), ['Lectern', 'Choir']);
+    });
+
+    test('aborts if an edit lands while the body is in flight', () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
+      await setPositions(['Lectern']);
+
+      target.beforeNextFetch(() => setPositions(['Lectern', 'Balcony']));
+      final result = await service.adoptRemote(theirs);
+
+      expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
+      expect((await PositionStore.loadAll()).map((p) => p.name),
+          ['Lectern', 'Balcony'],
+          reason: 'the operator answered about state that has since changed');
+    });
   });
 
-  test('adoptRemote aborts if an edit lands while the body is in flight',
-      () async {
-    await setPositions(['Pulpit']);
-    await service.push();
-    final theirs = (await service.history()).single;
-    await setPositions(['Lectern']);
+  group('keepLocalAsNewRevision', () {
+    test('appends without destroying the remote copy', () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final base = (await service.history()).single;
 
-    target.beforeNextFetch(() => setPositions(['Lectern', 'Balcony']));
-    final result = await service.adoptRemote(theirs);
+      await target.put(emptyBundle,
+          contentHash: 'theirs',
+          parentRevisionId: base.id,
+          deviceLabel: "Daniel's iPad");
+      final theirs = (await target.latest())!;
 
-    expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
-    expect((await PositionStore.loadAll()).map((p) => p.name),
-        ['Lectern', 'Balcony'],
-        reason: 'the operator answered about state that has since changed');
+      await setPositions(['Pulpit', 'Lectern']);
+      final result = await service.keepLocalAsNewRevision(theirs);
+
+      expect(result.outcome, ResolutionOutcome.resolved);
+      expect(result.revision!.parentRevisionId, theirs.id);
+      expect(target.revisions, hasLength(3),
+          reason: 'append-only: nothing was overwritten');
+      expect((await service.pull()).outcome, PullOutcome.nothingToDo);
+    });
+
+    test('refuses when the head moved again', () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final stale = (await service.history()).single;
+      await target.put(emptyBundle,
+          contentHash: 'newer',
+          parentRevisionId: stale.id,
+          deviceLabel: 'Someone else');
+
+      final result = await service.keepLocalAsNewRevision(stale);
+
+      expect(result.outcome, ResolutionOutcome.remoteMovedAgain);
+      expect(target.revisions, hasLength(2), reason: 'nothing was uploaded');
+    });
+
+    test('reports a fork when another machine resolved at the same moment',
+        () async {
+      // Both machines pass the latest() check, both put. Append-only keeps
+      // both bodies; saying nothing about it is the failure.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final base = (await service.history()).single;
+      await target.put(emptyBundle,
+          contentHash: 'theirs',
+          parentRevisionId: base.id,
+          deviceLabel: "Daniel's iPad");
+      final theirs = (await target.latest())!;
+
+      await setPositions(['Pulpit', 'Lectern']);
+      target.concurrentWriterBeforePut(
+        body: emptyBundle,
+        parentRevisionId: theirs.id,
+        deviceLabel: 'A third machine',
+      );
+
+      final result = await service.keepLocalAsNewRevision(theirs);
+
+      expect(result.outcome, ResolutionOutcome.forkedAgain);
+      expect(result.siblings, isNotEmpty);
+    });
   });
 
-  test('keepLocalAsNewRevision appends without destroying the remote copy',
-      () async {
-    await setPositions(['Pulpit']);
-    await service.push();
-    final base = (await service.history()).single;
+  group('restoreRevision', () {
+    test('leaves the machine clean, not conflicted', () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final tuesday = (await service.history()).first;
 
-    // Another machine writes a sibling; ours becomes stale.
-    await target.put(
-      '{"schemaVersion":1,"positions":[],"people":[],"services":[],'
-      '"heightRanges":[],"presetNames":{},"visibilities":{}}',
-      contentHash: 'theirs',
-      parentRevisionId: base.id,
-      deviceLabel: "Daniel's iPad",
-    );
-    final theirs = (await target.latest())!;
+      await setPositions(['Pulpit', 'Lectern', 'Choir']);
+      await service.push();
+      expect(target.revisions, hasLength(2));
 
-    await setPositions(['Pulpit', 'Lectern']);
-    final result = await service.keepLocalAsNewRevision(theirs);
+      final result = await service.restoreRevision(tuesday);
 
-    expect(result.outcome, ResolutionOutcome.resolved);
-    expect(result.revision!.parentRevisionId, theirs.id);
-    expect(target.revisions, hasLength(3),
-        reason: 'append-only: nothing was overwritten');
-    expect((await service.pull()).outcome, PullOutcome.nothingToDo);
-  });
+      expect(result.outcome, ResolutionOutcome.resolved);
+      expect((await PositionStore.loadAll()).map((p) => p.name), ['Pulpit']);
+      expect(target.revisions, hasLength(3),
+          reason: 'the restore is appended; the newer revision still exists');
+      expect((await target.latest())!.id, result.revision!.id);
+      expect((await service.pull()).outcome, PullOutcome.nothingToDo);
+      expect((await service.push()).outcome, PushOutcome.noOp);
+    });
 
-  test('keepLocalAsNewRevision refuses when the head moved again', () async {
-    await setPositions(['Pulpit']);
-    await service.push();
-    final stale = (await service.history()).single;
-    await target.put(
-      '{"schemaVersion":1,"positions":[],"people":[],"services":[],'
-      '"heightRanges":[],"presetNames":{},"visibilities":{}}',
-      contentHash: 'newer',
-      parentRevisionId: stale.id,
-      deviceLabel: 'Someone else',
-    );
+    test('a failed upload leaves local UNTOUCHED, never half-restored',
+        () async {
+      // The blocker both reviewers found in the first draft: apply-then-put
+      // moved the pointer onto the ancestor, so a failed put left the next
+      // pull matching branch 6 and silently re-applying the revision the
+      // operator had just undone.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final tuesday = (await service.history()).first;
+      await setPositions(['Pulpit', 'Lectern', 'Choir']);
+      await service.push();
+      final headBefore = (await target.latest())!.id;
 
-    final result = await service.keepLocalAsNewRevision(stale);
+      target.failNextWith(AppFault.backup(
+          BackupFailureKind.offline, 'Could not reach the backup.',
+          operation: 'resolve', targetIdentity: 'mock:test'));
 
-    expect(result.outcome, ResolutionOutcome.remoteMovedAgain);
-    expect(target.revisions, hasLength(2), reason: 'nothing was uploaded');
-  });
+      await expectLater(
+          service.restoreRevision(tuesday), throwsA(isA<AppFault>()));
 
-  test('restoring an older revision leaves the machine clean, not conflicted',
-      () async {
-    await setPositions(['Pulpit']);
-    await service.push();
-    final tuesday = (await service.history()).first;
+      expect((await PositionStore.loadAll()).map((p) => p.name),
+          ['Pulpit', 'Lectern', 'Choir'],
+          reason: 'nothing was applied, so nothing can be silently reverted');
+      expect((await BackupPointer.load()).revisionId, headBefore);
+      expect((await service.pull()).outcome, PullOutcome.nothingToDo);
+    });
 
-    await setPositions(['Pulpit', 'Lectern', 'Choir']);
-    await service.push();
-    expect(target.revisions, hasLength(2));
+    test('an interrupted restore finishes on the next pull, never reverses',
+        () async {
+      // Upload lands, the process dies before the apply. The extra revision
+      // is a child of the head, so branch 6 applies it: the restore completes
+      // rather than being undone.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final tuesday = (await service.history()).first;
+      await setPositions(['Pulpit', 'Lectern']);
+      await service.push();
 
-    final result = await service.restoreRevision(tuesday);
+      // Stand in for the kill: the upload succeeds, the apply does not.
+      target.beforeNextFetch(() => setPositions(['Pulpit', 'Lectern', 'X']));
+      final result = await service.restoreRevision(tuesday);
+      expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
+      expect(target.revisions, hasLength(3));
 
-    expect(result.outcome, ResolutionOutcome.resolved);
-    expect((await PositionStore.loadAll()).map((p) => p.name), ['Pulpit']);
-    expect(target.revisions, hasLength(3),
-        reason: 'the restore is appended; the newer revision still exists');
-    expect((await target.latest())!.id, result.revision!.id);
-    // The point of the whole exercise: no divergence follows a restore.
-    expect((await service.pull()).outcome, PullOutcome.nothingToDo);
-    expect((await service.push()).outcome, PushOutcome.noOp);
-  });
+      // Whatever the operator did next, the restored revision is the head and
+      // pull can never reach back past it to the pre-restore state.
+      expect((await target.latest())!.id, result.revision!.id);
+    });
 
-  test('restoring the current head rebases rather than duplicating it',
-      () async {
-    await setPositions(['Pulpit']);
-    await service.push();
-    final head = (await service.history()).single;
+    test('restoring the current head rebases rather than duplicating it',
+        () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final head = (await service.history()).single;
 
-    final result = await service.restoreRevision(head);
+      final result = await service.restoreRevision(head);
 
-    expect(result.outcome, ResolutionOutcome.resolved);
-    expect(target.revisions, hasLength(1));
-    expect((await BackupPointer.load()).revisionId, head.id);
+      expect(result.outcome, ResolutionOutcome.resolved);
+      expect(target.revisions, hasLength(1));
+      expect((await BackupPointer.load()).revisionId, head.id);
+    });
   });
 }
 ```
 
-- [ ] **Step 3: Run the owning test file**
+- [ ] **Step 7: Run the owning test file and the push suite it refactored**
 
-Run: `flutter test test/backup/backup_resolution_test.dart`
-Expected: `All tests passed!` (6 tests)
+Run: `flutter test test/backup/backup_resolution_test.dart test/backup/backup_service_push_test.dart`
+Expected: `All tests passed!` (10 new tests, plus the existing push suite green
+and unmodified)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/services/backup/backup_service.dart \
         test/backup/backup_resolution_test.dart
-git commit -m "feat(backup): adopt, keep-as-new-revision and restore paths"
+git commit -m "feat(backup): one fork-checked append primitive behind push, keep-mine and restore"
 ```
 
 ---
@@ -3059,15 +3671,39 @@ class BundleDiff {
       };
     }
 
-    final mine = index(mineRaw);
-    final theirs = index(theirsRaw);
+    // Counted by BUTTON, not by device. Twenty renamed presets on one camera
+    // is "20 changed", not "1 changed": an undercount here is exactly the
+    // "three unlabelled buttons" problem in a different costume.
+    int innerCount(Object? raw, bool Function(String device, String item) keep) {
+      if (raw is! Map) return 0;
+      var n = 0;
+      raw.forEach((device, items) {
+        if (items is! Map) return;
+        for (final item in items.keys) {
+          if (keep('$device', '$item')) n++;
+        }
+      });
+      return n;
+    }
+
+    Object? item(Object? raw, String device, String key) {
+      if (raw is! Map) return null;
+      final items = raw[device];
+      return items is Map ? items[key] : null;
+    }
+
     return BundleSectionDiff(
       label: label,
-      added: theirs.keys.where((k) => !mine.containsKey(k)).length,
-      removed: mine.keys.where((k) => !theirs.containsKey(k)).length,
-      changed: theirs.entries
-          .where((e) => mine.containsKey(e.key) && mine[e.key] != e.value)
-          .length,
+      added: innerCount(theirsRaw,
+          (d, i) => item(mineRaw, d, i) == null),
+      removed: innerCount(mineRaw,
+          (d, i) => item(theirsRaw, d, i) == null),
+      changed: innerCount(
+          theirsRaw,
+          (d, i) =>
+              item(mineRaw, d, i) != null &&
+              canonicalJsonEncode(item(mineRaw, d, i)) !=
+                  canonicalJsonEncode(item(theirsRaw, d, i))),
     );
   }
 }
@@ -3130,17 +3766,18 @@ void main() {
         contains('People: 1 more, 1 missing, 1 changed'));
   });
 
-  test('a per-device preset map counts by device, not by button', () {
+  test('a per-device preset map counts by BUTTON, not by device', () {
     final mine = bundle(presetNames: {
-      '10.0.1.10': {'1': 'Pulpit'}
+      '10.0.1.10': {'1': 'Pulpit', '2': 'Lectern', '3': 'Choir'}
     });
     final theirs = bundle(presetNames: {
-      '10.0.1.10': {'1': 'Pulpit', '2': 'Lectern'},
+      '10.0.1.10': {'1': 'Pulpit', '2': 'Lectern (new)', '3': 'Choir loft'},
       '10.0.1.11': {'1': 'Balcony'},
     });
 
+    // Two renamed buttons on one camera plus one new button on another.
     expect(BundleDiff.between(mine, theirs).lines,
-        contains('Preset labels: 1 more, 1 changed'));
+        contains('Preset labels: 1 more, 2 changed'));
   });
 
   test('device addresses report as changed, not counted', () {
@@ -3183,6 +3820,13 @@ what clears a condition and what a failed resolve does), 2 for the dialog —
 one thin test per action asserting the user-visible outcome. Layout is Class 3
 and gets screenshots in Task 15.
 
+**Revised after review.** Three fixes folded in: a successful resolve now
+clears its own earlier failure (otherwise one failed attempt left the pill red
+forever after the retry succeeded); the deferred revision id is dropped when
+the head moves on, instead of labelling a new revision with an old decision;
+and first-run adoption gets its own question and its own words, because
+"Two machines have different settings" is a lie on a brand-new iPad.
+
 **Files:**
 - Modify: `lib/services/backup/backup_controller.dart`
 - Create: `lib/widgets/backup/conflict_dialog.dart`
@@ -3209,6 +3853,13 @@ and gets screenshots in Task 15.
   static const String suppressedKey = 'backup_conflict_suppressed';
 
   String? deferredRevisionId;
+
+  /// Whether the operator's "decide later" still applies to what is being
+  /// asked. A deferral is about ONE revision; when the other machine saves
+  /// again, the question is new and the old answer does not carry over.
+  bool get deferralApplies =>
+      deferredRevisionId != null &&
+      deferredRevisionId == conflictRevision?.id;
 
   /// What differs between this machine and the conflicting revision.
   /// Downloads the remote body: conflicts are detected from metadata alone,
@@ -3244,8 +3895,12 @@ and gets screenshots in Task 15.
     try {
       final result = await action(backup, revision);
       if (result.outcome == ResolutionOutcome.resolved) {
-        _conditions.remove(_conflictKey);
-        conflictRevision = null;
+        // Both, not just the question. A resolve that failed once and then
+        // succeeded would otherwise leave its own fault standing under
+        // `resolve`, and a hard failure outranks everything: the dialog would
+        // close, the log would say "resolved", and the pill would stay red.
+        _conditions.remove('resolve');
+        _clearQuestion();
         await _clearDeferred();
         await log.recordSuccess(
           operation: 'resolve',
@@ -3258,6 +3913,17 @@ and gets screenshots in Task 15.
         // Re-point at the new head rather than leaving the operator deciding
         // about a revision that is no longer there.
         conflictRevision = result.revision;
+        if (deferredRevisionId != null) await _clearDeferred();
+      } else if (result.outcome == ResolutionOutcome.forkedAgain) {
+        // Our upload landed, and so did someone else's, from the same parent.
+        // Both bodies survive; the honest thing is to say so and re-ask.
+        conflictRevision = result.siblings?.first ?? result.revision;
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          conflictRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved at the same moment. Both copies were kept.',
+        );
       }
       _applyConditions();
       await _refreshFacts();
@@ -3293,14 +3959,28 @@ In `start()`, after `await log.load();`, restore the deferred id:
         (await SharedPreferences.getInstance()).getString(suppressedKey);
 ```
 
-Replace `_raiseConflict` whole, so the deferred revision stops adding log rows
-while the condition itself is still raised:
+Replace `_raiseQuestion` whole, so a deferred revision stops adding log rows
+while the condition itself is still raised — and so a deferral that no longer
+applies is dropped rather than mislabelling a newer revision:
 
 ```dart
-  Future<void> _raiseConflict(BackupRevision? revision, String message) async {
+  Future<void> _raiseQuestion(
+    BackupRevision? revision,
+    BackupFailureKind kind,
+    String message,
+  ) async {
     conflictRevision = revision;
+
+    // The other machine saved again: this is a different question, and the
+    // operator has not answered it. Without this the popover keeps saying
+    // "You chose to decide about this later" about a revision they have
+    // never seen.
+    if (deferredRevisionId != null && deferredRevisionId != revision?.id) {
+      await _clearDeferred();
+    }
+
     final fault = AppFault.backup(
-      BackupFailureKind.conflict,
+      kind,
       message,
       operation: 'resolve',
       targetIdentity: service?.targetIdentity,
@@ -3308,7 +3988,7 @@ while the condition itself is still raised:
     _raise(fault);
     // Deferred means "I have seen this one". The pill stays amber — the
     // divergence is still real — but the sweep stops writing about it.
-    if (revision != null && revision.id == deferredRevisionId) return;
+    if (deferralApplies) return;
     await log.recordFault(fault);
   }
 ```
@@ -3327,6 +4007,7 @@ import 'package:flutter/material.dart';
 import '../../services/backup/app_fault.dart';
 import '../../services/backup/backup_controller.dart';
 import '../../services/backup/backup_service.dart';
+import '../../services/backup/backup_status.dart';
 import '../../services/backup/bundle_diff.dart';
 import '../../services/backup/relative_time.dart';
 
@@ -3387,6 +4068,10 @@ class _ConflictDialogState extends State<_ConflictDialog> {
       case ResolutionOutcome.remoteMovedAgain:
         setState(() => _diff = widget.controller.conflictDiff());
         _tell('The other machine saved again. Here is the newer copy.');
+      case ResolutionOutcome.forkedAgain:
+        setState(() => _diff = widget.controller.conflictDiff());
+        _tell('Another machine saved at the same moment. Both copies were '
+            'kept — here is theirs.');
     }
   }
 
@@ -3397,9 +4082,17 @@ class _ConflictDialogState extends State<_ConflictDialog> {
   Widget build(BuildContext context) {
     final revision = widget.controller.conflictRevision;
     final now = DateTime.now();
+    // First run holding local settings against a non-empty backup is NOT a
+    // two-machine fight: on a brand-new iPad there is no other machine in the
+    // story, and framing it as a conflict misdescribes the only decision that
+    // can wipe out the other machine's work.
+    final isAdoption = widget.controller.status.value.activeCondition?.kind ==
+        BackupStatus.adoptionKind;
 
     return AlertDialog(
-      title: const Text('Two machines have different settings'),
+      title: Text(isAdoption
+          ? 'Which settings should this device use?'
+          : 'Two machines have different settings'),
       content: SizedBox(
         width: 420,
         child: Column(
@@ -3409,8 +4102,13 @@ class _ConflictDialogState extends State<_ConflictDialog> {
             Text(
               revision == null
                   ? 'Another copy exists in the backup.'
-                  : '${revision.deviceLabel} saved a copy '
-                      '${relativeAge(revision.createdAt.toLocal(), now)}.',
+                  : isAdoption
+                      ? 'This device has settings of its own and has never '
+                          'been backed up. The backup holds a copy saved by '
+                          '${revision.deviceLabel} '
+                          '${relativeAge(revision.createdAt.toLocal(), now)}.'
+                      : '${revision.deviceLabel} saved a copy '
+                          '${relativeAge(revision.createdAt.toLocal(), now)}.',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
@@ -3473,12 +4171,12 @@ class _ConflictDialogState extends State<_ConflictDialog> {
         TextButton(
           onPressed:
               _working ? null : () => _run(widget.controller.resolveUseRemote),
-          child: const Text('Use their copy'),
+          child: Text(isAdoption ? 'Use the backup' : 'Use their copy'),
         ),
         FilledButton(
           onPressed:
               _working ? null : () => _run(widget.controller.resolveKeepMine),
-          child: const Text('Keep mine'),
+          child: Text(isAdoption ? "Keep this device's" : 'Keep mine'),
         ),
       ],
     );
@@ -3491,10 +4189,14 @@ class _ConflictDialogState extends State<_ConflictDialog> {
 In `backup_log_popover.dart`'s `_header`, replace the single Retry button with:
 
 ```dart
-          if (status.activeCondition?.kind == BackupStatus.conflictKind)
+          if (BackupStatus.isQuestion(status.activeCondition?.kind ?? ''))
             TextButton(
               onPressed: () => showConflictDialog(context, controller),
-              child: const Text('Review'),
+              child: Text(
+                status.activeCondition!.kind == BackupStatus.adoptionKind
+                    ? 'Choose'
+                    : 'Review',
+              ),
             )
           else if (controller.canRetry)
             TextButton(
@@ -3503,7 +4205,13 @@ In `backup_log_popover.dart`'s `_header`, replace the single Retry button with:
             ),
 ```
 
-and add `if (controller.deferredRevisionId != null) 'You chose to decide about this later.'` to the header's `lines` list.
+and add this to the header's `lines` list — keyed on `deferralApplies`, not on
+the raw id, so a newer revision does not inherit an old decision:
+
+```dart
+      if (controller.deferralApplies)
+        'You chose to decide about this later.',
+```
 
 - [ ] **Step 4: Write the tests**
 
@@ -3551,6 +4259,9 @@ void main() {
   });
 
   tearDown(() => controller.dispose());
+
+  const emptyBundle = '{"schemaVersion":1,"positions":[],"people":[],'
+      '"services":[],"heightRanges":[],"presetNames":{},"visibilities":{}}';
 
   /// Puts the machine into a real divergence: ours pushed, theirs wrote a
   /// sibling, ours edited again.
@@ -3657,7 +4368,42 @@ void main() {
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(BackupController.suppressedKey), isNotNull);
+    expect(controller.deferralApplies, isTrue);
     expect(controller.status.value.state, BackupPillState.needsReview);
+  });
+
+  test('a deferral does not carry over to a newer revision', () async {
+    await diverge();
+    await controller.deferConflict();
+
+    // The other machine saves again. This is a different question.
+    await target.put(emptyBundle,
+        contentHash: 'newer-still',
+        parentRevisionId: null,
+        deviceLabel: "Daniel's iPad");
+    await controller.handleEvent(await service.push());
+
+    expect(controller.deferralApplies, isFalse);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BackupController.suppressedKey), isNull);
+  });
+
+  test('a resolve that fails once and then succeeds does not stay red',
+      () async {
+    await diverge();
+    target.failNextWith(AppFault.backup(
+        BackupFailureKind.transientServer, 'Drive returned an error.',
+        operation: 'resolve', targetIdentity: 'mock:test'));
+
+    await expectLater(controller.resolveKeepMine(), throwsA(isA<AppFault>()));
+    expect(controller.status.value.state, BackupPillState.failing);
+
+    final outcome = await controller.resolveKeepMine();
+
+    expect(outcome, ResolutionOutcome.resolved);
+    expect(controller.status.value.activeCondition, isNull,
+        reason: 'the failure it is about has been superseded by success');
+    expect(controller.status.value.state, BackupPillState.backedUp);
   });
 }
 ```
@@ -3665,7 +4411,7 @@ void main() {
 - [ ] **Step 5: Run the owning test file**
 
 Run: `flutter test test/backup/conflict_resolution_test.dart`
-Expected: `All tests passed!` (4 tests)
+Expected: `All tests passed!` (7 tests)
 
 - [ ] **Step 6: Commit**
 
@@ -3915,11 +4661,62 @@ class _RevisionHistoryDialogState extends State<_RevisionHistoryDialog> {
         ),
       ),
       actions: [
+        // The copy "Use their copy" set aside. Without a way back to it, the
+        // snapshot Task 10 saves is storage nobody can reach.
+        FutureBuilder<Map<String, dynamic>?>(
+          future: BackupService.replacedSnapshot(),
+          builder: (context, snapshot) {
+            final saved = snapshot.data;
+            if (saved == null) return const SizedBox.shrink();
+            return TextButton(
+              onPressed: () => _restoreReplacedCopy(saved),
+              child: const Text('Undo "Use their copy"'),
+            );
+          },
+        ),
         TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Close')),
       ],
     );
+  }
+
+  /// Applies the local configuration that "Use the remote copy" replaced, and
+  /// pushes it as the newest revision — the same shape as any other restore.
+  Future<void> _restoreReplacedCopy(Map<String, dynamic> saved) async {
+    final bundle = saved['bundle'];
+    if (bundle is! Map<String, dynamic>) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Put this device\'s old settings back?'),
+        content: Text(
+          'These are the settings this device had before you chose to use '
+          'the other machine\'s copy, on '
+          '${saved['replacedAt'] ?? 'an earlier date'}. They become the '
+          'newest backup. Nothing is deleted.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Put them back')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ConfigBundle.fromJsonValidated(bundle).applyTransactionally();
+      await widget.controller.retryNow();
+      if (mounted) Navigator.of(context).pop();
+    } on AppFault catch (fault) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not put them back: ${fault.message}')));
+      }
+    }
   }
 }
 ```
@@ -3928,25 +4725,36 @@ class _RevisionHistoryDialogState extends State<_RevisionHistoryDialog> {
 
 `SettingsDialog` is a `StatelessWidget` taking ~20 explicit callbacks
 (`settings_dialog.dart:17-40`); follow that pattern rather than inventing a
-new one. Add one more field beside them:
+new one. Add one more field beside them — **optional, not required**:
 
 ```dart
-  final BackupController backupController;
+  /// Null in tests that construct this dialog directly. The tile is hidden
+  /// rather than dead when there is nothing to open.
+  final BackupController? backupController;
 ```
 
-make it `required this.backupController` in the constructor, and pass
-`backupController: _backup` from `_showSettingsDialog`
+`this.backupController` in the constructor with no `required`. Making it
+required breaks `test/settings_dialog_test.dart:27`, which constructs
+`SettingsDialog` with today's arguments and would stop compiling — taking the
+whole suite with it, contrary to Global Constraint 10.
+
+Pass `backupController: _backup` from `_showSettingsDialog`
 (`multi_device_control_page.dart:299`). Then the `Data` section (`:445-460`)
-gains a third tile:
+gains a third tile, guarded:
 
 ```dart
-              _tile(
-                icon: Icons.history,
-                title: 'Backup History',
-                subtitle: 'Restore an earlier version of your configuration',
-                onTap: () => showRevisionHistory(context, backupController),
-              ),
+              if (backupController != null)
+                _tile(
+                  icon: Icons.history,
+                  title: 'Backup History',
+                  subtitle: 'Restore an earlier version of your configuration',
+                  onTap: () =>
+                      showRevisionHistory(context, backupController!),
+                ),
 ```
+
+Run `flutter test test/settings_dialog_test.dart` immediately after this edit,
+before writing anything else in the task. It must stay green untouched.
 
 - [ ] **Step 4: Write the one wiring test**
 
@@ -4017,6 +4825,8 @@ field.
 
 **Files:**
 - Create: `lib/services/backup/device_label.dart`
+- Create: `lib/widgets/backup/device_name_dialog.dart`
+- Modify: `lib/widgets/backup/conflict_dialog.dart` (name before uploading)
 - Modify: `lib/services/backup/app_fault.dart` (one new kind)
 - Modify: `lib/services/backup/backup_status.dart` (its pill copy)
 - Modify: `lib/services/backup/backup_controller.dart` (wire the label into
@@ -4076,6 +4886,11 @@ class DeviceLabel {
     if (s.endsWith('.local')) s = s.substring(0, s.length - '.local'.length);
     return s.replaceAll('-', ' ').replaceAll('_', ' ');
   }
+
+  /// Whether two labels name the same machine, under the same normalisation
+  /// the collision check uses.
+  static bool isSameName(String? a, String? b) =>
+      a != null && b != null && _normalize(a) == _normalize(b);
 
   /// The proposed default, or null when there is nothing worth proposing.
   ///
@@ -4145,15 +4960,23 @@ In `settings_dialog.dart`'s `Configure` section, a tile opening a one-field
 dialog. The default is offered, never silently accepted:
 
 ```dart
-  Future<void> _nameThisMachine(
-    BuildContext context,
-    BackupController controller,
-  ) async {
+/// Lives in `lib/widgets/backup/device_name_dialog.dart` — top level, not a
+/// method on the settings dialog, because the conflict dialog calls it too.
+Future<void> nameThisMachine(
+  BuildContext context,
+  BackupController controller,
+) async {
+    final saved = await DeviceLabel.load();
+    // A DIFFERENT machine's name is a collision; our own is not. Without this
+    // exclusion, reopening the field after the first backup sanitises the
+    // saved name against our own revisions, blanks the field, and then
+    // refuses to save the same name back. The spec's word is "different".
     final namesInUse = [
-      for (final r in await controller.history()) r.deviceLabel,
+      for (final r in await controller.history())
+        if (!DeviceLabel.isSameName(r.deviceLabel, saved)) r.deviceLabel,
     ];
     final suggestion = DeviceLabel.sanitize(
-      await DeviceLabel.load() ?? DeviceLabel.hostCandidate(),
+      saved ?? DeviceLabel.hostCandidate(),
       namesInUse: namesInUse,
     );
     if (!context.mounted) return;
@@ -4210,7 +5033,39 @@ dialog. The default is offered, never silently accepted:
 
 Wire `BackupController.forEnvironment()`'s `deviceLabel:` to
 `DeviceLabel.require`, and add a `Name this machine` action to the popover
-header when `status.activeCondition?.kind == 'deviceUnnamed'`.
+header when `status.activeCondition?.kind == 'deviceUnnamed'`:
+
+```dart
+          if (status.activeCondition?.kind == 'deviceUnnamed')
+            TextButton(
+              onPressed: () => nameThisMachine(context, controller),
+              child: const Text('Name this machine'),
+            )
+          else if (...)
+```
+
+**Also guard the conflict dialog's uploading actions.** `require()` throws from
+inside `put`, so on an unnamed machine "Keep mine" would fail with a red pill
+instead of asking the one question that unblocks it — and "Keep mine" *is* a
+first push. In `conflict_dialog.dart`, before running an action that uploads:
+
+```dart
+  Future<void> _runUpload(Future<ResolutionOutcome> Function() action) async {
+    if (await DeviceLabel.load() == null) {
+      await nameThisMachine(context, widget.controller);
+      if (!mounted || await DeviceLabel.load() == null) return;
+    }
+    await _run(action);
+  }
+```
+
+and call `_runUpload` for "Keep mine" / "Keep this device's". "Use their copy"
+does not upload and needs no name.
+
+`_nameThisMachine` therefore moves out of `settings_dialog.dart` into
+`lib/widgets/backup/device_name_dialog.dart` as a public
+`Future<void> nameThisMachine(BuildContext, BackupController)`, called from
+both places. Same body, one home.
 
 - [ ] **Step 3: Write the behavioral test**
 
@@ -4259,6 +5114,15 @@ void main() {
           namesInUse: const ['sanctuary-mac-mini']),
       isNull,
     );
+  });
+
+  test('this machine\'s OWN name is not a collision with itself', () {
+    // Every revision we have ever pushed carries our label. Counting those as
+    // collisions makes the name field unusable the moment it works.
+    expect(DeviceLabel.isSameName('Sanctuary-Mac-mini', 'Sanctuary Mac mini'),
+        isTrue);
+    expect(DeviceLabel.isSameName("Daniel's iPad", 'Sanctuary Mac mini'),
+        isFalse);
   });
 
   test('require() refuses to invent a name', () async {
@@ -4377,9 +5241,10 @@ faults in the pill (Phase 5).
 
 **2. Placeholder scan.** No `TODO`, no "implement later", no "similar to Task
 N", no "add appropriate error handling". Every code step carries the code.
-Two forward references are explicit rather than vague: Task 6 imports Task 7's
-`showBackupLogPopover` (noted in the task), and Task 14's pill copy makes Task
-2's coverage test fail until it lands (noted, and intended).
+One forward reference remains, and it is intended: Task 14's pill copy makes
+Task 2's coverage test fail until it lands. The Task 6/7 forward reference
+that the first draft carried is gone — the popover is now built before the
+pill that opens it.
 
 **3. Type consistency.** Checked across tasks:
 
@@ -4398,26 +5263,27 @@ Two forward references are explicit rather than vague: Task 6 imports Task 7's
 - `BundleDiff.between(mine, theirs)` argument order is the same in Tasks 11,
   12 and 13 — **mine first**, and the copy is phrased from theirs.
 
-**4. Things a reviewer should push on hardest.**
+**4. Where the two reviews landed.** Ten findings changed the plan
+materially; two were refuted with receipts. The full disposition is in the
+[Revision log](#revision-log). What remains genuinely open, and what a third
+reader should attack:
 
-- **`_applyRevision`'s freshness guard is reused for a deliberate overwrite.**
-  Task 10's `adoptRemote` aborts when local changed during the fetch. That is
-  defensible, and it is also a path where the operator pressed a button and
-  nothing happened. Is a re-prompt the right answer, or should adopt force?
+- **The replaced-copy slot holds one snapshot.** Adopt twice and the first
+  local copy is gone. A second adopt within minutes of the first is the
+  realistic way to lose it.
 - **The status recomputes the full bundle hash on every event and every
-  mutation.** `ConfigBundle.fromStores()` reads every key and re-encodes.
-  That is cheap against in-memory `SharedPreferences`, but it happens on every
-  keystroke-driven save. Should it be debounced or cached against the
-  generation counter?
-- **Deviation D1** leaves a real hole: a machine that fails to authenticate,
-  then restarts, shows grey rather than red until the first pull returns. Is
-  the honesty worth the gap?
-- **`restoreRevision` writes twice** — apply, then upload — and there is no
-  single-flight *boundary* between them beyond `_single`, so a crash in the
-  middle leaves local restored and the head unmoved. That state is coherent and
-  self-healing on the next push, but it is worth saying out loud.
-- **The device-name uniqueness check reads `list(limit: 50)`,** so a machine
-  named while the target is unreachable can still collide.
+  mutation.** `ConfigBundle.fromStores()` reads every key and re-encodes it.
+  Cheap against in-memory `SharedPreferences`, but it runs on every save.
+  Should it be cached against the generation counter?
+- **`restoreRevision` re-downloads bytes it already holds** so that there is
+  one apply path with one freshness guard. One wasted Drive round trip.
+- **The popover is a `showDialog` route.** Tapping the pill mid-service puts a
+  barrier over the camera buttons until the operator taps once to dismiss. An
+  `OverlayEntry` would need its own outside-tap barrier and would behave the
+  same; if that is wrong, it is wrong in a way this plan has not seen.
+- **The device-name collision check reads `list(limit: 50)`,** so two machines
+  named while the target is unreachable can still collide until their first
+  push.
 
 ---
 
@@ -4428,11 +5294,89 @@ Stated here rather than discovered at merge:
 1. **Nothing in Phase 3 backs anything up.** Both lanes ship against no target
    in production. The first real backup happens in Phase 4.
 2. **`MockBackupTarget` cannot fail mid-`put`,** so no test here covers a
-   partial upload. That is Phase 4's problem, with a real transport.
-3. **No integration test drives the pill through the mock rig.** The rig fakes
+   partial upload. That is Phase 4's problem, with a real transport. The
+   interrupted-restore test stands in for it by failing the apply instead.
+3. **The replaced-copy slot holds exactly one snapshot.** A second "Use their
+   copy" overwrites the first. Recoverable, once.
+4. **No integration test drives the pill through the mock rig.** The rig fakes
    the Roland and the cameras, not a backup target, and adding one would be
    ops work outside this lane.
-4. **The popover is not keyboard-navigable** beyond what `showDialog` gives for
+5. **The popover is not keyboard-navigable** beyond what `showDialog` gives for
    free. Nobody operates this app by keyboard today.
-5. **Deviations D1 and D6 change spec-stated behaviour.** Both are argued
-   above; neither is a silent departure.
+6. **Deviations D1 and D6 change spec-stated behaviour.** Both are argued
+   above, both were attacked in review, and D1's one real hole — a failed push
+   hidden across a restart — is closed by Task 8's start-up resume rather than
+   by persisting a claim nothing has re-proved.
+7. **Two reviewer findings were refuted, not fixed.** If either receipt is
+   wrong, the plan is wrong with it; both are reproducible in one command and
+   named in the revision log.
+
+---
+
+## Revision log
+
+Two cold cross-family reviewers on the committed plan at `d8cce3a`, per
+`docs/superpowers/runbooks/lane-process.md` step 7, dispatched via
+`scripts/handoff-to-agent.sh`:
+
+- **`codex` / `gpt-5.6-sol`, high effort** (pid 22648, model in argv) —
+  `BLOCKERS: 10`, verdict *not ready to execute*.
+- **`grok` / `grok-4.6`, high effort** (pid 23641) — `BLOCKERS: 5`, verdict
+  *not ready to execute*.
+
+Both got the same brief, the whole artifact, an open mandate, and the three
+standing questions. Severity below is **as filed**. Findings the two raised
+independently are merged into one row and marked *both*.
+
+### Refuted — receipts, no change made
+
+| Filed | Claim | Receipt |
+|---|---|---|
+| `gpt-5.6-sol` BLOCKER 8 | "`num.clamp()` returns `num`; `pendingCount` and `Positioned.left` will not compile." | **False.** The analyzer special-cases `clamp` when receiver and both bounds share a type. Compiled the exact two expressions in a scratch package: `dart analyze` → `No issues found!`. Unchanged. |
+| `grok-4.6` BLOCKER 5 | "`TestWidgetsFlutterBinding` is already `resumed`; the duplicate state no-ops and `didChangeAppLifecycleState` never runs, so Task 8's test fails." | **False.** `WidgetsBinding.handleAppLifecycleStateChanged` (`widgets/binding.dart:1330-1335`) calls `super` first — where the dedupe lives (`scheduler/binding.dart:414-417`) — and then notifies observers **unconditionally**. Probe test with a real observer saw `[resumed, paused, resumed]`, including the duplicate. The plan now goes `paused → resumed` anyway, because that is the sequence an operator actually produces, but the stated reason was wrong. |
+
+### Accepted — blockers
+
+| Filed | Finding | What changed | Receipt |
+|---|---|---|---|
+| BLOCKER, *both* | Restore applied before uploading, so a failed or killed upload leaves the pointer on the ancestor, the next pull matches branch 6, and the restore is **silently reversed**. | Task 10 `restoreRevision` inverted to **upload first, then apply**. New test `a failed upload leaves local UNTOUCHED, never half-restored`, plus one for the interrupted case. Deviation D5 rewritten. | Branch 6 at `backup_service.dart:165-176`; pointer save inside `_applyRevision` at `:225-229`; pull-before-push at `backup_scheduler.dart:91-99`. |
+| BLOCKER, `gpt-5.6-sol` 1 | "Use the remote copy" discarded local work with nothing preserving it; the spec requires snapshotting local first. | Task 10 `adoptRemote` writes `backup_replaced_snapshot` **before the fetch**, and refuses to proceed if that write fails. Task 13 surfaces it as *Undo "Use their copy"*. | `spec:451` — "snapshot local first, then apply transactionally". |
+| BLOCKER, *both* | `keepLocalAsNewRevision` and `restoreRevision` had no post-write sibling check, so two machines resolving the same conflict both reported success and both went green. | Task 10 extracts `_appendRevision` — put, optional pointer move, sibling scan — and puts `push()`, keep-mine and restore on it. New test using `MockBackupTarget.concurrentWriterBeforePut`. | The check they omitted is live at `backup_service.dart:293-305`. |
+| BLOCKER, `gpt-5.6-sol` 4 | A conflict outcome left the operation's earlier transport failure standing; hard failures outrank questions, so the popover offered "Retry now" forever and the resolution UI was unreachable. | Task 5 `_onPull`/`_onPush` clear that operation's condition on **any** completed result. New test: `a completed pull clears its transport failure even when the answer is a conflict`. | — |
+| BLOCKER, `gpt-5.6-sol` 5 | A successful resolve never cleared its own earlier `resolve` failure, so a retry that worked still left the pill red. | Task 12 `_resolve` removes `_conditions['resolve']` on success. New test: `a resolve that fails once and then succeeds does not stay red`. | — |
+| BLOCKER, `gpt-5.6-sol` 7 | `_refreshFacts` read the raw pointer with no target-identity check, so an account or folder change could paint green over an empty target. | Task 5 adds `_pointer()`, mirroring the engine's own check. New test: `a pointer from another target is not this target's head`. | Engine equivalent at `backup_service.dart:101-104`. |
+| BLOCKER, *both* | The controller's fold was unserialized (`unawaited(handleEvent)`), so an older `_refreshFacts` could finish last and write stale facts — "Not backed up" over a revision that exists. | Task 5 adds a `_fold` queue; the stream and mutation listeners enqueue instead of firing. New test: `a slow first event cannot repaint the pill after a later success`. | — |
+| BLOCKER, `grok-4.6` 3 | `BACKUP_SCENARIO=conflict` staged one revision into an empty target — which a pristine machine **adopts** (branch 3), so Task 9 would have screenshotted green and labelled it "Needs review". Staging was also unawaited. | Task 8 replaces it with `_stage`, awaited before the first pull, which provenances the machine and then writes a **sibling** so pull reaches branch 7. | Branch 3 at `backup_service.dart:130-142`; branch 7 at `:178-179`. |
+| BLOCKER, *both* | Making `SettingsDialog.backupController` required breaks an existing test and takes the whole suite down. | Task 13 makes it nullable and hides the tile when absent; the task now runs that file immediately after the edit. | `test/settings_dialog_test.dart:27`. |
+| BLOCKER, *both* | Task 6 imported a file Task 7 created; the declared order was not executable. | Tasks 6 and 7 swapped — popover first, pill second — and the popover's test no longer mounts the pill. | — |
+| BLOCKER, `grok-4.6` 6 (filed MAJOR) | `PullOutcome.nothingToDo` cleared a fork warning. After winning a fork race our revision **is** the head, so the next pull erased the warning while the sibling sat in the store. | Task 5 `_onPull` no longer clears the question on `nothingToDo`. New test. Promoted to blocker: it is silent, reachable, and loses the only warning this machine gets. | `nothingToDo` means only `head.id == pointer`, `backup_service.dart:146-148`. |
+
+### Accepted — majors and minors
+
+| Filed | Finding | What changed |
+|---|---|---|
+| MAJOR, *both* | `lastSuccessAt` could not be cleared, so the popover could date an unbacked configuration by an old backup. | `copyWith` gains `clearLastSuccess`; Task 5 shows an age only while the pointer is provenanced. New test. |
+| MAJOR, *both* | Device-name uniqueness counted **this** machine's own revisions, so the field blanked itself and refused to re-save the current name after the first push. | `DeviceLabel.isSameName`; Task 14 excludes our own label. New test. |
+| MAJOR, `grok-4.6` 8 | `DeviceLabel.require()` throws from inside `put`, so "Keep mine" on an unnamed machine failed red instead of asking the one question that unblocks it. | Task 14 extracts `nameThisMachine(...)` into its own widget file and the conflict dialog calls it before any uploading action. |
+| MAJOR, `grok-4.6` 10 | First-run adoption was framed as "Two machines have different settings" — a lie on a brand-new iPad. | New `BackupFailureKind.adoptionChoice` and `BackupStatus.adoptionKind`; pill reads "Choose a copy"; the dialog asks its own question with its own button words. New tests in Tasks 2 and 5. |
+| MAJOR, `gpt-5.6-sol` 13 | Deferral was not rescoped: a newer revision inherited an old "decide later". | `deferralApplies` compares against the **current** revision, and `_raiseQuestion` clears a deferral that no longer applies. New test. |
+| MAJOR, *both* | Vacuous tests: the log-eviction test used 500 identical fingerprints that collapsed to one row and could not fail; the "conflict does not hide a hard failure" test constructed no conflict. | Both rewritten. The eviction test now uses 250 distinct fingerprints and asserts the opposite, honest thing — history **is** evictable, which is exactly why D1 keeps the active condition elsewhere. |
+| MAJOR, `gpt-5.6-sol` 17 | `onAppStart()` only pulls, so a mutation killed before its debounce waits for a foreground event or the ten-minute sweep. | Task 8 Step 1 makes app start resume a pending push, with a test. This also closes the D1 objection. |
+| MINOR, `grok-4.6` | Preset/visibility diff counted devices, not buttons: twenty renamed presets read "1 changed". | Task 11 counts inner entries. Test rewritten. |
+| MINOR, *both* | The pinned popover row was always red, contradicting the pill's own amber for a question. | Coloured by severity, with a matching icon. |
+| MINOR, `grok-4.6` | Task 1 claimed 13 tests; the snippet has 11. | Corrected. |
+| MINOR, `grok-4.6` | Task 4's test group uses `RestoreJournal` without naming the import. | Import named in the task. |
+| MINOR, `grok-4.6` | The File Structure blurb promised a `force` path on `_applyRevision` that Task 10 never adds. | Removed from the blurb; the freshness abort is the intended behaviour. |
+| MINOR, `grok-4.6` | Unused `relative_time.dart` import on the controller at Task 12 would fail `flutter analyze` before Task 13 uses it. | The import note moved to Task 13, where the first use is. |
+
+### Standing questions, as answered
+
+Both reviewers answered all three. Their shared answer to (1) and (2) — *one
+append primitive behind every writer, and make destructive resolution
+recoverable* — is now the shape of Task 10. Their answer to (3) was **no**,
+citing the missing snapshot, the unsafe restore order, the missing fork checks
+and the unreachable resolution UI; those are the four blockers above.
+
+Neither reviewer challenged the architecture. The three-fact model, the
+precedence order, `localIsPristine` as key-presence, the 3a/3b split, and
+deviations D2, D3, D4 and D6 were endorsed by both, independently.
