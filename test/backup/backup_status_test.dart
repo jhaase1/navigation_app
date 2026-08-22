@@ -92,9 +92,16 @@ void main() {
     expect(conflicted.state, BackupPillState.needsReview);
     expect(failing.state, BackupPillState.failing);
     expect(failing.label(now), 'Drive full');
-    // Enum order IS the precedence order, and the controller relies on it.
-    expect(BackupPillState.failing.index,
-        lessThan(BackupPillState.needsReview.index));
+    // NOTE for Task 6: the enum's DECLARATION ORDER documents the precedence
+    // table; it is not the mechanism and nothing may rank by it. `state` above
+    // evaluates the table explicitly, first match wins. A controller that
+    // resolves two simultaneous conditions by comparing `BackupPillState.index`
+    // goes silently wrong the moment anyone reorders the enum — which is the
+    // green-pill-over-dead-credentials bug this surface exists to prevent.
+    // An earlier revision of this test asserted `failing.index < needsReview
+    // .index` and called the controller a consumer of that order. Removed:
+    // it tested the declaration, not the behaviour, and read as a licence to
+    // rank by index.
   });
 
   test('every backup failure kind has copy that is not the fallback', () {

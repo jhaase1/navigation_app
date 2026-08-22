@@ -340,3 +340,57 @@ possible test of the whole pipeline.
 
 If Ornith cannot land Task 1 cleanly, the pipeline does not work and you have
 spent fifteen minutes learning that.
+
+---
+
+## 12. Review docket — open items from completed tasks
+
+Findings that are real but were **not** fixed in the task that surfaced them,
+because the plan is pinned and the tests in question are plan-supplied. Daniel
+ruled 2026-08-22: carry the coverage gaps to the Task 10 sweep, neutralise the
+enum-index hazard immediately.
+
+### Task 2 — `gpt-5.6-terra`, high effort, reviewed the diff
+
+Verdict on the code: **no plan defect, no implementation defect.** Green is
+reachable only with no active condition AND `configured` AND `hasDurableHead`
+AND not `isDirty`; every non-null condition blocks it. The precedence chain is
+explicit first-match control flow. Neither `activeCondition!` in `label()` can
+throw. `copyWith` has no inescapable state.
+
+**CLOSED — the enum-index hazard.** The plan's own test asserted
+`BackupPillState.failing.index < needsReview.index` under the comment *"Enum
+order IS the precedence order, and the controller relies on it."* That is a
+licence to do in Task 6 the exact thing §5 of this brief warns Ornith not to do.
+Assertion removed in the Task 2 follow-up commit and replaced with a NOTE for
+Task 6 stating that declaration order documents the table and is never the
+mechanism. **Task 6's brief must repeat this.**
+
+**OPEN — five test-coverage gaps, all in plan-supplied tests. For Task 10.**
+
+1. D2's load-bearing case is untested: `pendingCount > 0` with `isDirty == false`
+   must stay **green**. That combination is the operator-switch case D2 exists to
+   handle — `OperatorStore.saveActiveId` bumps the generation without changing
+   content. Nothing currently fails if someone makes the count alone turn the
+   pill amber.
+2. Neither clear path is tested — a failure or question cleared back to its
+   underlying state, nor `clearLastSuccess` after a target removal or import.
+3. The equality test only compares dirty vs. clean. It does not prove that a
+   changed fault message, operation, or target triggers an AppBar rebuild —
+   which is what `==` comparing by fingerprint + message is there to guarantee.
+4. `adoptionChoice` being in `_needsHuman` is asserted nowhere;
+   `test/backup/app_fault_test.dart` omits it.
+5. "Every kind has copy" checks map presence only. A wrong exact string for any
+   operator-visible failure label passes it — and Global Constraint 7 makes copy
+   a spec surface.
+
+### Metrics so far (do not collapse these — brief §7)
+
+| task | first-pass | repairs used | reviewer caught a code defect tests missed | pipeline |
+|---|---|---|---|---|
+| 1 (mechanical) | pass | 0 | not reviewed | pass |
+| 2 (substantive) | pass | 0 | **no** | pass |
+
+Two clean transcriptions is not yet evidence about Ornith's judgment: Tasks 1
+and 2 shipped code byte-identical to the plan's fences. The Terra tier has not
+yet caught a code defect the tests missed. Do not retire it on a sample of one.
