@@ -88,8 +88,15 @@ class BackupScheduler {
     _sweepTimer = null;
   }
 
-  /// Pull on launch. The round trip also proves the credential still works.
-  Future<void> onAppStart() => _run(_Op.pull);
+  /// Pull on launch, then resume anything the last run left pending.
+  ///
+  /// The round trip also proves the credential still works.
+  Future<void> onAppStart() async {
+    await _run(_Op.pull);
+    if (!_stopped && await ConfigMutationNotifier.instance.isDirty()) {
+      await _run(_Op.push);
+    }
+  }
 
   /// Pull on unbackground, then resume anything left pending.
   Future<void> onForeground() async {
@@ -147,8 +154,8 @@ class BackupScheduler {
       return _Attempt.fault(fault);
     } catch (error) {
       if (_stopped) return const _Attempt.stopped();
-      final fault = AppFault.backup(BackupFailureKind.unknown, '$error',
-          cause: error);
+      final fault =
+          AppFault.backup(BackupFailureKind.unknown, '$error', cause: error);
       _events.add(fault);
       return _Attempt.fault(fault);
     }

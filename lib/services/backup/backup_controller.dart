@@ -13,6 +13,7 @@ import 'backup_service.dart';
 import 'backup_status.dart';
 import 'canonical_json.dart';
 import 'config_mutation_notifier.dart';
+import 'mock/mock_backup_target.dart';
 
 /// The only thing that reads the engine and the only thing the UI reads.
 ///
@@ -27,6 +28,71 @@ class BackupController with WidgetsBindingObserver {
   /// **Never ship a build with this set.** An in-memory store evaporates on
   /// quit, so a green pill over it is a lie.
   static const bool useMockTarget = bool.fromEnvironment('BACKUP_MOCK');
+
+  /// Which state the mock target should stage, for demonstrating the surface
+  /// before Drive exists: `ok`, `authExpired`, `offline`, `conflict`.
+  /// Only read when [useMockTarget] is set.
+  static const String mockScenario =
+      String.fromEnvironment('BACKUP_SCENARIO', defaultValue: 'ok');
+
+  factory BackupController.forEnvironment() {
+    if (!useMockTarget) return BackupController.disabled();
+
+    final target = MockBackupTarget();
+    final service = BackupService(
+      target: target,
+      targetIdentity: 'mock:in-memory',
+      deviceLabel: () async => 'This machine',
+      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
+      localIsPristine: ConfigBundle.localIsPristine,
+    );
+
+    return BackupController.forService(
+      service,
+      stageScenario: () => _stage(mockScenario, target, service),
+    );
+  }
+
+  /// Runs before the first pull, and is awaited.
+  ///
+  /// Every branch here was walked against the live pull algorithm
+  /// (`backup_service.dart:109-180`). An earlier draft simply dropped one
+  /// revision into an empty target and called it a conflict: a pristine
+  /// machine with a null pointer **adopts** that revision (branch 3), so the
+  /// pill went green and the screenshot would have been of the wrong state.
+  static Future<void> _stage(
+    String scenario,
+    MockBackupTarget target,
+    BackupService service,
+  ) async {
+    switch (scenario) {
+      case 'authExpired':
+        target.failNextWith(AppFault.backup(
+            BackupFailureKind.authExpired, 'Sign in to Google again.',
+            operation: 'pull', targetIdentity: 'mock:in-memory'));
+      case 'offline':
+        target.failNextWith(AppFault.backup(
+            BackupFailureKind.offline, 'Could not reach Google Drive.',
+            operation: 'pull', targetIdentity: 'mock:in-memory'));
+      case 'conflict':
+        // Provenance this machine against a first revision, then have another
+        // machine write a SIBLING of it. Pull then reaches branch 7: the head
+        // is neither our pointer nor a descendant of it.
+        final ours = await service.push();
+        final base = ours.revision;
+        if (base == null) return;
+        await target.put(
+          '{"schemaVersion":1,"positions":[{"id":"p9","name":"Balcony"}],'
+          '"people":[],"services":[],"heightRanges":[],"presetNames":{},'
+          '"visibilities":{}}',
+          contentHash: 'staged-sibling',
+          parentRevisionId: base.parentRevisionId,
+          deviceLabel: "Daniel's iPad",
+        );
+      default:
+        break;
+    }
+  }
 
   static const String _conflictKey = 'conflict';
 
@@ -51,6 +117,9 @@ class BackupController with WidgetsBindingObserver {
 
   StreamSubscription<Object>? _events;
   StreamSubscription<int>? _mutations;
+  Future<void>? _startFuture;
+  Future<void>? _disposeFuture;
+  var _disposed = false;
 
   final ValueNotifier<BackupStatus> status =
       ValueNotifier<BackupStatus>(const BackupStatus());
@@ -70,7 +139,8 @@ class BackupController with WidgetsBindingObserver {
 
   /// No target. Phase 3's production configuration: the pill reads
   /// "Not backed up" and nothing ever contacts anything.
-  factory BackupController.disabled({BackupLog? log, DateTime Function()? now}) =>
+  factory BackupController.disabled(
+          {BackupLog? log, DateTime Function()? now}) =>
       BackupController._(
         service: null,
         scheduler: null,
@@ -95,10 +165,15 @@ class BackupController with WidgetsBindingObserver {
 
   bool get canRetry => _scheduler != null;
 
-  Future<void> start() async {
+  Future<void> start() => _startFuture ??= _start();
+
+  Future<void> _start() async {
+    if (_disposed) return;
     WidgetsBinding.instance.addObserver(this);
     await log.load();
+    if (_disposed) return;
     await _refreshFacts();
+    if (_disposed) return;
 
     final scheduler = _scheduler;
     if (scheduler == null) return;
@@ -106,8 +181,10 @@ class BackupController with WidgetsBindingObserver {
     // Awaited, and before the first pull: a scenario staged afterwards would
     // race the pull it exists to set up.
     await _stageScenario?.call();
+    if (_disposed) return;
 
-    _events = scheduler.events.listen((event) => _enqueue(() => handleEvent(event)));
+    _events =
+        scheduler.events.listen((event) => _enqueue(() => handleEvent(event)));
     _mutations = ConfigMutationNotifier.instance.onMutated
         .listen((_) => _enqueue(_refreshFacts));
 
@@ -366,15 +443,25 @@ class BackupController with WidgetsBindingObserver {
     }
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void> _dispose() async {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
-    await _events?.cancel();
-    await _mutations?.cancel();
     await _scheduler?.stop();
-    await _fold;
-    // `status` and `log.entries` are deliberately NOT disposed. They outlive
-    // any one widget, tests tear down in an order that would otherwise use
-    // them after disposal, and two undisposed ValueNotifiers on an
-    // app-lifetime object leak nothing that matters.
+    try {
+      await _startFuture;
+    } finally {
+      await _events?.cancel();
+      _events = null;
+      await _mutations?.cancel();
+      _mutations = null;
+      await _scheduler?.stop();
+      await _fold;
+      // `status` and `log.entries` are deliberately NOT disposed. They
+      // outlive any one widget, tests tear down in an order that would
+      // otherwise use them after disposal, and two undisposed ValueNotifiers
+      // on an app-lifetime object leak nothing that matters.
+    }
   }
 }

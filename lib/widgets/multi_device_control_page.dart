@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/height_range.dart';
 import '../models/operator_profile.dart';
@@ -8,6 +10,7 @@ import '../models/service.dart';
 import '../services/roland_service.dart';
 import '../services/panasonic_service.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/backup/backup_controller.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
 import '../services/device_config_store.dart';
@@ -16,6 +19,7 @@ import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
+import 'backup/backup_status_pill.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
 import 'service_tab.dart';
@@ -23,7 +27,12 @@ import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
-  const MultiDeviceControlPage({super.key});
+  const MultiDeviceControlPage({super.key, this.backupController});
+
+  /// Injected by tests. Production passes nothing and gets
+  /// [BackupController.forEnvironment], which is disabled unless
+  /// `--dart-define=BACKUP_MOCK=true`.
+  final BackupController? backupController;
 
   @override
   State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();
@@ -53,10 +62,15 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Person> _people = [];
   List<Service> _services = [];
   List<HeightRange> _heightRanges = [];
+  late final BackupController _backup;
 
   @override
   void initState() {
     super.initState();
+    // The controller registers itself as a WidgetsBindingObserver, so pull on
+    // foreground and flush on background are its business, not this widget's.
+    _backup = widget.backupController ?? BackupController.forEnvironment();
+    unawaited(_backup.start());
     _loadDeviceConfig();
     _loadOperators();
     _loadPositions();
@@ -73,8 +87,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       _rolandIpController.text = rolandIp;
       _panasonicCameras
         ..clear()
-        ..addAll(cameras.map(
-            (e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
+        ..addAll(cameras
+            .map((e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
     });
   }
 
@@ -112,8 +126,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       }
       _panasonicCameras
         ..clear()
-        ..addAll(entries.map(
-            (e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
+        ..addAll(entries
+            .map((e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
     });
     DeviceConfigStore.save(rolandIp, entries);
   }
@@ -125,6 +139,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     for (final camera in _panasonicCameras) {
       camera.ipController.dispose();
     }
+    unawaited(_backup.dispose());
     super.dispose();
   }
 
@@ -376,8 +391,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           label: Text(op.name,
               style: TextStyle(
                   fontSize: compact ? 12 : 14,
-                  fontWeight:
-                      selected ? FontWeight.bold : FontWeight.normal)),
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
           selected: selected,
           onSelected: (_) => _setActiveOperator(op),
         );
@@ -395,6 +409,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (!isConnected) {
       return Scaffold(
         appBar: AppBar(
+          centerTitle: false,
+          title: BackupStatusPill(controller: _backup),
           actions: [
             IconButton(
               icon: const Icon(Icons.person_add),
@@ -422,9 +438,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _mockMode
-                      ? Colors.orange.shade100
-                      : Colors.blue.shade100,
+                  color:
+                      _mockMode ? Colors.orange.shade100 : Colors.blue.shade100,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -466,6 +481,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
+        title: BackupStatusPill(controller: _backup),
         actions: [
           Tooltip(
             message: 'Switch operator',
@@ -473,8 +490,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               borderRadius: BorderRadius.circular(8),
               onTap: () => _showOperatorPicker(context),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
