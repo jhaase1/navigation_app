@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'backup_log.dart';
 import 'backup_pointer.dart';
 import 'config_mutation_notifier.dart';
 
@@ -15,7 +16,8 @@ import 'config_mutation_notifier.dart';
 class RestoreJournal {
   static const String key = 'backup_restore_journal';
 
-  static const _fixedKeys = <String>[
+  /// The eight stores' keys — the configuration itself.
+  static const dataKeys = <String>[
     'positions',
     'people',
     'services',
@@ -24,20 +26,27 @@ class RestoreJournal {
     'active_operator_id',
     'roland_ip',
     'panasonic_cameras',
-    // Restoring stores without these would leave the generation ahead of the
-    // data, so isDirty would lie and the next push would surface a phantom
-    // conflict.
+  ];
+
+  /// Per-device keys, one per connected device, enumerated by prefix.
+  static const dataPrefixes = <String>['preset_names_', 'item_visibility_'];
+
+  /// Engine bookkeeping. Restoring stores without these would leave the
+  /// generation ahead of the data, so isDirty would lie and the next push
+  /// would surface a phantom conflict.
+  static const engineKeys = <String>[
     ConfigMutationNotifier.generationKey,
     ConfigMutationNotifier.syncedKey,
     BackupPointer.revisionKey,
     BackupPointer.hashKey,
     BackupPointer.targetKey,
+    BackupLog.lastSuccessKey,
   ];
 
-  static const _prefixes = <String>['preset_names_', 'item_visibility_'];
-
   static bool isJournalled(String k) =>
-      _fixedKeys.contains(k) || _prefixes.any(k.startsWith);
+      dataKeys.contains(k) ||
+      engineKeys.contains(k) ||
+      dataPrefixes.any(k.startsWith);
 
   /// Snapshots every journalled key's current value.
   static Future<void> capture() async {
