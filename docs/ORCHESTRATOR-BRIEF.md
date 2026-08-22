@@ -95,8 +95,25 @@ osascript -e 'tell application "Terminal" to activate' \
   via `--settings` DOES silence the `[claude-code:unrecognized_model]` diagnostic
   (documented at code.claude.com/docs/en/model-config) — and the tool set is
   unchanged. So registering the model is not a route to more tools. The actual
-  gate is still unidentified; treat the four-tool set as fixed until someone
-  proves otherwise.
+  gate is still unidentified; treat the four-tool set as fixed.
+
+  Six routes tested, all negative: `--tools default`; `--tools` with Write named;
+  a scrubbed environment; no `--bare` plus `--dangerously-skip-permissions`;
+  `modelOverrides`; and `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Note that
+  `--tools` is an **allowlist that can only subtract** — it cannot grant a tool,
+  so it was never going to work. And behind a custom `ANTHROPIC_BASE_URL` the
+  model-name check is skipped entirely; `[claude-code:unrecognized_model]` is a
+  runtime diagnostic, not a gate. Do not spend time re-litigating this.
+
+  Two hazards found while testing, worth avoiding: `ENABLE_TOOL_SEARCH=1` on a
+  custom base URL makes Grep and Glob vanish (claude-code#63525), and custom
+  endpoints can throw HTTP 400 from experimental beta headers — fix with
+  `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` (claude-code#46105).
+
+  Finally: a fuller toolset may not even be desirable. claude-code#25857
+  documents Claude Code sending 259 tool definitions to a local model and
+  overwhelming it into emitting no tool calls at all. Ornith's 4/4 tool-call
+  rate was measured with four tools in context.
   **Consequence for briefs: there is no `Write` tool. Ornith creates new files
   with a Bash heredoc** (`Edit` needs an existing target). This is how all three
   successful trials worked; do not write a brief that assumes `Write`.
