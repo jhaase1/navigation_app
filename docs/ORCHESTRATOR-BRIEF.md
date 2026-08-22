@@ -418,6 +418,78 @@ a bug in the task that produced it, but a loaded gun aimed at a later task. Two
 for two. Read every review for what it implies about the NEXT task, not just
 this one.
 
+### Tasks 5 + 6 — MERGED. The plan's seam between them does not exist.
+
+Measured 2026-08-22, not inferred. Extracting Task 5's Step 1 fence to
+`lib/services/backup/backup_controller.dart` and running
+`flutter analyze` on it alone gives **6 issues**:
+
+```
+warning • Unused import: 'mock/mock_backup_target.dart'
+warning • The value of the field '_conflictKey' isn't used
+warning • The value of the field '_conditions' isn't used
+warning • The declaration '_markConfirmedStored' isn't referenced
+   info • The import of 'flutter/foundation.dart' is unnecessary
+   info • The private field _fold could be 'final'
+6 issues found.
+```
+
+Global Constraint 10 requires `No issues found!`, so **Task 5 cannot pass its
+own gate.** Independently, Task 5's Step 2 test calls `controller.handleEvent`,
+which Task 6's "Produces" line introduces — so its test cannot compile either.
+
+Task 6 consumes every dangling member (`_conditions` ×8, `_conflictKey` ×4,
+`_markConfirmedStored` ×4) and reassigns `_fold`, which clears four of the six.
+The remaining two are dead in BOTH tasks: `mock/mock_backup_target.dart` is
+first used in **Task 9**, and `flutter/foundation.dart` is redundant with
+`flutter/widgets.dart` throughout.
+
+**Ruling:** execute 5 and 6 as one task. Drop both imports; **Task 9's brief must
+re-add `import 'mock/mock_backup_target.dart';`** when it adds the mock factory.
+
+This is the Round 3 pattern again — the plan says Task 5 was "split from what was
+one 600-line task", and the cut left Task 5 holding Task 6's references. Round 3
+was never itself reviewed (§6). Assume the same class of defect at every other
+seam Round 3 introduced.
+
+**Execution is split even though the task is merged.** Merged, the brief runs
+~13k tokens against an executor whose trials ran at 3–5k. So: session 5A writes
+`backup_controller.dart` only (5.2k brief); session 5B writes
+`backup_controller_test.dart` only. The task stays merged; the typing does not.
+
+### Task 6's protected acceptance matrix — BUILT (§6 satisfied)
+
+`test/backup/backup_controller_matrix_test.dart`, 314 lines, authored by
+`gpt-5.6-terra` with no sight of the implementation, and Ornith is never shown
+it. Covers: 16 generated hard/question orderings (4 hard kinds × 2 question
+kinds × both arrival directions), two simultaneous live hard failures with
+recency and survival-after-completion, `conflictRevision` lifecycle, `dismiss()`
+not silencing an active condition, an injected queued-work exception with
+recovery afterwards, and serialization under interleaving using a genuinely
+delayed `SharedPreferencesStorePlatform`.
+
+**The oracle needed a review round of its own.** Its first draft asserted that a
+disabled controller handed an `AppFault` stays grey. Traced against the spec
+that is wrong: `handleEvent` → `_raise` → `_applyConditions` sets
+`activeCondition`, and precedence row 1 fires before the not-configured row, so
+the state is `failing`. Asserting grey would have forced the implementer to
+invent an unspecified guard — the oracle dictating undesigned behaviour, which
+is precisely what a protected matrix must not do. Sent back with the trace; Terra
+replaced it with the reachable contract (`start()` alone leaves it grey, nothing
+contacted). **Verify the matrix before granting it authority. An independent
+oracle is not an infallible one.**
+
+### Operational — jetsam killed the MLX server mid-run, 2026-08-22 00:56
+
+Task 5A's first attempt produced nothing. `mlx_lm.server.log` ends mid-generation
+after `Prompt processing progress: 7407/7407` with no traceback: a hard SIGKILL,
+not a crash. Cause: this machine has 32 GB, Ornith's model is ~18 GB, and a
+concurrent `sight-reader` `codex --yolo` session was holding **9.5 GB**.
+
+**Check free RAM AND the largest non-Ornith consumer before every spawn.** §5's
+"restart before long runs" is necessary but not sufficient — a competing 10 GB
+process on another project will kill the server no matter how fresh it is.
+
 ### Metrics so far (do not collapse these — brief §7)
 
 | task | first-pass | repairs used | reviewer caught a code defect tests missed | pipeline |
@@ -425,6 +497,8 @@ this one.
 | 1 (mechanical) | pass | 0 | not reviewed | pass |
 | 2 (substantive) | pass | 0 | **no** | pass |
 | 3 (substantive) | pass | 0 | **YES — 5 plan defects** | pass |
+| 4 (mechanical) | pass | 0 | not reviewed | pass |
+| 5+6 (red zone) | attempt 1 killed by jetsam, not a model failure | — | matrix built, itself needed one fix round | in progress |
 
 Two clean transcriptions is not yet evidence about Ornith's judgment: Tasks 1
 and 2 shipped code byte-identical to the plan's fences. The Terra tier has not
