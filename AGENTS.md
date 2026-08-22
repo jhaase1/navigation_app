@@ -49,7 +49,7 @@ autoloads; reach for one when it fits.
 
 John has commits here. `.github/copilot-instructions.md` is maintained for his
 tooling — **leave it alone** unless Daniel says otherwise. Check `git worktree
-list` and `git status` before writing so you don't collide with something live.
+list` and `git status` before writing so you don't collide with something live. DO NOT MERGE OR PUSH TO MAIN. PR's are the preferred method.
 
 ## Keep this file thin
 

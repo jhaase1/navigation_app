@@ -51,11 +51,11 @@ always, at every tier.** No agent merges, pushes, or deletes a lane branch.
    spike. One contract surface; >~3 shippable behaviors means split it.
 
 4. **Two cold reviewers, cross-family**, via `scripts/handoff-to-agent.sh`
-   (`codex` with `gpt-5.6-sol`, `grok`, `kimi`, `claude` with `opus 5`) — never
+   (`codex` with `gpt-5.6-sol`, `grok`, `kimi`, `claude` with `opus 5, agy (gemini`) — never
    your own family. Each gets the whole artifact and an open mandate: find
    anything wrong anywhere, ranked by severity. Demand `BLOCKERS: <n>` first;
    silence is not a verdict. A **BLOCKER** is one concrete reachable breakage —
-   no counterfactual, no BLOCKER.
+   no counterfactual, no BLOCKER. 
 
 5. **Fold it yourself.** No adjudicator, no disposition artifact. One
    revision-log line per finding in `spec.md`: severity as filed, what you did,
@@ -73,7 +73,7 @@ always, at every tier.** No agent merges, pushes, or deletes a lane branch.
    with a better result? Does the plan cover everything the spec promised, end
    to end?* **A beaten-up plan gets re-thought, not patched.**
 
-8. **Execute.** Per-task commits, tests per the policy, iterate on the owning
+8. **Execute.** Ask the user which model to use for execution. Use Per-task commits, tests per the policy, iterate on the owning
    test file. Blocked or failing twice ⇒ peer help via
    `scripts/handoff-to-agent.sh` before escalating to Daniel.
 
