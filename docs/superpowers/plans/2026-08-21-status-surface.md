@@ -36,8 +36,8 @@ branch, each merged by Daniel separately.**
 
 | Lane | Branch | Tasks | Ships |
 |---|---|---|---|
-| **3a — Status surface** | `lane/status-surface` | 1–9 | The app says out loud when a backup is failing, pending, or absent. Read-only: nothing in 3a can overwrite configuration. |
-| **3b — Resolution surfaces** | `lane/backup-resolution` | 10–15 | Conflict dialog, diff summary, revision-history restore, device naming. Every destructive action lives here. |
+| **3a — Status surface** | `lane/status-surface` | 1–10 | The app says out loud when a backup is failing, pending, or absent. Read-only: nothing in 3a can overwrite configuration. |
+| **3b — Resolution surfaces** | `lane/backup-resolution` | 11–18 | Conflict dialog, diff summary, revision-history restore, device naming. Every destructive action lives here. |
 
 3b depends on 3a being merged. Do not start 3b until Daniel has merged 3a.
 
@@ -89,7 +89,7 @@ Recorded here because reviewers should attack them directly.
 
 | # | Spec says | This plan does | Why |
 |---|---|---|---|
-| D1 | "The active condition is … stored outside the historical ring so eviction can never remove it." | The active condition is held **in memory** on `BackupController` and is **not persisted**. History is persisted. **Task 8 makes app start resume a pending push**, so a failure that was real before the restart re-proves itself within seconds. | What the requirement protects against is *eviction*, and a separate in-memory field satisfies that. Persisting it would leave a red "Sign-in expired" pill across a restart that no completed operation has re-proved — a stale claim, in a surface built to stop stale claims. `gpt-5.6-sol` rejected D1 on the grounds that a restart could hide a failed push behind a successful pull; that hole was real and is closed by the start-up resume rather than by persisting the claim. `grok-4.6` independently accepted D1. |
+| D1 | "The active condition is … stored outside the historical ring so eviction can never remove it." | The active condition is held **in memory** on `BackupController` and is **not persisted**. History is persisted. **Task 9 makes app start resume a pending push**, so a failure that was real before the restart re-proves itself within seconds. | What the requirement protects against is *eviction*, and a separate in-memory field satisfies that. Persisting it would leave a red "Sign-in expired" pill across a restart that no completed operation has re-proved — a stale claim, in a surface built to stop stale claims. `gpt-5.6-sol` rejected D1 on the grounds that a restart could hide a failed push behind a successful pull; that hole was real and is closed by the start-up resume rather than by persisting the claim. `grok-4.6` independently accepted D1. |
 | D2 | "Dirty — whether the local canonical hash differs from the durable head", and "3 changes pending". | Dirty is computed from the **hash**. The number comes from the mutation generation counter and is shown **only when the hash also differs**. | `OperatorStore.saveActiveId` calls `notify()` (`operator_store.dart:47-55`), so switching operator bumps the generation without changing bundle content. Counting alone would flash amber on every operator switch. Hash alone has no number to show. |
 | D3 | "Widget tests — all five pill states; tappable in each; header pins; timestamp ladder boundaries; width cap with a pathological message." | The **derivation** and the **time ladder** are pure functions with Class 1 tests. The pill and popover get **one thin Class 2 wiring test each** and screenshots for everything visual. | `docs/learned/verification.md` says "this file wins where they differ", classes layout and chrome as Class 3 (screenshots, no unit tests), and names "re-running a logic matrix through `pumpWidget`" an anti-pattern. |
 | D4 | Phase 3 is listed as "Status surface — pill, popover, log, conflict UI, revision-history picker", implying UI work. | Lane 3b adds **three public methods to `BackupService`** (`adoptRemote`, `keepLocalAsNewRevision`, `restoreRevision`). | The spec's three conflict actions have no engine path today: `push()` refuses outright when `head.id != pointer.revisionId` (`backup_service.dart:274`), and there is no public adopt or restore. The buttons cannot exist without them. |
@@ -145,7 +145,7 @@ Recorded here because reviewers should attack them directly.
 | `backup_device_label` | String | `DeviceLabel` (3b) | Operator-declared machine name. |
 | `backup_conflict_suppressed` | String (revision id) | `BackupController` (3b) | The remote revision the operator chose to decide later about. |
 
-All four are added to `RestoreJournal` engine keys in Task 3 and Task 14 so a
+All four are added to `RestoreJournal` engine keys in Task 3 and Task 17 so a
 rolled-back import cannot strand them.
 
 ---
@@ -615,7 +615,7 @@ void main() {
     // The earlier draft of this test set ONE condition and claimed to prove
     // precedence between two. It could not fail for the reason it named.
     // BackupStatus holds a single activeCondition, so precedence between two
-    // simultaneous conditions is the CONTROLLER's job (Task 5) — what this
+    // simultaneous conditions is the CONTROLLER's job (Task 6) — what this
     // function must guarantee is only that a conflict-kind condition and a
     // hard-failure condition land in different states.
     final conflicted =
@@ -1063,7 +1063,7 @@ void main() {
     //
     // The honest version: 250 DISTINCT fingerprints do evict, and the log is
     // therefore NOT where an unresolved condition is kept alive. That is the
-    // controller's in-memory active condition (Task 5, deviation D1).
+    // controller's in-memory active condition (Task 6, deviation D1).
     final log = newLog();
     await log.recordFault(AppFault.backup(
         BackupFailureKind.authExpired, 'Sign in again.',
@@ -1279,54 +1279,35 @@ git commit -m "feat(backup): production emptiness check across the eight stores"
 
 ---
 
-### Task 5: `BackupController` — the one owner
+### Task 5: `BackupController` — the facts behind the pill
 
-**Test-policy class:** 1 trust contract. Every rule in Global Constraints 4 and
-5 lives here: which condition wins, and what a success is allowed to clear. A
-mistake makes the pill lie, which is the failure this phase exists to remove.
+**Test-policy class:** 1 trust contract. This half owns the three facts the pill
+is derived from: whether a durable head exists at **this** target, whether local
+content differs from it, and when it was last confirmed stored. Getting the
+target check wrong shows green over an empty backup.
 
-The matrix is tested through `handleEvent`, a plain method taking the same
-objects `BackupScheduler.events` emits — cheap, deterministic, no timers. **One
-end-to-end test drives a real `BackupService` and `BackupScheduler` over
-`MockBackupTarget`** so the matrix tests are not vacuous: it proves the
-subscription actually fires.
-
-**Rewritten after review.** Four defects in the first draft, all found by both
-reviewers or confirmed against the engine:
-
-- **The fold was not serialized.** `unawaited(handleEvent(event))` let an older
-  `_refreshFacts` finish after a newer one and write stale facts under the
-  current condition — including "Not backed up" over a revision that exists.
-- **Facts were read from a raw pointer,** with no target-identity check. After
-  an account or folder change the controller could keep reading the old
-  target's pointer and paint green over an empty one.
-- **A conflict outcome left the operation's earlier transport failure
-  standing.** Because a hard failure outranks a question, the popover would
-  offer "Retry now" forever and the resolution UI became unreachable.
-- **`PullOutcome.nothingToDo` cleared a fork warning.** `nothingToDo` only
-  means `head.id == pointer` (`backup_service.dart:146-148`); after we win a
-  fork race our own revision *is* the head, so the very next pull erased the
-  warning while the sibling sat there.
+Split from what was one 600-line task. This task builds the class and its
+facts; Task 6 makes it listen to the engine. The seam is real: everything here
+is testable without a single engine event.
 
 **Files:**
 - Create: `lib/services/backup/backup_controller.dart`
 - Test: `test/backup/backup_controller_test.dart`
 
 **Interfaces:**
-- Consumes: `BackupService` (`pull()`, `push()`, `targetIdentity`),
-  `BackupScheduler` (`events`, `start()`, `stop()`, `onAppStart()`,
-  `onForeground()`, `flushPending()`), `PullResult` / `PullOutcome`,
-  `PushResult` / `PushOutcome`, `BackupStatus` (Task 2), `BackupLog` (Task 3),
+- Consumes: `BackupService` (`targetIdentity`), `BackupScheduler`
+  (`start()`, `stop()`, `onAppStart()`, `onForeground()`, `flushPending()`),
+  `BackupStatus` (Task 2), `BackupLog` (Task 3),
   `ConfigBundle.localIsPristine` (Task 4).
 - Produces: `class BackupController with WidgetsBindingObserver`;
   `ValueNotifier<BackupStatus> status`; `BackupLog log`;
   `BackupRevision? conflictRevision`; `bool get canRetry`;
   `Future<void> start()`, `Future<void> retryNow()`,
-  `Future<void> dismiss(String fingerprint)`, `Future<void> dispose()`,
-  `@visibleForTesting Future<void> handleEvent(Object event)`;
+  `Future<void> dismiss(String fingerprint)`, `Future<void> dispose()`;
   factories `BackupController.disabled()`,
-  `BackupController.forService(BackupService, {BackupScheduler?, BackupLog?, DateTime Function()?, Future<void> Function()? stageScenario})`,
-  `BackupController.forEnvironment()`.
+  `BackupController.forService(BackupService, {BackupScheduler?, BackupLog?, DateTime Function()?, Future<void> Function()? stageScenario})`.
+  The `_fold`, `_events` and `_mutations` fields are declared here and used by
+  Task 6 — `dispose()` already tears all three down.
 
 - [ ] **Step 1: Implement**
 
@@ -1442,13 +1423,261 @@ class BackupController with WidgetsBindingObserver {
     // race the pull it exists to set up.
     await _stageScenario?.call();
 
-    _events = scheduler.events.listen((event) => _enqueue(() => handleEvent(event)));
-    _mutations = ConfigMutationNotifier.instance.onMutated
-        .listen((_) => _enqueue(_refreshFacts));
     scheduler.start();
     await scheduler.onAppStart();
   }
 
+  /// The pointer, but only when it belongs to the target we are talking to.
+  ///
+  /// `BackupService` makes this check internally
+  /// (`backup_service.dart:101-104`) and does not clear the raw keys when a
+  /// new target is empty. A controller reading `BackupPointer.load()` straight
+  /// would keep reporting the previous account's head — green, over nothing.
+  Future<BackupPointer> _pointer() async {
+    final backup = service;
+    if (backup == null) return const BackupPointer();
+    final pointer = await BackupPointer.load();
+    return pointer.matchesTarget(backup.targetIdentity)
+        ? pointer
+        : const BackupPointer();
+  }
+
+  /// Records "this machine's configuration is stored at the target" — and only
+  /// when that is actually true. Any completed operation calls it; the pointer
+  /// check decides whether it means anything.
+  Future<void> _markConfirmedStored() async {
+    final pointer = await _pointer();
+    final localHash = canonicalHash((await ConfigBundle.fromStores()).toJson());
+    if (!pointer.isCleanAgainst(localHash)) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(
+        BackupLog.lastSuccessKey, _now().toUtc().toIso8601String())) {
+      await prefs.reload();
+    }
+  }
+
+  Future<void> _refreshFacts() async {
+    final pointer = await _pointer();
+    final localHash = canonicalHash((await ConfigBundle.fromStores()).toJson());
+    final generation = await ConfigMutationNotifier.instance.generation();
+    final synced = await ConfigMutationNotifier.instance.syncedGeneration();
+    final prefs = await SharedPreferences.getInstance();
+    final lastRaw = prefs.getString(BackupLog.lastSuccessKey);
+
+    status.value = status.value.copyWith(
+      configured: service != null,
+      hasDurableHead: pointer.isProvenanced,
+      // Hash, not the counter: switching operator calls notify() without
+      // changing bundle content, and a count-driven pill would flash amber
+      // every time the operator changes.
+      isDirty: pointer.isProvenanced && pointer.recordedHash != localHash,
+      pendingCount: (generation - synced).clamp(0, 1 << 30),
+      // No durable head means no backup to be aged. A stored timestamp from
+      // before a manual import or an emptied target would otherwise have the
+      // popover saying "Last backed up 5 minutes ago" about a configuration
+      // that has never been backed up at all.
+      lastSuccessAt: pointer.isProvenanced && lastRaw != null
+          ? DateTime.parse(lastRaw).toLocal()
+          : null,
+      clearLastSuccess: !pointer.isProvenanced || lastRaw == null,
+    );
+  }
+
+  Future<void> retryNow() async {
+    final scheduler = _scheduler;
+    if (scheduler == null) return;
+    await scheduler.onForeground();
+  }
+
+  Future<void> dismiss(String fingerprint) => log.dismiss(fingerprint);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final scheduler = _scheduler;
+    if (scheduler == null) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        unawaited(scheduler.onForeground());
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        // Best-effort. Correctness rests on the persisted generation, not on
+        // this completing — iOS suspends Dart within seconds of a background.
+        unawaited(scheduler.flushPending());
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  Future<void> dispose() async {
+    WidgetsBinding.instance.removeObserver(this);
+    await _events?.cancel();
+    await _mutations?.cancel();
+    await _scheduler?.stop();
+    await _fold;
+    // `status` and `log.entries` are deliberately NOT disposed. They outlive
+    // any one widget, tests tear down in an order that would otherwise use
+    // them after disposal, and two undisposed ValueNotifiers on an
+    // app-lifetime object leak nothing that matters.
+  }
+}
+```
+
+- [ ] **Step 2: Write the behavioral test**
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:navigation_app/models/position.dart';
+import 'package:navigation_app/services/backup/app_fault.dart';
+import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/backup_log.dart';
+import 'package:navigation_app/services/backup/backup_pointer.dart';
+import 'package:navigation_app/services/backup/backup_scheduler.dart';
+import 'package:navigation_app/services/backup/backup_service.dart';
+import 'package:navigation_app/services/backup/backup_status.dart';
+import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
+import 'package:navigation_app/services/config_bundle.dart';
+import 'package:navigation_app/services/operator_store.dart';
+import 'package:navigation_app/services/position_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late MockBackupTarget target;
+  late BackupService service;
+  late BackupController controller;
+  late DateTime clock;
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    clock = DateTime.utc(2026, 8, 16, 9, 0);
+    target = MockBackupTarget();
+    service = BackupService(
+      target: target,
+      targetIdentity: 'mock:test',
+      deviceLabel: () async => 'Mac mini',
+      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
+      localIsPristine: ConfigBundle.localIsPristine,
+    );
+    controller = BackupController.forService(
+      service,
+      scheduler: BackupScheduler(
+        service: service,
+        debounce: const Duration(milliseconds: 1),
+        sweepInterval: const Duration(days: 1),
+        sleep: (_) async {},
+      ),
+      log: BackupLog(now: () => clock),
+      now: () => clock,
+    );
+  });
+
+  tearDown(() => controller.dispose());
+
+  AppFault offline(String operation) => AppFault.backup(
+      BackupFailureKind.offline, 'Could not reach the backup.',
+      operation: operation, targetIdentity: 'mock:test');
+
+  group('facts', () {
+    test('a pointer from another target is not this target\'s head', () async {
+      // Account or folder changed. The old pointer is still in prefs and the
+      // engine ignores it; the controller must too, or it paints green over
+      // an empty target.
+      await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+      await BackupPointer.save(
+        revisionId: 'rev-from-elsewhere',
+        recordedHash: 'whatever',
+        targetIdentity: 'drive:some-other-folder',
+      );
+
+      await controller.handleEvent(const PullResult(PullOutcome.nothingToDo));
+
+      expect(controller.status.value.hasDurableHead, isFalse);
+      expect(controller.status.value.state, BackupPillState.notBackedUp);
+    });
+
+    test('no durable head means no "last backed up" age', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          BackupLog.lastSuccessKey, clock.toUtc().toIso8601String());
+
+      await controller.handleEvent(const PullResult(PullOutcome.targetEmptied));
+
+      expect(controller.status.value.lastSuccessAt, isNull,
+          reason: 'a stale age would date a configuration by a backup it has '
+              'no claim to');
+    });
+  });
+  test('a disabled controller never contacts anything and reads grey',
+      () async {
+    final disabled = BackupController.disabled(now: () => clock);
+    await disabled.start();
+    expect(disabled.status.value.state, BackupPillState.notBackedUp);
+    expect(disabled.canRetry, isFalse);
+    await disabled.dispose();
+  });
+}
+```
+
+- [ ] **Step 3: Run the owning test file**
+
+Run: `flutter test test/backup/backup_controller_test.dart`
+Expected: `All tests passed!` (3 tests)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/services/backup/backup_controller.dart \
+        test/backup/backup_controller_test.dart
+git commit -m "feat(backup): controller facts — durable head, dirty, last success"
+```
+
+---
+
+### Task 6: The event fold
+
+**Test-policy class:** 1 trust contract. Every rule in Global Constraints 4 and
+5 lives here: which condition wins, and what a success is allowed to clear. A
+mistake makes the pill lie, which is the failure this phase exists to remove.
+
+The matrix is tested through `handleEvent`, a plain method taking the same
+objects `BackupScheduler.events` emits — cheap, deterministic, no timers. **One
+end-to-end test drives a real `BackupService` and `BackupScheduler` over
+`MockBackupTarget`** so the matrix tests are not vacuous: it proves the
+subscription actually fires.
+
+**Rewritten after review.** Four defects in the first draft, all found by both
+reviewers or confirmed against the engine:
+
+- **The fold was not serialized.** `unawaited(handleEvent(event))` let an older
+  `_refreshFacts` finish after a newer one and write stale facts under the
+  current condition — including "Not backed up" over a revision that exists.
+- **A conflict outcome left the operation's earlier transport failure
+  standing.** Because a hard failure outranks a question, the popover would
+  offer "Retry now" forever and the resolution UI became unreachable.
+- **`PullOutcome.nothingToDo` cleared a fork warning.** `nothingToDo` only
+  means `head.id == pointer` (`backup_service.dart:146-148`); after we win a
+  fork race our own revision *is* the head, so the very next pull erased the
+  warning while the sibling sat there.
+- **First-run adoption was folded in as a conflict**, which it is not.
+
+**Files:**
+- Modify: `lib/services/backup/backup_controller.dart` (Task 5)
+- Test: `test/backup/backup_controller_test.dart` (Task 5, append)
+
+**Interfaces:**
+- Consumes: Task 5's class; `PullResult` / `PullOutcome`, `PushResult` /
+  `PushOutcome`, `AppFault`.
+- Produces: `@visibleForTesting Future<void> handleEvent(Object event)`, and
+  the private fold — `_enqueue`, `_onPull`, `_onPush`, `_raise`,
+  `_clearQuestion`, `_raiseQuestion`, `_applyConditions`.
+
+- [ ] **Step 1: Add the fold to the class**
+
+Insert immediately after `start()`:
+
+```dart
   void _enqueue(Future<void> Function() work) {
     _fold = _fold.then((_) => work()).catchError((Object _) {});
   }
@@ -1595,162 +1824,30 @@ class BackupController with WidgetsBindingObserver {
         ? status.value.copyWith(clearCondition: true)
         : status.value.copyWith(activeCondition: chosen);
   }
-
-  /// The pointer, but only when it belongs to the target we are talking to.
-  ///
-  /// `BackupService` makes this check internally
-  /// (`backup_service.dart:101-104`) and does not clear the raw keys when a
-  /// new target is empty. A controller reading `BackupPointer.load()` straight
-  /// would keep reporting the previous account's head — green, over nothing.
-  Future<BackupPointer> _pointer() async {
-    final backup = service;
-    if (backup == null) return const BackupPointer();
-    final pointer = await BackupPointer.load();
-    return pointer.matchesTarget(backup.targetIdentity)
-        ? pointer
-        : const BackupPointer();
-  }
-
-  /// Records "this machine's configuration is stored at the target" — and only
-  /// when that is actually true. Any completed operation calls it; the pointer
-  /// check decides whether it means anything.
-  Future<void> _markConfirmedStored() async {
-    final pointer = await _pointer();
-    final localHash = canonicalHash((await ConfigBundle.fromStores()).toJson());
-    if (!pointer.isCleanAgainst(localHash)) return;
-    final prefs = await SharedPreferences.getInstance();
-    if (!await prefs.setString(
-        BackupLog.lastSuccessKey, _now().toUtc().toIso8601String())) {
-      await prefs.reload();
-    }
-  }
-
-  Future<void> _refreshFacts() async {
-    final pointer = await _pointer();
-    final localHash = canonicalHash((await ConfigBundle.fromStores()).toJson());
-    final generation = await ConfigMutationNotifier.instance.generation();
-    final synced = await ConfigMutationNotifier.instance.syncedGeneration();
-    final prefs = await SharedPreferences.getInstance();
-    final lastRaw = prefs.getString(BackupLog.lastSuccessKey);
-
-    status.value = status.value.copyWith(
-      configured: service != null,
-      hasDurableHead: pointer.isProvenanced,
-      // Hash, not the counter: switching operator calls notify() without
-      // changing bundle content, and a count-driven pill would flash amber
-      // every time the operator changes.
-      isDirty: pointer.isProvenanced && pointer.recordedHash != localHash,
-      pendingCount: (generation - synced).clamp(0, 1 << 30),
-      // No durable head means no backup to be aged. A stored timestamp from
-      // before a manual import or an emptied target would otherwise have the
-      // popover saying "Last backed up 5 minutes ago" about a configuration
-      // that has never been backed up at all.
-      lastSuccessAt: pointer.isProvenanced && lastRaw != null
-          ? DateTime.parse(lastRaw).toLocal()
-          : null,
-      clearLastSuccess: !pointer.isProvenanced || lastRaw == null,
-    );
-  }
-
-  Future<void> retryNow() async {
-    final scheduler = _scheduler;
-    if (scheduler == null) return;
-    await scheduler.onForeground();
-  }
-
-  Future<void> dismiss(String fingerprint) => log.dismiss(fingerprint);
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    final scheduler = _scheduler;
-    if (scheduler == null) return;
-    switch (state) {
-      case AppLifecycleState.resumed:
-        unawaited(scheduler.onForeground());
-      case AppLifecycleState.paused:
-      case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
-        // Best-effort. Correctness rests on the persisted generation, not on
-        // this completing — iOS suspends Dart within seconds of a background.
-        unawaited(scheduler.flushPending());
-      case AppLifecycleState.inactive:
-        break;
-    }
-  }
-
-  Future<void> dispose() async {
-    WidgetsBinding.instance.removeObserver(this);
-    await _events?.cancel();
-    await _mutations?.cancel();
-    await _scheduler?.stop();
-    await _fold;
-    // `status` and `log.entries` are deliberately NOT disposed. They outlive
-    // any one widget, tests tear down in an order that would otherwise use
-    // them after disposal, and two undisposed ValueNotifiers on an
-    // app-lifetime object leak nothing that matters.
-  }
-}
 ```
 
-`BackupController.forEnvironment()` is added in Task 8, where the demo
-scenarios it stages are defined.
+- [ ] **Step 2: Subscribe, inside `start()`**
 
-- [ ] **Step 2: Write the behavioral test**
+Add these two lines after `await _stageScenario?.call();` and before
+`scheduler.start();`:
 
 ```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:navigation_app/models/position.dart';
-import 'package:navigation_app/services/backup/app_fault.dart';
-import 'package:navigation_app/services/backup/backup_controller.dart';
-import 'package:navigation_app/services/backup/backup_log.dart';
-import 'package:navigation_app/services/backup/backup_pointer.dart';
-import 'package:navigation_app/services/backup/backup_scheduler.dart';
-import 'package:navigation_app/services/backup/backup_service.dart';
-import 'package:navigation_app/services/backup/backup_status.dart';
-import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
-import 'package:navigation_app/services/config_bundle.dart';
-import 'package:navigation_app/services/operator_store.dart';
-import 'package:navigation_app/services/position_store.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+    _events = scheduler.events.listen((event) => _enqueue(() => handleEvent(event)));
+    _mutations = ConfigMutationNotifier.instance.onMutated
+        .listen((_) => _enqueue(_refreshFacts));
+```
 
-void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+They enqueue rather than fire. `BackupService` serialises its own operations;
+this class did not, and with `unawaited(...)` a fault handler could yield while
+persisting its log row, a newer success could clear the condition, and the
+older handler could then resume and write stale facts over it.
 
-  late MockBackupTarget target;
-  late BackupService service;
-  late BackupController controller;
-  late DateTime clock;
+- [ ] **Step 3: Append the fold tests**
 
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
-    clock = DateTime.utc(2026, 8, 16, 9, 0);
-    target = MockBackupTarget();
-    service = BackupService(
-      target: target,
-      targetIdentity: 'mock:test',
-      deviceLabel: () async => 'Mac mini',
-      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
-      localIsPristine: ConfigBundle.localIsPristine,
-    );
-    controller = BackupController.forService(
-      service,
-      scheduler: BackupScheduler(
-        service: service,
-        debounce: const Duration(milliseconds: 1),
-        sweepInterval: const Duration(days: 1),
-        sleep: (_) async {},
-      ),
-      log: BackupLog(now: () => clock),
-      now: () => clock,
-    );
-  });
+Add to `test/backup/backup_controller_test.dart`, before the disabled-controller
+test:
 
-  tearDown(() => controller.dispose());
-
-  AppFault offline(String operation) => AppFault.backup(
-      BackupFailureKind.offline, 'Could not reach the backup.',
-      operation: operation, targetIdentity: 'mock:test');
-
+```dart
   group('the fold', () {
     test('a pull success does NOT clear a failed push', () async {
       await controller.handleEvent(offline('push'));
@@ -1834,37 +1931,6 @@ void main() {
     });
   });
 
-  group('facts', () {
-    test('a pointer from another target is not this target\'s head', () async {
-      // Account or folder changed. The old pointer is still in prefs and the
-      // engine ignores it; the controller must too, or it paints green over
-      // an empty target.
-      await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
-      await BackupPointer.save(
-        revisionId: 'rev-from-elsewhere',
-        recordedHash: 'whatever',
-        targetIdentity: 'drive:some-other-folder',
-      );
-
-      await controller.handleEvent(const PullResult(PullOutcome.nothingToDo));
-
-      expect(controller.status.value.hasDurableHead, isFalse);
-      expect(controller.status.value.state, BackupPillState.notBackedUp);
-    });
-
-    test('no durable head means no "last backed up" age', () async {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          BackupLog.lastSuccessKey, clock.toUtc().toIso8601String());
-
-      await controller.handleEvent(const PullResult(PullOutcome.targetEmptied));
-
-      expect(controller.status.value.lastSuccessAt, isNull,
-          reason: 'a stale age would date a configuration by a backup it has '
-              'no claim to');
-    });
-  });
-
   group('end to end, through the real scheduler', () {
     test('an edit is backed up and the pill goes green', () async {
       await controller.start();
@@ -1936,34 +2002,24 @@ void main() {
           reason: 'active operator is not bundle content');
     });
   });
-
-  test('a disabled controller never contacts anything and reads grey',
-      () async {
-    final disabled = BackupController.disabled(now: () => clock);
-    await disabled.start();
-    expect(disabled.status.value.state, BackupPillState.notBackedUp);
-    expect(disabled.canRetry, isFalse);
-    await disabled.dispose();
-  });
-}
 ```
 
-- [ ] **Step 3: Run the owning test file**
+- [ ] **Step 4: Run the owning test file**
 
 Run: `flutter test test/backup/backup_controller_test.dart`
 Expected: `All tests passed!` (16 tests)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add lib/services/backup/backup_controller.dart \
         test/backup/backup_controller_test.dart
-git commit -m "feat(backup): controller folding engine events into pill status"
+git commit -m "feat(backup): fold engine events into pill status, serialized"
 ```
 
 ---
 
-### Task 6: The log popover
+### Task 7: The log popover
 
 **Test-policy class:** 3 presentation, with **one** Class 2 wiring test
 covering the two behaviours that are not layout: the active condition is
@@ -2315,7 +2371,7 @@ git commit -m "feat(backup): log popover with pinned condition and dismissals"
 
 ---
 
-### Task 7: The AppBar pill
+### Task 8: The AppBar pill
 
 **Test-policy class:** 3 presentation, with **one** Class 2 wiring test. The
 five-state matrix is already covered as pure logic in Task 2; re-running it
@@ -2329,9 +2385,9 @@ label and tapping it opens the popover.
 
 **Interfaces:**
 - Consumes: `BackupController.status`, `BackupStatus.label`, and
-  `showBackupLogPopover` from Task 6 — which is why the popover is built
+  `showBackupLogPopover` from Task 7 — which is why the popover is built
   first. The earlier draft had these two the other way round, so following
-  the declared order meant Task 6's test could not compile.
+  the declared order meant this task's test could not compile.
 - Produces: `class BackupStatusPill extends StatefulWidget` taking
   `{required BackupController controller}`.
 
@@ -2531,17 +2587,17 @@ git commit -m "feat(backup): AppBar status pill"
 
 ---
 
-### Task 8: Wire it into the app, with lifecycle
+### Task 9: Wire it into the app, with lifecycle
 
 **Test-policy class:** 1 for the scheduler's start-up resume (a mutation that
 never gets pushed is exactly "lose a configuration that took an hour to
 enter"); 2 for the wiring itself — one thin test asserting the pill is in the
 AppBar and a real foreground event reaches the engine. Layout is Class 3,
-verified by screenshot in Task 9.
+verified by screenshot in Task 10.
 
 **Rewritten after review.** The staged `conflict` scenario in the first draft
 could not produce the state it claimed — a pristine machine adopts a lone
-remote revision rather than diverging from it, so Task 9 would have
+remote revision rather than diverging from it, so Task 10 would have
 screenshotted green and called it "Needs review". The scenarios below were
 each walked through the live pull branches at `backup_service.dart:109-180`.
 
@@ -2604,7 +2660,7 @@ Test, appended to `test/backup/backup_scheduler_test.dart`:
 - [ ] **Step 2: Stage demo scenarios that actually reach the state they name**
 
 The pill has five states and only three are reachable by using the app against
-an empty in-memory target. Without staging, Task 9's screenshots cannot show
+an empty in-memory target. Without staging, Task 10's screenshots cannot show
 red or "Needs review", and `docs/learned/verification.md` is explicit that
 presentation work is not done until the screenshots have been looked at.
 
@@ -2831,7 +2887,7 @@ git commit -m "feat(backup): wire the status pill in, resume pending work at lau
 
 ---
 
-### Task 9: Lane 3a sweep
+### Task 10: Lane 3a sweep
 
 **Test-policy class:** 3 presentation — the screenshots ARE the verification,
 and per `docs/learned/verification.md` this task is not done until they have
@@ -2854,7 +2910,7 @@ flutter test integration_test/     # expect: All tests passed!
 - [ ] **Step 2: Capture the five states against the real app**
 
 Three are reachable by using the app; two need the staged scenarios from
-Task 8. Build and drive with `tools/mock_server/drive_macos_app.sh` per
+Task 9. Build and drive with `tools/mock_server/drive_macos_app.sh` per
 `LEARNED.md`. Remember screenshots come out at the display's backing scale —
 halve image coordinates before feeding them back to the script.
 
@@ -2919,37 +2975,34 @@ flutter analyze && flutter test
 
 ---
 
-### Task 10: One append primitive, and the three resolution paths
+### Task 11: One fork-checked append primitive
 
-**Test-policy class:** 1 trust contract. Every one of these overwrites
-configuration or writes a revision. This is the highest-consequence code in the
-phase.
+**Test-policy class:** 1 trust contract. This is a refactor of the one path
+that already writes revisions, so the proof is that the existing push suite
+stays green — plus one new test for the race the primitive exists to catch.
 
-**Rewritten after review.** The first draft of this task had three subtly
-different upload protocols and only one of them — the existing `push()` —
-checked for a concurrent writer. It also applied a restore *before* uploading
-it, which is a silent data-loss bug, and adopted a remote copy without
-preserving the local one the spec explicitly requires snapshotting
-(`spec:451`). All three are fixed here; see the revision log.
+Split from what was one 600-line task. This task extracts the primitive and
+puts `push()` on it; Task 12 builds the three resolution paths that also need
+it. Doing the refactor alone first means a regression here is visible against
+`test/backup/backup_service_push_test.dart` before any new behaviour is added
+on top.
+
+**Why it exists:** `push()` already handles the fact that Drive's
+`files.create` has no compare-and-swap, so `latest()`-then-`put()` is a
+time-of-check/time-of-use race (`backup_service.dart:293-305`). The first draft
+of this plan wrote "Keep mine" and restore-as-newest as separate protocols that
+did **not** check, so two machines resolving the same conflict at the same
+moment would both report success and both go green. One primitive, one check.
 
 **Files:**
-- Modify: `lib/services/backup/backup_service.dart` — extract the append
-  primitive, refactor `push()` onto it, add the resolution methods and the
-  `history`/`fetchBody` passthroughs
-- Test: `test/backup/backup_resolution_test.dart`
+- Modify: `lib/services/backup/backup_service.dart`
+- Test: `test/backup/backup_service_push_test.dart` (append one test)
 
 **Interfaces:**
-- Consumes: the existing private `_single`, `_withStorageBoundary`,
-  `_applyRevision`, `_pointer`.
-- Produces: `enum ResolutionOutcome { resolved, localChangedDuringResolve, remoteMovedAgain, forkedAgain }`;
-  `class ResolutionResult { final ResolutionOutcome outcome; final BackupRevision? revision; final List<BackupRevision>? siblings; }`;
-  `Future<ResolutionResult> adoptRemote(BackupRevision)`;
-  `Future<ResolutionResult> keepLocalAsNewRevision(BackupRevision remoteHead)`;
-  `Future<ResolutionResult> restoreRevision(BackupRevision)`;
-  `Future<List<BackupRevision>> history({int limit = 50})`;
-  `Future<String> fetchBody(BackupRevision)`;
-  `static const String replacedSnapshotKey`;
-  `static Future<Map<String, dynamic>?> replacedSnapshot()`.
+- Consumes: the existing `_single`, `_withStorageBoundary`, `_applyRevision`.
+- Produces: `enum ResolutionOutcome`, `class ResolutionResult`,
+  `class _AppendResult`, `Future<_AppendResult> _appendRevision({...})`,
+  `Map<String, dynamic> _decodeRevision(BackupRevision, String)`.
 
 - [ ] **Step 1: Extract the append primitive and put `push()` on it**
 
@@ -3080,7 +3133,77 @@ it out so there is one:
 
 and have `_applyRevision` call it in place of its inline block.
 
-- [ ] **Step 3: "Use the remote copy", preserving what it replaces**
+- [ ] **Step 3: Prove the primitive catches what it exists to catch**
+
+Append to `test/backup/backup_service_push_test.dart`:
+
+```dart
+  test('a writer that slips in between latest() and put() is reported',
+      () async {
+    await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+    target.concurrentWriterBeforePut(
+      body: '{"schemaVersion":1,"positions":[],"people":[],"services":[],'
+          '"heightRanges":[],"presetNames":{},"visibilities":{}}',
+      parentRevisionId: null,
+      deviceLabel: "Daniel's iPad",
+    );
+
+    final result = await service.push();
+
+    expect(result.outcome, PushOutcome.forked);
+    expect(result.siblings, isNotEmpty);
+    expect(target.revisions, hasLength(2),
+        reason: 'append-only: both bodies survive, and we say so');
+  });
+```
+
+- [ ] **Step 4: Run the suite this refactored**
+
+Run: `flutter test test/backup/backup_service_push_test.dart test/backup/backup_service_pull_test.dart`
+Expected: `All tests passed!` — the existing tests unmodified, plus the new one.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/services/backup/backup_service.dart \
+        test/backup/backup_service_push_test.dart
+git commit -m "refactor(backup): one fork-checked append primitive behind push"
+```
+
+---
+
+### Task 12: The three resolution paths
+
+**Test-policy class:** 1 trust contract. Every one of these overwrites
+configuration or writes a revision. This is the highest-consequence code in the
+phase.
+
+**Rewritten after review.** Two blockers, both real:
+
+- **Restore applied before uploading.** `_applyRevision` moves the pointer onto
+  the restored ancestor, so a failed or killed upload left the next pull
+  matching branch 6 (`backup_service.dart:165-176`) and **silently re-applying
+  the revision the operator had just undone**. Pull runs before push at every
+  trigger, so nothing healed it. Inverted to upload-then-apply.
+- **"Use the remote copy" preserved nothing.** The spec requires snapshotting
+  local first (`spec:451`); without it an hour of unpushed work existed nowhere
+  after the operator chose the other machine's copy.
+
+**Files:**
+- Modify: `lib/services/backup/backup_service.dart` (Task 11)
+- Test: `test/backup/backup_resolution_test.dart`
+
+**Interfaces:**
+- Consumes: `_appendRevision`, `_decodeRevision`, `ResolutionResult` (Task 11).
+- Produces: `Future<ResolutionResult> adoptRemote(BackupRevision)`;
+  `Future<ResolutionResult> keepLocalAsNewRevision(BackupRevision remoteHead)`;
+  `Future<ResolutionResult> restoreRevision(BackupRevision)`;
+  `Future<List<BackupRevision>> history({int limit = 50})`;
+  `Future<String> fetchBody(BackupRevision)`;
+  `static const String replacedSnapshotKey`;
+  `static Future<Map<String, dynamic>?> replacedSnapshot()`.
+
+- [ ] **Step 1: "Use the remote copy", preserving what it replaces**
 
 ```dart
   /// The local configuration that "Use the remote copy" replaced.
@@ -3147,7 +3270,7 @@ and have `_applyRevision` call it in place of its inline block.
           }));
 ```
 
-- [ ] **Step 4: "Keep my copy as a new revision", fork-checked**
+- [ ] **Step 2: "Keep my copy as a new revision", fork-checked**
 
 ```dart
   /// Append-only means this ADDS; the remote copy is not destroyed, it
@@ -3185,7 +3308,7 @@ and have `_applyRevision` call it in place of its inline block.
           }));
 ```
 
-- [ ] **Step 5: Restore — upload first, then apply**
+- [ ] **Step 3: Restore — upload first, then apply**
 
 ```dart
   /// Restores [revision] and makes it the newest backup.
@@ -3278,7 +3401,7 @@ and have `_applyRevision` call it in place of its inline block.
 holds. That is one wasted round trip against Drive and it buys a single apply
 path with a single freshness guard; do not optimise it into a second one.
 
-- [ ] **Step 6: Write the behavioral test**
+- [ ] **Step 4: Write the behavioral test**
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -3512,25 +3635,25 @@ void main() {
     });
   });
 }
+}
 ```
 
-- [ ] **Step 7: Run the owning test file and the push suite it refactored**
+- [ ] **Step 5: Run the owning test file and the suite it builds on**
 
 Run: `flutter test test/backup/backup_resolution_test.dart test/backup/backup_service_push_test.dart`
-Expected: `All tests passed!` (10 new tests, plus the existing push suite green
-and unmodified)
+Expected: `All tests passed!` (10 new tests, push suite still green)
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add lib/services/backup/backup_service.dart \
         test/backup/backup_resolution_test.dart
-git commit -m "feat(backup): one fork-checked append primitive behind push, keep-mine and restore"
+git commit -m "feat(backup): adopt, keep-as-new-revision and upload-first restore"
 ```
 
 ---
 
-### Task 11: The difference summary
+### Task 13: The difference summary
 
 **Test-policy class:** 1 trust contract. "Three unlabelled buttons are not a
 decision anyone can make" — this is the text the operator decides on, and a
@@ -3813,35 +3936,35 @@ git commit -m "feat(backup): section-by-section bundle difference summary"
 
 ---
 
-### Task 12: Conflict resolution
+### Task 14: Conflict resolution — the controller plumbing
 
-**Test-policy class:** 1 for the controller's resolution plumbing (it decides
-what clears a condition and what a failed resolve does), 2 for the dialog —
-one thin test per action asserting the user-visible outcome. Layout is Class 3
-and gets screenshots in Task 15.
+**Test-policy class:** 1 trust contract. This decides what clears a condition,
+what a failed resolve leaves behind, and whether an operator's "decide later"
+still applies to what is being asked. All of it is testable without mounting a
+widget.
+
+Split from what was one 600-line task; Task 15 builds the dialog on top.
 
 **Revised after review.** Three fixes folded in: a successful resolve now
 clears its own earlier failure (otherwise one failed attempt left the pill red
 forever after the retry succeeded); the deferred revision id is dropped when
 the head moves on, instead of labelling a new revision with an old decision;
-and first-run adoption gets its own question and its own words, because
-"Two machines have different settings" is a lie on a brand-new iPad.
+and first-run adoption is treated as its own question rather than a conflict.
 
 **Files:**
 - Modify: `lib/services/backup/backup_controller.dart`
-- Create: `lib/widgets/backup/conflict_dialog.dart`
-- Modify: `lib/widgets/backup/backup_log_popover.dart` (header action)
+- Modify: `lib/services/backup/restore_journal.dart` (one engine key)
 - Test: `test/backup/conflict_resolution_test.dart`
 
 **Interfaces:**
 - Consumes: `BackupService.adoptRemote`, `keepLocalAsNewRevision`,
-  `fetchBody` (Task 10); `BundleDiff.between` (Task 11).
-- Produces on `BackupController`: `static const String suppressedKey = 'backup_conflict_suppressed'`;
-  `String? deferredRevisionId`; `Future<BundleDiff> conflictDiff()`;
+  `fetchBody` (Task 12); `BundleDiff.between` (Task 13).
+- Produces on `BackupController`: `static const String suppressedKey`;
+  `String? deferredRevisionId`; `bool get deferralApplies`;
+  `Future<BundleDiff> conflictDiff()`;
   `Future<ResolutionOutcome> resolveUseRemote()`;
   `Future<ResolutionOutcome> resolveKeepMine()`;
   `Future<void> deferConflict()`.
-  Produces as a widget: `Future<void> showConflictDialog(BuildContext context, BackupController controller)`.
 
 - [ ] **Step 1: Add the resolution plumbing to `BackupController`**
 
@@ -3997,9 +4120,157 @@ Add `BackupController.suppressedKey` to `RestoreJournal.engineKeys`.
 
 `backup_controller.dart` also needs three imports it did not have in Task 5:
 `dart:convert` (for `jsonDecode`), `bundle_diff.dart`, and `relative_time.dart`
-(used by Task 13's restore log line).
+(used by Task 16's restore log line).
 
-- [ ] **Step 2: Build the dialog**
+- [ ] **Step 2: Write the behavioral test**
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:navigation_app/models/position.dart';
+import 'package:navigation_app/services/backup/app_fault.dart';
+import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/backup_scheduler.dart';
+import 'package:navigation_app/services/backup/backup_service.dart';
+import 'package:navigation_app/services/backup/backup_status.dart';
+import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
+import 'package:navigation_app/services/config_bundle.dart';
+import 'package:navigation_app/services/position_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late MockBackupTarget target;
+  late BackupService service;
+  late BackupController controller;
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    target = MockBackupTarget();
+    service = BackupService(
+      target: target,
+      targetIdentity: 'mock:test',
+      deviceLabel: () async => 'Mac mini',
+      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
+      localIsPristine: ConfigBundle.localIsPristine,
+    );
+    controller = BackupController.forService(
+      service,
+      scheduler: BackupScheduler(
+        service: service,
+        debounce: const Duration(milliseconds: 1),
+        sweepInterval: const Duration(days: 1),
+        sleep: (_) async {},
+      ),
+    );
+  });
+
+  tearDown(() => controller.dispose());
+
+  const emptyBundle = '{"schemaVersion":1,"positions":[],"people":[],'
+      '"services":[],"heightRanges":[],"presetNames":{},"visibilities":{}}';
+
+  /// Puts the machine into a real divergence: ours pushed, theirs wrote a
+  /// sibling, ours edited again.
+  Future<void> diverge() async {
+    await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+    await service.push();
+    final base = (await service.history()).single;
+    await target.put(
+      '{"schemaVersion":1,"positions":[{"id":"p9","name":"Balcony"}],'
+      '"people":[],"services":[],"heightRanges":[],"presetNames":{},'
+      '"visibilities":{}}',
+      contentHash: 'theirs',
+      parentRevisionId: base.id,
+      deviceLabel: "Daniel's iPad",
+    );
+    await PositionStore.saveAll([
+      Position(id: 'p1', name: 'Pulpit'),
+      Position(id: 'p2', name: 'Lectern'),
+    ]);
+    await controller.handleEvent(await service.push());
+  }
+
+  test('"Decide later" is remembered but does not turn the pill green',
+      () async {
+    await diverge();
+    await controller.deferConflict();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BackupController.suppressedKey), isNotNull);
+    expect(controller.deferralApplies, isTrue);
+    expect(controller.status.value.state, BackupPillState.needsReview);
+  });
+
+  test('a deferral does not carry over to a newer revision', () async {
+    await diverge();
+    await controller.deferConflict();
+
+    // The other machine saves again. This is a different question.
+    await target.put(emptyBundle,
+        contentHash: 'newer-still',
+        parentRevisionId: null,
+        deviceLabel: "Daniel's iPad");
+    await controller.handleEvent(await service.push());
+
+    expect(controller.deferralApplies, isFalse);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BackupController.suppressedKey), isNull);
+  });
+
+  test('a resolve that fails once and then succeeds does not stay red',
+      () async {
+    await diverge();
+    target.failNextWith(AppFault.backup(
+        BackupFailureKind.transientServer, 'Drive returned an error.',
+        operation: 'resolve', targetIdentity: 'mock:test'));
+
+    await expectLater(controller.resolveKeepMine(), throwsA(isA<AppFault>()));
+    expect(controller.status.value.state, BackupPillState.failing);
+
+    final outcome = await controller.resolveKeepMine();
+
+    expect(outcome, ResolutionOutcome.resolved);
+    expect(controller.status.value.activeCondition, isNull,
+        reason: 'the failure it is about has been superseded by success');
+    expect(controller.status.value.state, BackupPillState.backedUp);
+  });
+}
+```
+
+- [ ] **Step 3: Run the owning test file**
+
+Run: `flutter test test/backup/conflict_resolution_test.dart`
+Expected: `All tests passed!` (3 tests)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/services/backup/backup_controller.dart \
+        lib/services/backup/restore_journal.dart \
+        test/backup/conflict_resolution_test.dart
+git commit -m "feat(backup): conflict resolution plumbing on the controller"
+```
+
+---
+
+### Task 15: The conflict dialog
+
+**Test-policy class:** 2 wiring — one thin test per action asserting the
+user-visible outcome, plus one for the comparison-failed state. Layout is
+Class 3 and gets screenshots in Task 18.
+
+**Files:**
+- Create: `lib/widgets/backup/conflict_dialog.dart`
+- Modify: `lib/widgets/backup/backup_log_popover.dart` (header action)
+- Test: `test/backup/conflict_dialog_test.dart`
+
+**Interfaces:**
+- Consumes: Task 14's controller methods; `BundleDiff` (Task 13);
+  `relativeAge` (Task 1); `BackupStatus.isQuestion` / `adoptionKind` (Task 2).
+- Produces: `Future<void> showConflictDialog(BuildContext context, BackupController controller)`.
+
+- [ ] **Step 1: Build the dialog**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -4184,7 +4455,7 @@ class _ConflictDialogState extends State<_ConflictDialog> {
 }
 ```
 
-- [ ] **Step 3: Add the popover's action**
+- [ ] **Step 2: Add the popover's action**
 
 In `backup_log_popover.dart`'s `_header`, replace the single Retry button with:
 
@@ -4213,77 +4484,13 @@ the raw id, so a newer revision does not inherit an old decision:
         'You chose to decide about this later.',
 ```
 
-- [ ] **Step 4: Write the tests**
+- [ ] **Step 3: Write the wiring tests**
+
+Reuse Task 14's `setUp` and `diverge()` helper verbatim — same target, service
+and controller construction — with `package:flutter/material.dart` and
+`conflict_dialog.dart` added to the imports.
 
 ```dart
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:navigation_app/models/position.dart';
-import 'package:navigation_app/services/backup/app_fault.dart';
-import 'package:navigation_app/services/backup/backup_controller.dart';
-import 'package:navigation_app/services/backup/backup_scheduler.dart';
-import 'package:navigation_app/services/backup/backup_service.dart';
-import 'package:navigation_app/services/backup/backup_status.dart';
-import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
-import 'package:navigation_app/services/config_bundle.dart';
-import 'package:navigation_app/services/position_store.dart';
-import 'package:navigation_app/widgets/backup/conflict_dialog.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  late MockBackupTarget target;
-  late BackupService service;
-  late BackupController controller;
-
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
-    target = MockBackupTarget();
-    service = BackupService(
-      target: target,
-      targetIdentity: 'mock:test',
-      deviceLabel: () async => 'Mac mini',
-      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
-      localIsPristine: ConfigBundle.localIsPristine,
-    );
-    controller = BackupController.forService(
-      service,
-      scheduler: BackupScheduler(
-        service: service,
-        debounce: const Duration(milliseconds: 1),
-        sweepInterval: const Duration(days: 1),
-        sleep: (_) async {},
-      ),
-    );
-  });
-
-  tearDown(() => controller.dispose());
-
-  const emptyBundle = '{"schemaVersion":1,"positions":[],"people":[],'
-      '"services":[],"heightRanges":[],"presetNames":{},"visibilities":{}}';
-
-  /// Puts the machine into a real divergence: ours pushed, theirs wrote a
-  /// sibling, ours edited again.
-  Future<void> diverge() async {
-    await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
-    await service.push();
-    final base = (await service.history()).single;
-    await target.put(
-      '{"schemaVersion":1,"positions":[{"id":"p9","name":"Balcony"}],'
-      '"people":[],"services":[],"heightRanges":[],"presetNames":{},'
-      '"visibilities":{}}',
-      contentHash: 'theirs',
-      parentRevisionId: base.id,
-      deviceLabel: "Daniel's iPad",
-    );
-    await PositionStore.saveAll([
-      Position(id: 'p1', name: 'Pulpit'),
-      Position(id: 'p2', name: 'Lectern'),
-    ]);
-    await controller.handleEvent(await service.push());
-  }
-
   testWidgets('"Use their copy" replaces local and clears the pill',
       (tester) async {
     await diverge();
@@ -4360,75 +4567,28 @@ void main() {
 
     expect(find.textContaining('Could not download their copy'), findsOneWidget);
   });
-
-  test('"Decide later" is remembered but does not turn the pill green',
-      () async {
-    await diverge();
-    await controller.deferConflict();
-
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(BackupController.suppressedKey), isNotNull);
-    expect(controller.deferralApplies, isTrue);
-    expect(controller.status.value.state, BackupPillState.needsReview);
-  });
-
-  test('a deferral does not carry over to a newer revision', () async {
-    await diverge();
-    await controller.deferConflict();
-
-    // The other machine saves again. This is a different question.
-    await target.put(emptyBundle,
-        contentHash: 'newer-still',
-        parentRevisionId: null,
-        deviceLabel: "Daniel's iPad");
-    await controller.handleEvent(await service.push());
-
-    expect(controller.deferralApplies, isFalse);
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(BackupController.suppressedKey), isNull);
-  });
-
-  test('a resolve that fails once and then succeeds does not stay red',
-      () async {
-    await diverge();
-    target.failNextWith(AppFault.backup(
-        BackupFailureKind.transientServer, 'Drive returned an error.',
-        operation: 'resolve', targetIdentity: 'mock:test'));
-
-    await expectLater(controller.resolveKeepMine(), throwsA(isA<AppFault>()));
-    expect(controller.status.value.state, BackupPillState.failing);
-
-    final outcome = await controller.resolveKeepMine();
-
-    expect(outcome, ResolutionOutcome.resolved);
-    expect(controller.status.value.activeCondition, isNull,
-        reason: 'the failure it is about has been superseded by success');
-    expect(controller.status.value.state, BackupPillState.backedUp);
-  });
 }
 ```
 
-- [ ] **Step 5: Run the owning test file**
+- [ ] **Step 4: Run the owning test file**
 
-Run: `flutter test test/backup/conflict_resolution_test.dart`
-Expected: `All tests passed!` (7 tests)
+Run: `flutter test test/backup/conflict_dialog_test.dart`
+Expected: `All tests passed!` (3 tests)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/services/backup/backup_controller.dart \
-        lib/widgets/backup/conflict_dialog.dart \
+git add lib/widgets/backup/conflict_dialog.dart \
         lib/widgets/backup/backup_log_popover.dart \
-        lib/services/backup/restore_journal.dart \
-        test/backup/conflict_resolution_test.dart
-git commit -m "feat(backup): conflict resolution dialog with difference summary"
+        test/backup/conflict_dialog_test.dart
+git commit -m "feat(backup): conflict dialog with difference summary"
 ```
 
 ---
 
-### Task 13: Revision history and restore
+### Task 16: Revision history and restore
 
-**Test-policy class:** 1 for the restore path — already covered in Task 10,
+**Test-policy class:** 1 for the restore path — already covered in Task 12,
 which is where the guarantee lives. 2 for this sheet: one test that picking a
 revision and confirming actually restores it. Layout is Class 3.
 
@@ -4439,8 +4599,8 @@ revision and confirming actually restores it. Layout is Class 3.
 - Test: `test/backup/revision_history_test.dart`
 
 **Interfaces:**
-- Consumes: `BackupService.history`, `fetchBody`, `restoreRevision` (Task 10);
-  `BundleDiff` (Task 11); `relativeAge` (Task 1).
+- Consumes: `BackupService.history`, `fetchBody`, `restoreRevision` (Task 12);
+  `BundleDiff` (Task 13); `relativeAge` (Task 1).
 - Produces on `BackupController`: `Future<List<BackupRevision>> history()`;
   `Future<ResolutionOutcome> restore(BackupRevision revision)`.
   As a widget: `Future<void> showRevisionHistory(BuildContext context, BackupController controller)`.
@@ -4662,7 +4822,7 @@ class _RevisionHistoryDialogState extends State<_RevisionHistoryDialog> {
       ),
       actions: [
         // The copy "Use their copy" set aside. Without a way back to it, the
-        // snapshot Task 10 saves is storage nobody can reach.
+        // snapshot Task 12 saves is storage nobody can reach.
         FutureBuilder<Map<String, dynamic>?>(
           future: BackupService.replacedSnapshot(),
           builder: (context, snapshot) {
@@ -4795,7 +4955,7 @@ before writing anything else in the task. It must stay green untouched.
   });
 ```
 
-(Reuse the `setUp` block from Task 12's test file — same target, service and
+(Reuse the `setUp` block from Task 14's test file — same target, service and
 controller construction.)
 
 - [ ] **Step 5: Run the owning test file**
@@ -4816,7 +4976,7 @@ git commit -m "feat(backup): revision history with restore-as-newest"
 
 ---
 
-### Task 14: Naming this machine
+### Task 17: Naming this machine
 
 **Test-policy class:** 1 for the rejection rules — a machine labelled
 `localhost` is a lie the conflict dialog repeats back, and two iPads both
@@ -5161,7 +5321,7 @@ git commit -m "feat(backup): explicit machine naming with rejected defaults"
 
 ---
 
-### Task 15: Lane 3b sweep
+### Task 18: Lane 3b sweep
 
 **Test-policy class:** 3 presentation — the screenshots are the verification,
 and this task is not done until they have been looked at.
@@ -5241,8 +5401,8 @@ faults in the pill (Phase 5).
 
 **2. Placeholder scan.** No `TODO`, no "implement later", no "similar to Task
 N", no "add appropriate error handling". Every code step carries the code.
-One forward reference remains, and it is intended: Task 14's pill copy makes
-Task 2's coverage test fail until it lands. The Task 6/7 forward reference
+One forward reference remains, and it is intended: Task 17's pill copy makes
+Task 2's coverage test fail until it lands. The pill/popover forward reference
 that the first draft carried is gone — the popover is now built before the
 pill that opens it.
 
@@ -5254,12 +5414,12 @@ pill that opens it.
 - `BackupController` members used by the widgets — `status`, `log`, `canRetry`,
   `retryNow`, `dismiss`, `conflictRevision`, `conflictDiff`,
   `resolveUseRemote`, `resolveKeepMine`, `deferConflict`, `history`, `restore`,
-  `service` — are each defined in Task 5, 12 or 13 before first use.
-- `ResolutionOutcome` / `ResolutionResult` are defined in Task 10 and consumed
+  `service` — are each defined in Tasks 5–6, 14 or 16 before first use.
+- `ResolutionOutcome` / `ResolutionResult` are defined in Task 11 and consumed
   in 12 and 13 with the same shape.
 - `BackupLog.lastSuccessKey` is defined in Task 3 and read in Task 5.
 - `RestoreJournal.dataKeys` / `dataPrefixes` / `engineKeys` are defined in
-  Task 3 and consumed in Tasks 4, 12 and 14.
+  Task 3 and consumed in Tasks 4, 14 and 17.
 - `BundleDiff.between(mine, theirs)` argument order is the same in Tasks 11,
   12 and 13 — **mine first**, and the copy is phrased from theirs.
 
@@ -5305,7 +5465,7 @@ Stated here rather than discovered at merge:
    free. Nobody operates this app by keyboard today.
 6. **Deviations D1 and D6 change spec-stated behaviour.** Both are argued
    above, both were attacked in review, and D1's one real hole — a failed push
-   hidden across a restart — is closed by Task 8's start-up resume rather than
+   hidden across a restart — is closed by Task 9's start-up resume rather than
    by persisting a claim nothing has re-proved.
 7. **Two reviewer findings were refuted, not fixed.** If either receipt is
    wrong, the plan is wrong with it; both are reproducible in one command and
@@ -5333,47 +5493,47 @@ independently are merged into one row and marked *both*.
 | Filed | Claim | Receipt |
 |---|---|---|
 | `gpt-5.6-sol` BLOCKER 8 | "`num.clamp()` returns `num`; `pendingCount` and `Positioned.left` will not compile." | **False.** The analyzer special-cases `clamp` when receiver and both bounds share a type. Compiled the exact two expressions in a scratch package: `dart analyze` → `No issues found!`. Unchanged. |
-| `grok-4.6` BLOCKER 5 | "`TestWidgetsFlutterBinding` is already `resumed`; the duplicate state no-ops and `didChangeAppLifecycleState` never runs, so Task 8's test fails." | **False.** `WidgetsBinding.handleAppLifecycleStateChanged` (`widgets/binding.dart:1330-1335`) calls `super` first — where the dedupe lives (`scheduler/binding.dart:414-417`) — and then notifies observers **unconditionally**. Probe test with a real observer saw `[resumed, paused, resumed]`, including the duplicate. The plan now goes `paused → resumed` anyway, because that is the sequence an operator actually produces, but the stated reason was wrong. |
+| `grok-4.6` BLOCKER 5 | "`TestWidgetsFlutterBinding` is already `resumed`; the duplicate state no-ops and `didChangeAppLifecycleState` never runs, so Task 9's test fails." | **False.** `WidgetsBinding.handleAppLifecycleStateChanged` (`widgets/binding.dart:1330-1335`) calls `super` first — where the dedupe lives (`scheduler/binding.dart:414-417`) — and then notifies observers **unconditionally**. Probe test with a real observer saw `[resumed, paused, resumed]`, including the duplicate. The plan now goes `paused → resumed` anyway, because that is the sequence an operator actually produces, but the stated reason was wrong. |
 
 ### Accepted — blockers
 
 | Filed | Finding | What changed | Receipt |
 |---|---|---|---|
-| BLOCKER, *both* | Restore applied before uploading, so a failed or killed upload leaves the pointer on the ancestor, the next pull matches branch 6, and the restore is **silently reversed**. | Task 10 `restoreRevision` inverted to **upload first, then apply**. New test `a failed upload leaves local UNTOUCHED, never half-restored`, plus one for the interrupted case. Deviation D5 rewritten. | Branch 6 at `backup_service.dart:165-176`; pointer save inside `_applyRevision` at `:225-229`; pull-before-push at `backup_scheduler.dart:91-99`. |
-| BLOCKER, `gpt-5.6-sol` 1 | "Use the remote copy" discarded local work with nothing preserving it; the spec requires snapshotting local first. | Task 10 `adoptRemote` writes `backup_replaced_snapshot` **before the fetch**, and refuses to proceed if that write fails. Task 13 surfaces it as *Undo "Use their copy"*. | `spec:451` — "snapshot local first, then apply transactionally". |
-| BLOCKER, *both* | `keepLocalAsNewRevision` and `restoreRevision` had no post-write sibling check, so two machines resolving the same conflict both reported success and both went green. | Task 10 extracts `_appendRevision` — put, optional pointer move, sibling scan — and puts `push()`, keep-mine and restore on it. New test using `MockBackupTarget.concurrentWriterBeforePut`. | The check they omitted is live at `backup_service.dart:293-305`. |
-| BLOCKER, `gpt-5.6-sol` 4 | A conflict outcome left the operation's earlier transport failure standing; hard failures outrank questions, so the popover offered "Retry now" forever and the resolution UI was unreachable. | Task 5 `_onPull`/`_onPush` clear that operation's condition on **any** completed result. New test: `a completed pull clears its transport failure even when the answer is a conflict`. | — |
-| BLOCKER, `gpt-5.6-sol` 5 | A successful resolve never cleared its own earlier `resolve` failure, so a retry that worked still left the pill red. | Task 12 `_resolve` removes `_conditions['resolve']` on success. New test: `a resolve that fails once and then succeeds does not stay red`. | — |
+| BLOCKER, *both* | Restore applied before uploading, so a failed or killed upload leaves the pointer on the ancestor, the next pull matches branch 6, and the restore is **silently reversed**. | Task 12 `restoreRevision` inverted to **upload first, then apply**. New test `a failed upload leaves local UNTOUCHED, never half-restored`, plus one for the interrupted case. Deviation D5 rewritten. | Branch 6 at `backup_service.dart:165-176`; pointer save inside `_applyRevision` at `:225-229`; pull-before-push at `backup_scheduler.dart:91-99`. |
+| BLOCKER, `gpt-5.6-sol` 1 | "Use the remote copy" discarded local work with nothing preserving it; the spec requires snapshotting local first. | Task 12 `adoptRemote` writes `backup_replaced_snapshot` **before the fetch**, and refuses to proceed if that write fails. Task 16 surfaces it as *Undo "Use their copy"*. | `spec:451` — "snapshot local first, then apply transactionally". |
+| BLOCKER, *both* | `keepLocalAsNewRevision` and `restoreRevision` had no post-write sibling check, so two machines resolving the same conflict both reported success and both went green. | Task 11 extracts `_appendRevision` — put, optional pointer move, sibling scan — and Tasks 11–12 put `push()`, keep-mine and restore on it. New test using `MockBackupTarget.concurrentWriterBeforePut`. | The check they omitted is live at `backup_service.dart:293-305`. |
+| BLOCKER, `gpt-5.6-sol` 4 | A conflict outcome left the operation's earlier transport failure standing; hard failures outrank questions, so the popover offered "Retry now" forever and the resolution UI was unreachable. | Task 6 `_onPull`/`_onPush` clear that operation's condition on **any** completed result. New test: `a completed pull clears its transport failure even when the answer is a conflict`. | — |
+| BLOCKER, `gpt-5.6-sol` 5 | A successful resolve never cleared its own earlier `resolve` failure, so a retry that worked still left the pill red. | Task 14 `_resolve` removes `_conditions['resolve']` on success. New test: `a resolve that fails once and then succeeds does not stay red`. | — |
 | BLOCKER, `gpt-5.6-sol` 7 | `_refreshFacts` read the raw pointer with no target-identity check, so an account or folder change could paint green over an empty target. | Task 5 adds `_pointer()`, mirroring the engine's own check. New test: `a pointer from another target is not this target's head`. | Engine equivalent at `backup_service.dart:101-104`. |
-| BLOCKER, *both* | The controller's fold was unserialized (`unawaited(handleEvent)`), so an older `_refreshFacts` could finish last and write stale facts — "Not backed up" over a revision that exists. | Task 5 adds a `_fold` queue; the stream and mutation listeners enqueue instead of firing. New test: `a slow first event cannot repaint the pill after a later success`. | — |
-| BLOCKER, `grok-4.6` 3 | `BACKUP_SCENARIO=conflict` staged one revision into an empty target — which a pristine machine **adopts** (branch 3), so Task 9 would have screenshotted green and labelled it "Needs review". Staging was also unawaited. | Task 8 replaces it with `_stage`, awaited before the first pull, which provenances the machine and then writes a **sibling** so pull reaches branch 7. | Branch 3 at `backup_service.dart:130-142`; branch 7 at `:178-179`. |
-| BLOCKER, *both* | Making `SettingsDialog.backupController` required breaks an existing test and takes the whole suite down. | Task 13 makes it nullable and hides the tile when absent; the task now runs that file immediately after the edit. | `test/settings_dialog_test.dart:27`. |
-| BLOCKER, *both* | Task 6 imported a file Task 7 created; the declared order was not executable. | Tasks 6 and 7 swapped — popover first, pill second — and the popover's test no longer mounts the pill. | — |
-| BLOCKER, `grok-4.6` 6 (filed MAJOR) | `PullOutcome.nothingToDo` cleared a fork warning. After winning a fork race our revision **is** the head, so the next pull erased the warning while the sibling sat in the store. | Task 5 `_onPull` no longer clears the question on `nothingToDo`. New test. Promoted to blocker: it is silent, reachable, and loses the only warning this machine gets. | `nothingToDo` means only `head.id == pointer`, `backup_service.dart:146-148`. |
+| BLOCKER, *both* | The controller's fold was unserialized (`unawaited(handleEvent)`), so an older `_refreshFacts` could finish last and write stale facts — "Not backed up" over a revision that exists. | Task 6 adds a `_fold` queue; the stream and mutation listeners enqueue instead of firing. New test: `a slow first event cannot repaint the pill after a later success`. | — |
+| BLOCKER, `grok-4.6` 3 | `BACKUP_SCENARIO=conflict` staged one revision into an empty target — which a pristine machine **adopts** (branch 3), so Task 10 would have screenshotted green and labelled it "Needs review". Staging was also unawaited. | Task 9 replaces it with `_stage`, awaited before the first pull, which provenances the machine and then writes a **sibling** so pull reaches branch 7. | Branch 3 at `backup_service.dart:130-142`; branch 7 at `:178-179`. |
+| BLOCKER, *both* | Making `SettingsDialog.backupController` required breaks an existing test and takes the whole suite down. | Task 16 makes it nullable and hides the tile when absent; the task now runs that file immediately after the edit. | `test/settings_dialog_test.dart:27`. |
+| BLOCKER, *both* | The pill's task imported a file the popover's task created; the declared order was not executable. | The two swapped — popover first (Task 7), pill second (Task 8) — and the popover's test no longer mounts the pill. | — |
+| BLOCKER, `grok-4.6` 6 (filed MAJOR) | `PullOutcome.nothingToDo` cleared a fork warning. After winning a fork race our revision **is** the head, so the next pull erased the warning while the sibling sat in the store. | Task 6 `_onPull` no longer clears the question on `nothingToDo`. New test. Promoted to blocker: it is silent, reachable, and loses the only warning this machine gets. | `nothingToDo` means only `head.id == pointer`, `backup_service.dart:146-148`. |
 
 ### Accepted — majors and minors
 
 | Filed | Finding | What changed |
 |---|---|---|
 | MAJOR, *both* | `lastSuccessAt` could not be cleared, so the popover could date an unbacked configuration by an old backup. | `copyWith` gains `clearLastSuccess`; Task 5 shows an age only while the pointer is provenanced. New test. |
-| MAJOR, *both* | Device-name uniqueness counted **this** machine's own revisions, so the field blanked itself and refused to re-save the current name after the first push. | `DeviceLabel.isSameName`; Task 14 excludes our own label. New test. |
-| MAJOR, `grok-4.6` 8 | `DeviceLabel.require()` throws from inside `put`, so "Keep mine" on an unnamed machine failed red instead of asking the one question that unblocks it. | Task 14 extracts `nameThisMachine(...)` into its own widget file and the conflict dialog calls it before any uploading action. |
+| MAJOR, *both* | Device-name uniqueness counted **this** machine's own revisions, so the field blanked itself and refused to re-save the current name after the first push. | `DeviceLabel.isSameName`; Task 17 excludes our own label. New test. |
+| MAJOR, `grok-4.6` 8 | `DeviceLabel.require()` throws from inside `put`, so "Keep mine" on an unnamed machine failed red instead of asking the one question that unblocks it. | Task 17 extracts `nameThisMachine(...)` into its own widget file and the conflict dialog calls it before any uploading action. |
 | MAJOR, `grok-4.6` 10 | First-run adoption was framed as "Two machines have different settings" — a lie on a brand-new iPad. | New `BackupFailureKind.adoptionChoice` and `BackupStatus.adoptionKind`; pill reads "Choose a copy"; the dialog asks its own question with its own button words. New tests in Tasks 2 and 5. |
 | MAJOR, `gpt-5.6-sol` 13 | Deferral was not rescoped: a newer revision inherited an old "decide later". | `deferralApplies` compares against the **current** revision, and `_raiseQuestion` clears a deferral that no longer applies. New test. |
 | MAJOR, *both* | Vacuous tests: the log-eviction test used 500 identical fingerprints that collapsed to one row and could not fail; the "conflict does not hide a hard failure" test constructed no conflict. | Both rewritten. The eviction test now uses 250 distinct fingerprints and asserts the opposite, honest thing — history **is** evictable, which is exactly why D1 keeps the active condition elsewhere. |
-| MAJOR, `gpt-5.6-sol` 17 | `onAppStart()` only pulls, so a mutation killed before its debounce waits for a foreground event or the ten-minute sweep. | Task 8 Step 1 makes app start resume a pending push, with a test. This also closes the D1 objection. |
-| MINOR, `grok-4.6` | Preset/visibility diff counted devices, not buttons: twenty renamed presets read "1 changed". | Task 11 counts inner entries. Test rewritten. |
+| MAJOR, `gpt-5.6-sol` 17 | `onAppStart()` only pulls, so a mutation killed before its debounce waits for a foreground event or the ten-minute sweep. | Task 9 Step 1 makes app start resume a pending push, with a test. This also closes the D1 objection. |
+| MINOR, `grok-4.6` | Preset/visibility diff counted devices, not buttons: twenty renamed presets read "1 changed". | Task 13 counts inner entries. Test rewritten. |
 | MINOR, *both* | The pinned popover row was always red, contradicting the pill's own amber for a question. | Coloured by severity, with a matching icon. |
 | MINOR, `grok-4.6` | Task 1 claimed 13 tests; the snippet has 11. | Corrected. |
 | MINOR, `grok-4.6` | Task 4's test group uses `RestoreJournal` without naming the import. | Import named in the task. |
-| MINOR, `grok-4.6` | The File Structure blurb promised a `force` path on `_applyRevision` that Task 10 never adds. | Removed from the blurb; the freshness abort is the intended behaviour. |
-| MINOR, `grok-4.6` | Unused `relative_time.dart` import on the controller at Task 12 would fail `flutter analyze` before Task 13 uses it. | The import note moved to Task 13, where the first use is. |
+| MINOR, `grok-4.6` | The File Structure blurb promised a `force` path on `_applyRevision` that Task 12 never adds. | Removed from the blurb; the freshness abort is the intended behaviour. |
+| MINOR, `grok-4.6` | Unused `relative_time.dart` import on the controller at Task 14 would fail `flutter analyze` before Task 16 uses it. | The import note moved to Task 16, where the first use is. |
 
 ### Standing questions, as answered
 
 Both reviewers answered all three. Their shared answer to (1) and (2) — *one
 append primitive behind every writer, and make destructive resolution
-recoverable* — is now the shape of Task 10. Their answer to (3) was **no**,
+recoverable* — is now the shape of Tasks 11–12. Their answer to (3) was **no**,
 citing the missing snapshot, the unsafe restore order, the missing fork checks
 and the unreachable resolution UI; those are the four blockers above.
 
