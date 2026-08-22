@@ -88,8 +88,15 @@ osascript -e 'tell application "Terminal" to activate' \
   ways: `--tools default`, `--tools "Read,Edit,Write,Bash,Glob,Grep"`, a clean
   environment with every inherited `CLAUDE_*` var scrubbed, and without `--bare`
   plus `--dangerously-skip-permissions`. Write stays disabled in all four
-  ("Write is disabled for this session, in subagents as well as here"). The gate
-  is the `[claude-code:unrecognized_model]` path — above the CLI's reach.
+  ("Write is disabled for this session, in subagents as well as here").
+
+  **The cause is not model recognition.** That was tested too: adding
+  `{"modelOverrides": {"claude-sonnet-5": "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit"}}`
+  via `--settings` DOES silence the `[claude-code:unrecognized_model]` diagnostic
+  (documented at code.claude.com/docs/en/model-config) — and the tool set is
+  unchanged. So registering the model is not a route to more tools. The actual
+  gate is still unidentified; treat the four-tool set as fixed until someone
+  proves otherwise.
   **Consequence for briefs: there is no `Write` tool. Ornith creates new files
   with a Bash heredoc** (`Edit` needs an existing target). This is how all three
   successful trials worked; do not write a brief that assumes `Write`.
