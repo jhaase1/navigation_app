@@ -32,7 +32,8 @@ flowchart TD
     E --> F["Production MVP"]
 ```
 
-### Phase 3: The Status Surface & UI
+### (I'm having the plan written for this one right now while it's fresh in my mind-Dan)
+Phase 3: The Status Surface & UI
 - **AppBar Status Pill:** 5-state priority indicator (`red` non-conflict fault > `amber` conflict > `grey` not backed up > `amber` dirty pending > `green` backed up).
 - **Error Log Popover:** Clickable popover displaying pinned active conditions, collapsible history via structured fingerprints `(domain, kind, operation, targetIdentity)`, dismiss controls (`x`), and relative time ladders.
 - **Conflict Resolution Dialog:** Non-modal interface showing machine identity, timestamp, and diff summary with three explicit operator actions: *Use Remote Copy*, *Keep My Copy as New Revision*, or *Decide Later* (with per-revision prompt suppression).
@@ -40,6 +41,8 @@ flowchart TD
 - **First-Run Device Naming:** Enforces explicit machine labeling; rejects invalid defaults (`localhost`, `iPad`, bare models, or duplicate names).
 - **Lifecycle Integration:** Attaches `BackupScheduler` to `WidgetsBindingObserver` to pull on foreground and flush on background.
 - **Production `localIsPristine`:** Comprehensive emptiness check across all 8 stores.
+-
+---
 
 ### Phase 4: Google Drive Target & Auth
 - **`DriveBackupTarget`:** Real implementation of `BackupTargetAbstract` using Google Drive API v3 (`googleapis/drive/v3`).
