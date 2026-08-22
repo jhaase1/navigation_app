@@ -163,6 +163,31 @@ class ConfigBundle {
     );
   }
 
+  /// Whether this machine holds no configuration of its own.
+  ///
+  /// Presence, not emptiness. Three of the eight stores return **defaults**
+  /// rather than nothing when unwritten — `OperatorProfile.defaultProfile`,
+  /// `DeviceConfigStore.defaultRolandIp`, `defaultCameras` — so "everything
+  /// reads empty" is never true on a real machine and an emptiness check would
+  /// classify every install as having data. Equality-against-defaults is the
+  /// other tempting answer and it is worse: under
+  /// `--dart-define=MOCK_RIG=true`, `loadRolandIp` ignores SharedPreferences
+  /// entirely (`device_config_store.dart:43-47`), so a machine with saved
+  /// device config would compare equal to the mock defaults and read pristine.
+  ///
+  /// A key that exists means somebody wrote it. That is the whole test, and it
+  /// errs toward asking rather than overwriting: a store written and then
+  /// cleared reads as not-pristine, which costs one adoption question and
+  /// risks nothing.
+  static Future<bool> localIsPristine() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys()) {
+      if (RestoreJournal.dataKeys.contains(key)) return false;
+      if (RestoreJournal.dataPrefixes.any(key.startsWith)) return false;
+    }
+    return true;
+  }
+
   static const _presetPrefix = 'preset_names_';
 
   static Future<ConfigBundle> fromStores() async {

@@ -32,16 +32,24 @@ flowchart TD
     E --> F["Production MVP"]
 ```
 
-### (I'm having the plan written for this one right now while it's fresh in my mind-Dan)
 Phase 3: The Status Surface & UI
-- **AppBar Status Pill:** 5-state priority indicator (`red` non-conflict fault > `amber` conflict > `grey` not backed up > `amber` dirty pending > `green` backed up).
-- **Error Log Popover:** Clickable popover displaying pinned active conditions, collapsible history via structured fingerprints `(domain, kind, operation, targetIdentity)`, dismiss controls (`x`), and relative time ladders.
-- **Conflict Resolution Dialog:** Non-modal interface showing machine identity, timestamp, and diff summary with three explicit operator actions: *Use Remote Copy*, *Keep My Copy as New Revision*, or *Decide Later* (with per-revision prompt suppression).
-- **Revision History Picker:** Visual list to preview and restore older snapshots from storage.
-- **First-Run Device Naming:** Enforces explicit machine labeling; rejects invalid defaults (`localhost`, `iPad`, bare models, or duplicate names).
-- **Lifecycle Integration:** Attaches `BackupScheduler` to `WidgetsBindingObserver` to pull on foreground and flush on background.
-- **Production `localIsPristine`:** Comprehensive emptiness check across all 8 stores.
--
+
+**Lane 3a is DONE** — plan `docs/superpowers/plans/2026-08-21-status-surface.md`
+Tasks 1–10, merged via PR #19. **Lane 3b (Tasks 11–18) has not started.**
+Struck items ship today; unstruck items do not exist yet.
+
+- ~~**AppBar Status Pill:** 5-state priority indicator (`red` non-conflict fault > `amber` conflict > `grey` not backed up > `amber` dirty pending > `green` backed up).~~ **DONE (3a).**
+- ~~**Error Log Popover:** Clickable popover displaying pinned active conditions, collapsible history via structured fingerprints `(domain, kind, operation, targetIdentity)`, dismiss controls (`x`), and relative time ladders.~~ **DONE (3a).**
+- **Conflict Resolution Dialog:** Non-modal interface showing machine identity, timestamp, and diff summary with three explicit operator actions: *Use Remote Copy*, *Keep My Copy as New Revision*, or *Decide Later* (with per-revision prompt suppression). — **NOT DONE (Lane 3b).** Conflicts and first-run adoption are *surfaced* on the pill and popover today, but there is no way to resolve them: `BackupService` has no public adopt or restore path yet. The "Deferred" marker also waits on 3b.
+- **Revision History Picker:** Visual list to preview and restore older snapshots from storage. — **NOT DONE (Lane 3b).**
+- **First-Run Device Naming:** Enforces explicit machine labeling; rejects invalid defaults (`localhost`, `iPad`, bare models, or duplicate names). — **NOT DONE (Lane 3b).**
+- ~~**Lifecycle Integration:** Attaches `BackupScheduler` to `WidgetsBindingObserver` to pull on foreground and flush on background.~~ **DONE (3a)**, plus app-start resume of pending work.
+- ~~**Production `localIsPristine`:** Comprehensive emptiness check across all 8 stores.~~ **DONE (3a).**
+
+> Note for John: nothing is backed up off-machine yet. Phase 3 ships the
+> *surface* — production has no backup target until Phase 4, so the pill
+> correctly reads "Not backed up". Lane 3a also does **not** fix the three
+> swallowed-hardware-response failures below; those are still live.
 ---
 
 ### Phase 4: Google Drive Target & Auth
@@ -105,7 +113,8 @@ The following architectural and operational issues in the existing codebase must
 | Priority | Area | Task | Deliverable |
 |---|---|---|---|
 | **P0** | Backup Engine | Execute plan `2026-08-21-backup-foundations-and-engine.md` | In-memory sync engine, atomic restores, canonical JSON |
-| **P0** | Status Surface | Implement Phase 3 (Pill, Popover, Conflict UI) | Visible sync health, clickable error log, conflict picker |
+| ~~**P0**~~ | Status Surface | ~~Implement Phase 3 lane 3a (Pill, Popover, Log, Controller)~~ **DONE — PR #19** | ~~Visible sync health, clickable error log~~ |
+| **P0** | Status Surface | Implement Phase 3 lane 3b (Conflict UI, Revision Picker, Device Naming) | Resolvable conflicts, restore older revisions |
 | **P0** | Cloud Storage | Implement Phase 4 (Google Drive & OAuth) | Off-machine automated backups on Mac mini and iPad |
 | **P1** | Hardware Reliability | Implement Phase 5 (Device Faults into Status Pill) | Real-time Roland & PTZ connection health in AppBar |
 | **P1** | Core UX | Eliminate `onResponse: (_) {}` and fix disconnect desync | Error feedback on cue execution; truthful Live/Offline badge |

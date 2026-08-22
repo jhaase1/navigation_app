@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/services/backup/app_fault.dart';
 import 'package:navigation_app/services/backup/backup_scheduler.dart';
 import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/config_mutation_notifier.dart';
 import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
+import 'package:navigation_app/services/position_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> doc(String marker) => {
@@ -50,6 +52,19 @@ void main() {
     final s = scheduler();
     await s.onAppStart();
     expect(s.pullCount, 1);
+    await s.stop();
+  });
+
+  test('app start resumes a push the previous run never finished', () async {
+    final s = scheduler();
+    // The mutation outlived the process; the in-memory debounce timer did not.
+    await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+    expect(await ConfigMutationNotifier.instance.isDirty(), isTrue);
+
+    await s.onAppStart();
+
+    expect(s.pushCount, 1);
+    expect(target.revisions, hasLength(1));
     await s.stop();
   });
 
@@ -166,7 +181,8 @@ void main() {
     test('app-start returns after scheduling retry rather than retaining it',
         () async {
       final retryMayFinish = Completer<void>();
-      final s = BackupScheduler(service: service, sleep: (_) => retryMayFinish.future);
+      final s = BackupScheduler(
+          service: service, sleep: (_) => retryMayFinish.future);
       var returned = false;
       target.failNextWith(
           AppFault.backup(BackupFailureKind.offline, 'no network'));
@@ -221,7 +237,8 @@ void main() {
       await s.onAppStart();
       await Future<void>.delayed(const Duration(milliseconds: 40));
 
-      expect(slept, isEmpty, reason: 'waiting cannot fix an expired credential');
+      expect(slept, isEmpty,
+          reason: 'waiting cannot fix an expired credential');
       await s.stop();
     });
 

@@ -10,6 +10,7 @@ import 'package:navigation_app/services/people_store.dart';
 import 'package:navigation_app/services/position_store.dart';
 import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/services/visibility_store.dart';
+import 'package:navigation_app/services/backup/restore_journal.dart';
 
 ConfigBundle _full() => ConfigBundle(
       schemaVersion: ConfigBundle.currentSchemaVersion,
@@ -296,6 +297,53 @@ void main() {
       expect(reloaded.presetNames['roland_10.0.1.20']?['2'], 'Entrance Hymn');
       expect(reloaded.presetNames['10.0.1.10']?['0'], 'Wide Shot');
       expect(reloaded.visibilities['roland_10.0.1.20']?['1'], 'basic');
+    });
+  });
+
+  group('localIsPristine', () {
+    // Needs `import 'package:navigation_app/services/backup/restore_journal.dart';`
+    // added to this file — `config_bundle_test.dart` does not import it today.
+    test('a machine that has never been configured is pristine', () async {
+      SharedPreferences.setMockInitialValues({});
+      expect(await ConfigBundle.localIsPristine(), isTrue);
+    });
+
+    test('engine bookkeeping alone does not count as configuration', () async {
+      SharedPreferences.setMockInitialValues({
+        'backup_mutation_generation': 4,
+        'backup_synced_generation': 4,
+        'backup_source_revision': 'rev-1',
+        'backup_log': '[]',
+      });
+      expect(await ConfigBundle.localIsPristine(), isTrue);
+    });
+
+    for (final key in RestoreJournal.dataKeys) {
+      test('a written "$key" makes the machine non-pristine', () async {
+        SharedPreferences.setMockInitialValues({key: '[]'});
+        expect(await ConfigBundle.localIsPristine(), isFalse);
+      });
+    }
+
+    test('a single preset name makes the machine non-pristine', () async {
+      SharedPreferences.setMockInitialValues({
+        'preset_names_10.0.1.10': '{"1":"Pulpit"}',
+      });
+      expect(await ConfigBundle.localIsPristine(), isFalse);
+    });
+
+    test('a single visibility entry makes the machine non-pristine', () async {
+      SharedPreferences.setMockInitialValues({
+        'item_visibility_roland_10.0.1.20': '{"1":"hidden"}',
+      });
+      expect(await ConfigBundle.localIsPristine(), isFalse);
+    });
+
+    test('a real save through any store ends pristineness', () async {
+      SharedPreferences.setMockInitialValues({});
+      await PositionStore.saveAll(
+          [Position(id: 'p1', name: 'Pulpit')]);
+      expect(await ConfigBundle.localIsPristine(), isFalse);
     });
   });
 }

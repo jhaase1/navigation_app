@@ -106,9 +106,12 @@ live as of 2026-08-21.
    recovers.
 3. **A wedged camera reports nothing at all.**
 
-A design for the status surface that would absorb these exists at
-`docs/superpowers/specs/2026-08-21-drive-backup-and-status-surface-design.md`
-(open question 4). It is a design, not shipped behaviour.
+Lane 3a now ships the backup status surface: the always-clickable AppBar pill,
+its popover, the bounded persisted log, and `BackupController` with its
+serialized event fold. Production still has no real backup target until Phase
+4. Conflict and adoption conditions are surfaced but cannot be resolved until
+Lane 3b. The surface does not yet absorb the three device failures above: the
+dropped socket, ACK desync, and wedged-camera bugs are still live.
 
 ## Agent setup
 
