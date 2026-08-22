@@ -490,6 +490,31 @@ concurrent `sight-reader` `codex --yolo` session was holding **9.5 GB**.
 "restart before long runs" is necessary but not sufficient — a competing 10 GB
 process on another project will kill the server no matter how fresh it is.
 
+### GENERAL DEFECT — `addTearDown(controller.dispose)` hangs every widget test
+
+Measured twice, 2026-08-22. In Task 7 it hung all three popover tests; restoring
+the plan's verbatim pre-edit copy to a scratch file reproduced it exactly, which
+ruled out the supervisor's anchor edit as the cause. In Task 8 I restored the
+pattern to a scratch copy of a PASSING test file and it hung there too. So this
+is a general defect of the pattern against `BackupController`, not something
+peculiar to one task's widget.
+
+**The fix that works** (Sol's, and better than simply relocating the dispose):
+
+```dart
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose();
+```
+
+at the END of each test body. Unmounting first disposes the `State` and cancels
+`BackupStatusPill`'s `Timer.periodic`, THEN the controller is disposed — which
+also removes the pending-timer failure mode, not just the hang.
+
+**Still live in the plan: Task 17 (Lane 3b) carries three more instances**, at
+plan lines 5627, 5641 and 5660. Task 9 carries none. Fix them in Task 17's brief
+before dispatching it, or that task loses a cycle to a hang that is already
+solved.
+
 ### Metrics so far (do not collapse these — brief §7)
 
 | task | first-pass | repairs used | reviewer caught a code defect tests missed | pipeline |
@@ -498,7 +523,9 @@ process on another project will kill the server no matter how fresh it is.
 | 2 (substantive) | pass | 0 | **no** | pass |
 | 3 (substantive) | pass | 0 | **YES — 5 plan defects** | pass |
 | 4 (mechanical) | pass | 0 | not reviewed | pass |
-| 5+6 (red zone) | attempt 1 killed by jetsam, not a model failure | — | matrix built, itself needed one fix round | in progress |
+| 5+6 (red zone) | pass (grok-4.6) | 0 | 22/22 protected matrix, cold | pass |
+| 7 (presentation) | pass (gpt-5.6-sol) | 1 — supervisor-caused collision | **YES — Sol flagged a cross-lane fence dependency pre-flight** | pass |
+| 8 (presentation) | pass (gpt-5.6-sol) | 0 | impl byte-identical; teardown trap pre-empted | pass |
 
 Two clean transcriptions is not yet evidence about Ornith's judgment: Tasks 1
 and 2 shipped code byte-identical to the plan's fences. The Terra tier has not
