@@ -83,12 +83,12 @@ osascript -e 'tell application "Terminal" to activate' \
   on *"Is this a project you created or one you trust?"* it is sitting there
   doing nothing — add the path to `projects` in `~/.claude.json` with that flag.
   This silently ate one test run before it was found.
-- **Do not assume Ornith can message you back.** `SendMessage` from inside
-  `claude-ornith` was still being verified when this brief was written (the
-  alias uses `--bare`, which may strip the tool). Confirm it yourself with a
-  throwaway task before relying on it. Until confirmed, detect completion by
-  watching the window and checking `git status` and test results in the worktree
-  — never by asking Ornith whether it finished.
+- **Ornith cannot message you back — tested, negative.** Two runs asked it to
+  call `SendMessage` back to the supervising session; neither delivered. The
+  alias uses `--bare`, which appears to strip the tool. **Do not build the loop
+  on it.** Detect completion by watching the window and by checking `git status`
+  and test results in the worktree — never by asking Ornith whether it finished,
+  and never by trusting its summary. Its self-report is not a signal (§5).
 
 ---
 
