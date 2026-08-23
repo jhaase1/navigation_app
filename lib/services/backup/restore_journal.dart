@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'backup_controller.dart';
 import 'backup_log.dart';
 import 'backup_pointer.dart';
 import 'config_mutation_notifier.dart';
@@ -41,6 +42,7 @@ class RestoreJournal {
     BackupPointer.hashKey,
     BackupPointer.targetKey,
     BackupLog.lastSuccessKey,
+    BackupController.suppressedKey,
   ];
 
   static bool isJournalled(String k) =>
