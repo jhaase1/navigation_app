@@ -37,6 +37,26 @@ class PushResult {
       {this.revision, this.remoteRevision, this.siblings});
 }
 
+enum ResolutionOutcome {
+  resolved,
+  localChangedDuringResolve,
+  remoteMovedAgain,
+  forkedAgain,
+}
+
+class ResolutionResult {
+  final ResolutionOutcome outcome;
+  final BackupRevision? revision;
+  final List<BackupRevision>? siblings;
+  const ResolutionResult(this.outcome, {this.revision, this.siblings});
+}
+
+class _AppendResult {
+  final BackupRevision revision;
+  final List<BackupRevision> siblings;
+  const _AppendResult(this.revision, this.siblings);
+}
+
 /// Owns the backup protocol.
 ///
 /// Every operation runs through one single-flight queue. Pulls, debounced
@@ -179,13 +199,7 @@ class BackupService {
     return PullResult(PullOutcome.conflict, revision: head);
   }
 
-  Future<bool> _applyRevision(
-    BackupRevision revision, {
-    required String expectedLocalHash,
-    required int expectedGeneration,
-  }) async {
-    final raw = await target.fetch(revision);
-
+  Map<String, dynamic> _decodeRevision(BackupRevision revision, String raw) {
     final Object? decoded;
     try {
       decoded = jsonDecode(raw);
@@ -206,6 +220,16 @@ class BackupService {
         targetIdentity: targetIdentity,
       );
     }
+    return decoded;
+  }
+
+  Future<bool> _applyRevision(
+    BackupRevision revision, {
+    required String expectedLocalHash,
+    required int expectedGeneration,
+  }) async {
+    final raw = await target.fetch(revision);
+    final decoded = _decodeRevision(revision, raw);
 
     // Throws AppFault on anything malformed, before a single store is touched.
     final bundle = ConfigBundle.fromJsonValidated(decoded);
@@ -275,36 +299,61 @@ class BackupService {
       return PushResult(PushOutcome.conflict, remoteRevision: head);
     }
 
-    // 3. Upload, recording where we branched from.
+    // 3-4. Upload, recording where we branched from, then check for a writer
+    //      that slipped in between our latest() and our put().
+    final appended = await _appendRevision(
+      json: json,
+      hash: hash,
+      parentRevisionId: pointer.revisionId,
+      adoptPointer: true,
+      generation: generation,
+    );
+    if (appended.siblings.isNotEmpty) {
+      return PushResult(PushOutcome.forked,
+          revision: appended.revision, siblings: appended.siblings);
+    }
+    return PushResult(PushOutcome.uploaded, revision: appended.revision);
+  }
+
+  /// Uploads [json] as a child of [parentRevisionId], optionally taking the
+  /// pointer with it, and performs the post-write sibling check.
+  ///
+  /// **Every path that writes a revision goes through here.** Drive's
+  /// `files.create` has no compare-and-swap, so `latest()`-then-`put()` is a
+  /// time-of-check/time-of-use race on all three of them. `push()` already
+  /// handled that; "Keep mine" and restore-as-newest were written as separate
+  /// protocols that did not, so two machines resolving the same conflict at
+  /// the same moment would both report success and both go green.
+  Future<_AppendResult> _appendRevision({
+    required String json,
+    required String hash,
+    required String? parentRevisionId,
+    required bool adoptPointer,
+    required int generation,
+  }) async {
     final revision = await target.put(
       json,
       contentHash: hash,
-      parentRevisionId: pointer.revisionId,
+      parentRevisionId: parentRevisionId,
       deviceLabel: await deviceLabel(),
     );
 
-    await BackupPointer.save(
-      revisionId: revision.id,
-      recordedHash: hash,
-      targetIdentity: targetIdentity,
-    );
-    await ConfigMutationNotifier.instance.markSynced(generation);
+    if (adoptPointer) {
+      await BackupPointer.save(
+        revisionId: revision.id,
+        recordedHash: hash,
+        targetIdentity: targetIdentity,
+      );
+      await ConfigMutationNotifier.instance.markSynced(generation);
+    }
 
-    // 4. Fork check. No compare-and-swap exists, so a second writer can pass
-    //    step 2 concurrently. Both bodies survive; say so rather than pretend
-    //    the race did not happen.
     final recent = await target.list(limit: 10);
     final siblings = recent
         .where((r) =>
             r.id != revision.id &&
             r.parentRevisionId == revision.parentRevisionId)
         .toList();
-    if (siblings.isNotEmpty) {
-      return PushResult(PushOutcome.forked,
-          revision: revision, siblings: siblings);
-    }
-
-    return PushResult(PushOutcome.uploaded, revision: revision);
+    return _AppendResult(revision, siblings);
   }
 
   Future<T> _withStorageBoundary<T>(
