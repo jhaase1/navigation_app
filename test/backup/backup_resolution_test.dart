@@ -33,6 +33,17 @@ void main() {
   const emptyBundle = '{"schemaVersion":1,"positions":[],"people":[],'
       '"services":[],"heightRanges":[],"presetNames":{},"visibilities":{}}';
 
+  /// The position names held in the recovery slot, or null if it is empty.
+  Future<List<String>?> slottedPositions() async {
+    final saved = await BackupService.replacedSnapshot();
+    if (saved == null) return null;
+    return [
+      for (final p in (saved['bundle'] as Map<String, dynamic>)['positions']
+          as List)
+        (p as Map<String, dynamic>)['name'] as String,
+    ];
+  }
+
   /// Matches a malformed-body fault raised inside the [operation] boundary.
   ///
   /// The operation is the load-bearing half. `BackupController._raise` keys
@@ -131,6 +142,84 @@ void main() {
       expect((await PositionStore.loadAll()).map((p) => p.name),
           ['Lectern', 'Balcony'],
           reason: 'the operator answered about state that has since changed');
+    });
+
+    test('the copy is written before the body is fetched', () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
+      await setPositions(['Lectern', 'Choir']);
+
+      List<String>? duringFetch;
+      target.beforeNextFetch(() async {
+        duringFetch = await slottedPositions();
+      });
+      await service.adoptRemote(theirs);
+
+      expect(duringFetch, ['Lectern', 'Choir'],
+          reason: 'a fetch that never returns must still leave a copy behind');
+    });
+
+    test('an abort with no earlier copy leaves the slot empty', () async {
+      // The slot must never hold state that was not replaced. Nothing was
+      // adopted before this, so the honest slot is no slot.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
+      await setPositions(['Lectern']);
+
+      target.beforeNextFetch(() => setPositions(['Lectern', 'Balcony']));
+      final result = await service.adoptRemote(theirs);
+
+      expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
+      expect(await slottedPositions(), isNull,
+          reason: 'nothing was replaced, so nothing was preserved');
+    });
+
+    test('an abort keeps the earlier copy rather than the current state',
+        () async {
+      // The data-loss sequence: adopt #1 genuinely destroys L1 and slots it.
+      // The operator works on to L2. Adopt #2 aborts. Slotting L2 — which is
+      // still on disk — would discard L1, the only copy of what was actually
+      // destroyed.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
+
+      await setPositions(['L1']);
+      await service.adoptRemote(theirs);
+      expect(await slottedPositions(), ['L1'], reason: 'adopt #1 replaced L1');
+
+      await setPositions(['L2']);
+      target.beforeNextFetch(() => setPositions(['L2', 'edited']));
+      final result = await service.adoptRemote(theirs);
+
+      expect(result.outcome, ResolutionOutcome.localChangedDuringResolve);
+      expect(await slottedPositions(), ['L1'],
+          reason: 'L2 still exists on disk; L1 is the only copy that does not');
+    });
+
+    test('an adopt that faults keeps the earlier copy too', () async {
+      // The other non-replacing exit: the body never decodes, so the stores
+      // were never touched and the slot must not move.
+      await setPositions(['Pulpit']);
+      await service.push();
+      final theirs = (await service.history()).single;
+      await setPositions(['L1']);
+      await service.adoptRemote(theirs);
+
+      await target.put('this is not JSON',
+          contentHash: 'corrupt',
+          parentRevisionId: theirs.id,
+          deviceLabel: "Daniel's iPad");
+      final corrupt = (await target.latest())!;
+      await setPositions(['L2']);
+
+      await expectLater(
+          service.adoptRemote(corrupt), throwsA(isA<AppFault>()));
+
+      expect(await slottedPositions(), ['L1'],
+          reason: 'a fault replaced nothing, so it preserved nothing');
     });
   });
 
@@ -268,6 +357,16 @@ void main() {
       expect((await PositionStore.loadAll()).map((p) => p.name),
           ['Pulpit', 'Lectern', 'X'],
           reason: 'their edit stands; the restore did not overwrite it');
+
+      // Only the LOCAL apply was skipped. The append already succeeded and an
+      // append-only store cannot withdraw it, so the restore is live at the
+      // target and other machines will pull it through branch 6. Recorded
+      // here so the behavior is deliberate rather than incidental; telling
+      // the operator about it belongs to the surface, not the engine.
+      expect(target.revisions, hasLength(3),
+          reason: 'the append landed before the abort and cannot be undone');
+      expect((await target.latest())!.id, result.revision!.id,
+          reason: 'the restore is the head; other machines will adopt it');
     });
 
     test('an upload that lands without its apply is completed by the next pull',

@@ -404,10 +404,17 @@ class BackupService {
             final localBundle = await readBundleJson();
             final localHash = canonicalHash(localBundle);
 
-            // Written BEFORE the fetch. A fetch that fails after the stores
-            // were replaced would otherwise leave nothing preserved, and the
-            // whole point of this slot is that it exists when it is needed.
+            // Written BEFORE the fetch, so a `setString` that fails aborts
+            // while local is still intact rather than after it is gone.
+            //
+            // The prior value is kept because most exits from here replace
+            // nothing. An adopt that genuinely destroyed L1 slots it; the
+            // operator works on to L2; a later adopt aborts. Overwriting the
+            // slot with L2 — which is still on disk — would discard L1, the
+            // only copy of the thing that was actually destroyed. Every exit
+            // other than `resolved` puts the prior value back.
             final prefs = await SharedPreferences.getInstance();
+            final priorSnapshot = prefs.getString(replacedSnapshotKey);
             final saved = await prefs.setString(
               replacedSnapshotKey,
               jsonEncode({
@@ -427,18 +434,38 @@ class BackupService {
               );
             }
 
-            final applied = await _applyRevision(
-              revision,
-              expectedLocalHash: localHash,
-              expectedGeneration: generation,
-              operation: 'resolve',
-            );
-            return ResolutionResult(
-              applied
-                  ? ResolutionOutcome.resolved
-                  : ResolutionOutcome.localChangedDuringResolve,
-              revision: revision,
-            );
+            // Best effort on both abort paths. A fault already in flight
+            // says more about why the adopt failed than a prefs write that
+            // would not land, so it is rethrown rather than masked; the
+            // reload keeps the cache from claiming a snapshot disk does not
+            // hold.
+            Future<void> unwind() async {
+              final restored = priorSnapshot == null
+                  ? await prefs.remove(replacedSnapshotKey)
+                  : await prefs.setString(replacedSnapshotKey, priorSnapshot);
+              if (!restored) await prefs.reload();
+            }
+
+            final bool applied;
+            try {
+              applied = await _applyRevision(
+                revision,
+                expectedLocalHash: localHash,
+                expectedGeneration: generation,
+                operation: 'resolve',
+              );
+            } catch (_) {
+              await unwind();
+              rethrow;
+            }
+            if (!applied) {
+              await unwind();
+              return ResolutionResult(
+                  ResolutionOutcome.localChangedDuringResolve,
+                  revision: revision);
+            }
+            return ResolutionResult(ResolutionOutcome.resolved,
+                revision: revision);
           }));
 
   /// Append-only means this ADDS; the remote copy is not destroyed, it
@@ -491,6 +518,17 @@ class BackupService {
   /// revision at the target whose parent is the current head — which the next
   /// pull applies through branch 6, finishing the restore rather than
   /// reversing it.
+  ///
+  /// **An abort after the append is not a no-op at the target.** By the time
+  /// this can return [ResolutionOutcome.localChangedDuringResolve] from the
+  /// appended branch, the restored revision IS the head — and the store is
+  /// append-only, so it cannot be withdrawn. Only the LOCAL apply was
+  /// skipped. Other machines pull, match branch 6 against a linear
+  /// descendant of their pointer, and adopt the restore; this machine keeps
+  /// the operator's newer edit and sees a conflict on its next pull. The
+  /// returned [ResolutionResult] carries the appended revision precisely so
+  /// the caller can say so. Re-checking freshness just before the append
+  /// would narrow that window without closing it.
   Future<ResolutionResult> restoreRevision(BackupRevision revision) =>
       _single(() => _withStorageBoundary('resolve', () async {
             // Captured BEFORE the fetch. "Did local change while this ran"
