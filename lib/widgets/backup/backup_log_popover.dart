@@ -6,6 +6,7 @@ import '../../services/backup/backup_controller.dart';
 import '../../services/backup/backup_log.dart';
 import '../../services/backup/backup_status.dart';
 import '../../services/backup/relative_time.dart';
+import 'conflict_dialog.dart';
 
 const double _popoverWidth = 400;
 
@@ -130,6 +131,8 @@ class _BackupLogPanel extends StatelessWidget {
       if (status.isDirty && status.pendingCount > 0)
         '${status.pendingCount} change${status.pendingCount == 1 ? '' : 's'} not yet backed up.',
       if (!status.configured) 'Google Drive sign-in arrives in a later update.',
+      if (controller.deferralApplies)
+        'You chose to decide about this later.',
     ];
 
     return Padding(
@@ -151,7 +154,19 @@ class _BackupLogPanel extends StatelessWidget {
               ],
             ),
           ),
-          if (controller.canRetry)
+          if (BackupStatus.isQuestion(status.activeCondition?.kind ?? ''))
+            TextButton(
+              onPressed: () {
+                onClose();
+                showConflictDialog(context, controller);
+              },
+              child: Text(
+                status.activeCondition!.kind == BackupStatus.adoptionKind
+                    ? 'Choose'
+                    : 'Review',
+              ),
+            )
+          else if (controller.canRetry)
             TextButton(
               onPressed: () => controller.retryNow(),
               child: const Text('Retry now'),
