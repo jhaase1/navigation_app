@@ -7,6 +7,7 @@ import '../../services/backup/backup_log.dart';
 import '../../services/backup/backup_status.dart';
 import '../../services/backup/relative_time.dart';
 import 'conflict_dialog.dart';
+import 'device_name_dialog.dart';
 
 const double _popoverWidth = 400;
 
@@ -131,8 +132,7 @@ class _BackupLogPanel extends StatelessWidget {
       if (status.isDirty && status.pendingCount > 0)
         '${status.pendingCount} change${status.pendingCount == 1 ? '' : 's'} not yet backed up.',
       if (!status.configured) 'Google Drive sign-in arrives in a later update.',
-      if (controller.deferralApplies)
-        'You chose to decide about this later.',
+      if (controller.deferralApplies) 'You chose to decide about this later.',
     ];
 
     return Padding(
@@ -154,7 +154,12 @@ class _BackupLogPanel extends StatelessWidget {
               ],
             ),
           ),
-          if (BackupStatus.isQuestion(status.activeCondition?.kind ?? ''))
+          if (status.activeCondition?.kind == 'deviceUnnamed')
+            TextButton(
+              onPressed: () => nameThisMachine(context, controller),
+              child: const Text('Name this machine'),
+            )
+          else if (BackupStatus.isQuestion(status.activeCondition?.kind ?? ''))
             TextButton(
               onPressed: () {
                 onClose();

@@ -6,6 +6,7 @@ import 'package:navigation_app/services/backup/backup_controller.dart';
 import 'package:navigation_app/services/backup/backup_scheduler.dart';
 import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/backup_status.dart';
+import 'package:navigation_app/services/backup/device_label.dart';
 import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
 import 'package:navigation_app/services/config_bundle.dart';
 import 'package:navigation_app/services/position_store.dart';
@@ -20,7 +21,11 @@ void main() {
   late BackupController controller;
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      // Keep mine now asks for a name first. The service still uses its
+      // own lambda; this just lets the upload guard proceed.
+      DeviceLabel.key: 'Mac mini',
+    });
     target = MockBackupTarget();
     service = BackupService(
       target: target,
@@ -67,8 +72,8 @@ void main() {
   /// test FakeAsync zone that chain does not resume; `runAsync` lets the
   /// real event loop finish the in-flight fetch/resolve.
   Future<void> flushEngine(WidgetTester tester) async {
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pump();
   }
 
@@ -134,6 +139,7 @@ void main() {
 
     await openDialog(tester);
 
-    expect(find.textContaining('Could not download their copy'), findsOneWidget);
+    expect(
+        find.textContaining('Could not download their copy'), findsOneWidget);
   });
 }

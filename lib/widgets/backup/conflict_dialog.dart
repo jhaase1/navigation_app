@@ -5,7 +5,9 @@ import '../../services/backup/backup_controller.dart';
 import '../../services/backup/backup_service.dart';
 import '../../services/backup/backup_status.dart';
 import '../../services/backup/bundle_diff.dart';
+import '../../services/backup/device_label.dart';
 import '../../services/backup/relative_time.dart';
+import 'device_name_dialog.dart';
 
 /// Conflict resolution. Opened by the operator from the popover — never
 /// raised by the engine, and never during a service unless they ask for it.
@@ -36,6 +38,15 @@ class _ConflictDialogState extends State<_ConflictDialog> {
   void initState() {
     super.initState();
     _diff = widget.controller.conflictDiff();
+  }
+
+  Future<void> _runUpload(Future<ResolutionOutcome> Function() action) async {
+    if (await DeviceLabel.load() == null) {
+      if (!mounted) return;
+      await nameThisMachine(context, widget.controller);
+      if (!mounted || await DeviceLabel.load() == null) return;
+    }
+    await _run(action);
   }
 
   Future<void> _run(Future<ResolutionOutcome> Function() action) async {
@@ -170,8 +181,9 @@ class _ConflictDialogState extends State<_ConflictDialog> {
           child: Text(isAdoption ? 'Use the backup' : 'Use their copy'),
         ),
         FilledButton(
-          onPressed:
-              _working ? null : () => _run(widget.controller.resolveKeepMine),
+          onPressed: _working
+              ? null
+              : () => _runUpload(widget.controller.resolveKeepMine),
           child: Text(isAdoption ? "Keep this device's" : 'Keep mine'),
         ),
       ],

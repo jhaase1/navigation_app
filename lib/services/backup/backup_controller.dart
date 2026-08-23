@@ -15,6 +15,7 @@ import 'backup_status.dart';
 import 'bundle_diff.dart';
 import 'canonical_json.dart';
 import 'config_mutation_notifier.dart';
+import 'device_label.dart';
 import 'mock/mock_backup_target.dart';
 import 'relative_time.dart';
 
@@ -51,7 +52,7 @@ class BackupController with WidgetsBindingObserver {
     final service = BackupService(
       target: target,
       targetIdentity: 'mock:in-memory',
-      deviceLabel: () async => 'This machine',
+      deviceLabel: DeviceLabel.require,
       readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
       localIsPristine: ConfigBundle.localIsPristine,
     );
@@ -74,6 +75,9 @@ class BackupController with WidgetsBindingObserver {
     MockBackupTarget target,
     BackupService service,
   ) async {
+    // push() now goes through DeviceLabel.require. Without a saved name
+    // the conflict scenario throws deviceUnnamed and never stages.
+    await DeviceLabel.save('This machine');
     switch (scenario) {
       case 'authExpired':
         target.failNextWith(AppFault.backup(
