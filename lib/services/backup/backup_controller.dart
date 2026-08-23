@@ -75,9 +75,6 @@ class BackupController with WidgetsBindingObserver {
     MockBackupTarget target,
     BackupService service,
   ) async {
-    // push() now goes through DeviceLabel.require. Without a saved name
-    // the conflict scenario throws deviceUnnamed and never stages.
-    await DeviceLabel.save('This machine');
     switch (scenario) {
       case 'authExpired':
         target.failNextWith(AppFault.backup(
@@ -91,6 +88,9 @@ class BackupController with WidgetsBindingObserver {
         // Provenance this machine against a first revision, then have another
         // machine write a SIBLING of it. Pull then reaches branch 7: the head
         // is neither our pointer nor a descendant of it.
+        // push() goes through DeviceLabel.require; without a saved name
+        // this branch throws deviceUnnamed and never stages.
+        await DeviceLabel.save('This machine');
         final ours = await service.push();
         final base = ours.revision;
         if (base == null) return;
