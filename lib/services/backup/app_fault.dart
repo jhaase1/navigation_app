@@ -18,6 +18,7 @@ enum BackupFailureKind {
   unsupportedSchema,
   malformedRemote,
   targetMissing,
+  deviceUnnamed,
   unknown,
 }
 
@@ -77,6 +78,7 @@ class AppFault implements Exception {
     'malformedRemote',
     'conflict',
     'adoptionChoice',
+    'deviceUnnamed',
   };
 
   /// Retryable, but only on the slow periodic sweep. A tight backoff loop

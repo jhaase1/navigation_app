@@ -3,8 +3,11 @@ import '../models/height_range.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/position.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/backup/backup_controller.dart';
 import '../services/config_bundle.dart';
 import '../services/device_config_store.dart';
+import 'backup/device_name_dialog.dart';
+import 'backup/revision_history_sheet.dart';
 import 'connections_dialog.dart';
 import 'height_range_manager_dialog.dart';
 import 'master_control_widget.dart';
@@ -38,6 +41,10 @@ class SettingsDialog extends StatelessWidget {
   // Operator
   final VoidCallback onOperatorsChanged;
 
+  /// Null in tests that construct this dialog directly. The tile is hidden
+  /// rather than dead when there is nothing to open.
+  final BackupController? backupController;
+
   const SettingsDialog({
     super.key,
     required this.mockMode,
@@ -60,6 +67,7 @@ class SettingsDialog extends StatelessWidget {
     required this.onAllDataChanged,
     required this.onDeviceConfigSaved,
     required this.onOperatorsChanged,
+    this.backupController,
   });
 
   // ── Operator ─────────────────────────────────────────────────────────────
@@ -332,8 +340,7 @@ class SettingsDialog extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color:
-                      mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
+                  color: mockMode ? Colors.orange.shade50 : Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                       color: mockMode
@@ -439,6 +446,13 @@ class SettingsDialog extends StatelessWidget {
                 subtitle: 'Picture-in-picture source and position',
                 onTap: () => _openPinP(context),
               ),
+              if (backupController != null)
+                _tile(
+                  icon: Icons.computer,
+                  title: 'Name this machine',
+                  subtitle: 'Shown when two machines have different settings.',
+                  onTap: () => nameThisMachine(context, backupController!),
+                ),
               const SizedBox(height: 4),
 
               // Data
@@ -455,6 +469,13 @@ class SettingsDialog extends StatelessWidget {
                 subtitle: 'Replace all data from a previously exported file',
                 onTap: () => _importConfig(context),
               ),
+              if (backupController != null)
+                _tile(
+                  icon: Icons.history,
+                  title: 'Backup History',
+                  subtitle: 'Restore an earlier version of your configuration',
+                  onTap: () => showRevisionHistory(context, backupController!),
+                ),
             ],
           ),
         ),

@@ -16,6 +16,7 @@ class MockBackupTarget implements BackupTargetAbstract {
   final Map<String, String> _bodies = {};
 
   AppFault? _nextFailure;
+  AppFault? _nextPutFailure;
   Duration? _nextDelay;
   Map<String, String?>? _pendingConcurrentWrite;
   Future<void> Function()? _beforeNextFetch;
@@ -24,6 +25,14 @@ class MockBackupTarget implements BackupTargetAbstract {
 
   /// The next call to any method throws [fault], once.
   void failNextWith(AppFault fault) => _nextFailure = fault;
+
+  /// The next [put] throws [fault], once; reads keep working.
+  ///
+  /// [failNextWith] fires on whichever call comes next, which for a restore is
+  /// the body fetch — a failure both upload-then-apply and apply-then-upload
+  /// survive identically. Only a failure that lands on the upload itself, with
+  /// the body already in hand, separates them.
+  void failNextPutWith(AppFault fault) => _nextPutFailure = fault;
 
   /// The next call to any method takes [d] before returning, once.
   void delayNextBy(Duration d) => _nextDelay = d;
@@ -110,6 +119,11 @@ class MockBackupTarget implements BackupTargetAbstract {
     required String deviceLabel,
   }) async {
     await _gate();
+    final putFailure = _nextPutFailure;
+    if (putFailure != null) {
+      _nextPutFailure = null;
+      throw putFailure;
+    }
     final pending = _pendingConcurrentWrite;
     if (pending != null) {
       _pendingConcurrentWrite = null;

@@ -78,8 +78,11 @@ requirements implicitly include this section.
    `MockBackupTarget` in a build a human might use for real** — an in-memory
    store that evaporates on quit would let the pill go green over nothing.
 10. **`flutter analyze` must be clean and the full `flutter test` green at the
-    end of every task.** Baseline as of this plan: `No issues found!` and
-    `522 tests passed`.
+    end of every task.** Baseline when this plan was written, before 3a:
+    `No issues found!` and `522 tests passed`. **Baseline at the head of lane
+    3b, with 3a merged: `No issues found!` and `620 tests passed`** — verified
+    on `lane/backup-resolution` off `c407fdd`, 22 Aug 2026. Tasks 11-18 add to
+    that number; they never subtract from it.
 
 ---
 
@@ -144,9 +147,21 @@ Recorded here because reviewers should attack them directly.
 | `backup_last_success_at` | String (ISO-8601 UTC) | `BackupController` | When this machine's configuration was last confirmed stored at the target. |
 | `backup_device_label` | String | `DeviceLabel` (3b) | Operator-declared machine name. |
 | `backup_conflict_suppressed` | String (revision id) | `BackupController` (3b) | The remote revision the operator chose to decide later about. |
+| `backup_replaced_snapshot` | String (JSON object) | `BackupService` (3b, Task 12) | The local configuration that "Use the remote copy" replaced. One slot, most recent wins. |
 
-All four are added to `RestoreJournal` engine keys in Task 3 and Task 17 so a
-rolled-back import cannot strand them.
+The first four are added to `RestoreJournal` engine keys — in Task 3
+(`backup_log`, `backup_last_success_at`), Task 14 (`backup_conflict_suppressed`)
+and Task 17 (`backup_device_label`) — so a rolled-back import cannot strand
+them.
+
+**`backup_replaced_snapshot` is deliberately NOT journalled. Do not add it.**
+`adoptRemote` writes the slot *before* it calls `_applyRevision`, so the
+journal's `capture()` already runs after the write and rolling it back would
+restore the value it already holds. On the manual-import path journalling it
+would be actively wrong: an import that rolled back would discard the copy of
+the settings the operator adopted away from, which is the one thing this slot
+exists to keep. It is a recovery affordance for a single action, deliberately
+outside the configuration it protects.
 
 ---
 
@@ -5740,22 +5755,22 @@ Run against the spec after writing the plan, per the `writing-plans` skill.
 
 | Spec requirement | Task |
 |---|---|
-| 5-state priority pill (`red` > `amber` conflict > `grey` > `amber` dirty > `green`) | 2 (derivation), 6 (widget) |
+| 5-state priority pill (`red` > `amber` conflict > `grey` > `amber` dirty > `green`) | 2 (derivation), 8 (widget) |
 | Popover: pinned active conditions | 7 |
 | Popover: collapse on `(domain, kind, operation, targetIdentity)` | 3 — the fingerprint already exists at `app_fault.dart:90` |
 | Popover: dismiss controls (`x`) | 3 (`dismiss`), 7 (the control) |
 | Popover: relative time ladders | 1 |
-| Conflict dialog: machine identity, timestamp, diff summary | 11 (diff), 12 (dialog) |
-| Conflict dialog: three explicit actions | 10 (engine paths), 12 (buttons) |
-| Conflict dialog: per-revision prompt suppression | 12, as deviation D6 |
-| Revision history picker: preview and restore | 13, resting on 10's restore guarantee |
-| First-run device naming, rejecting invalid defaults | 14 |
-| Lifecycle: `WidgetsBindingObserver`, pull on foreground, flush on background | 5 (the observer), 8 (registration) |
+| Conflict dialog: machine identity, timestamp, diff summary | 13 (diff), 15 (dialog) |
+| Conflict dialog: three explicit actions | 12 (engine paths), 15 (buttons) |
+| Conflict dialog: per-revision prompt suppression | 14 (persistence), 7 (the `Deferred` chip), 15 (the button), as deviation D6 |
+| Revision history picker: preview and restore | 16, resting on 12's restore guarantee |
+| First-run device naming, rejecting invalid defaults | 17 |
+| Lifecycle: `WidgetsBindingObserver`, pull on foreground, flush on background | 5 (the observer), 9 (registration) |
 | Production `localIsPristine` across all 8 stores | 4 |
 | Bounds: 14 days, 200 rows, byte cap, per-message truncation | 3 |
 | `backup_log` persisted in `SharedPreferences` | 3 |
-| Pill always clickable, green included | 6 |
-| `centerTitle: false` set explicitly | 8 |
+| Pill always clickable, green included | 8 |
+| `centerTitle: false` set explicitly | 9 |
 | Width capped at 400 px with wrapping | 7 |
 
 **Two spec lines are deliberately not implemented as written**, both recorded

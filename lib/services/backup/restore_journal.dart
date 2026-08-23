@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'backup_controller.dart';
 import 'backup_log.dart';
 import 'backup_pointer.dart';
 import 'config_mutation_notifier.dart';
+import 'device_label.dart';
 
 /// Write-ahead journal that makes a multi-key import atomic.
 ///
@@ -41,6 +43,8 @@ class RestoreJournal {
     BackupPointer.hashKey,
     BackupPointer.targetKey,
     BackupLog.lastSuccessKey,
+    BackupController.suppressedKey,
+    DeviceLabel.key,
   ];
 
   static bool isJournalled(String k) =>

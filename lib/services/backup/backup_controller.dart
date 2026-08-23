@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,9 +12,12 @@ import 'backup_revision.dart';
 import 'backup_scheduler.dart';
 import 'backup_service.dart';
 import 'backup_status.dart';
+import 'bundle_diff.dart';
 import 'canonical_json.dart';
 import 'config_mutation_notifier.dart';
+import 'device_label.dart';
 import 'mock/mock_backup_target.dart';
+import 'relative_time.dart';
 
 /// The only thing that reads the engine and the only thing the UI reads.
 ///
@@ -35,6 +39,12 @@ class BackupController with WidgetsBindingObserver {
   static const String mockScenario =
       String.fromEnvironment('BACKUP_SCENARIO', defaultValue: 'ok');
 
+  /// The remote revision the operator chose to decide about later. Persisted
+  /// so the choice survives a restart; it marks the row deferred and stops
+  /// re-logging that revision. It does **not** turn the pill green — the
+  /// divergence is still real.
+  static const String suppressedKey = 'backup_conflict_suppressed';
+
   factory BackupController.forEnvironment() {
     if (!useMockTarget) return BackupController.disabled();
 
@@ -42,7 +52,7 @@ class BackupController with WidgetsBindingObserver {
     final service = BackupService(
       target: target,
       targetIdentity: 'mock:in-memory',
-      deviceLabel: () async => 'This machine',
+      deviceLabel: DeviceLabel.require,
       readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
       localIsPristine: ConfigBundle.localIsPristine,
     );
@@ -78,6 +88,9 @@ class BackupController with WidgetsBindingObserver {
         // Provenance this machine against a first revision, then have another
         // machine write a SIBLING of it. Pull then reaches branch 7: the head
         // is neither our pointer nor a descendant of it.
+        // push() goes through DeviceLabel.require; without a saved name
+        // this branch throws deviceUnnamed and never stages.
+        await DeviceLabel.save('This machine');
         final ours = await service.push();
         final base = ours.revision;
         if (base == null) return;
@@ -127,6 +140,15 @@ class BackupController with WidgetsBindingObserver {
   /// The remote revision behind the current question, for lane 3b's dialog.
   BackupRevision? conflictRevision;
 
+  String? deferredRevisionId;
+
+  /// Whether the operator's "decide later" still applies to what is being
+  /// asked. A deferral is about ONE revision; when the other machine saves
+  /// again, the question is new and the old answer does not carry over.
+  bool get deferralApplies =>
+      deferredRevisionId != null &&
+      deferredRevisionId == conflictRevision?.id;
+
   BackupController._({
     required this.service,
     required BackupScheduler? scheduler,
@@ -171,6 +193,8 @@ class BackupController with WidgetsBindingObserver {
     if (_disposed) return;
     WidgetsBinding.instance.addObserver(this);
     await log.load();
+    deferredRevisionId =
+        (await SharedPreferences.getInstance()).getString(suppressedKey);
     if (_disposed) return;
     await _enqueue(_refreshFacts);
     if (_disposed) return;
@@ -341,6 +365,15 @@ class BackupController with WidgetsBindingObserver {
     String message,
   ) async {
     conflictRevision = revision;
+
+    // The other machine saved again: this is a different question, and the
+    // operator has not answered it. Without this the popover keeps saying
+    // "You chose to decide about this later" about a revision they have
+    // never seen.
+    if (deferredRevisionId != null && deferredRevisionId != revision?.id) {
+      await _clearDeferred();
+    }
+
     final fault = AppFault.backup(
       kind,
       message,
@@ -348,7 +381,259 @@ class BackupController with WidgetsBindingObserver {
       targetIdentity: service?.targetIdentity,
     );
     _raise(fault);
+    // Deferred means "I have seen this one". The pill stays amber — the
+    // divergence is still real — but the sweep stops writing about it.
+    if (deferralApplies) return;
     await log.recordFault(fault);
+  }
+
+  /// What differs between this machine and the conflicting revision.
+  /// Downloads the remote body: conflicts are detected from metadata alone,
+  /// so there is nothing to compare until this runs. Throws [AppFault] if the
+  /// download fails — the dialog renders that rather than an empty summary.
+  Future<BundleDiff> conflictDiff() async {
+    final revision = conflictRevision;
+    final backup = service;
+    if (revision == null || backup == null) return const BundleDiff([]);
+    final body = await backup.fetchBody(revision);
+    final theirs = jsonDecode(body) as Map<String, dynamic>;
+    final mine = (await ConfigBundle.fromStores()).toJson();
+    return BundleDiff.between(mine, theirs);
+  }
+
+  Future<ResolutionOutcome> resolveUseRemote() =>
+      _resolve((backup, revision) => backup.adoptRemote(revision),
+          'Configuration replaced with the other machine\'s copy.');
+
+  Future<ResolutionOutcome> resolveKeepMine() => _resolve(
+      (backup, revision) => backup.keepLocalAsNewRevision(revision),
+      'This machine\'s configuration saved as the newest revision.');
+
+  Future<ResolutionOutcome> _resolve(
+    Future<ResolutionResult> Function(BackupService, BackupRevision) action,
+    String successMessage,
+  ) async {
+    final revision = conflictRevision;
+    final backup = service;
+    if (revision == null || backup == null) {
+      return ResolutionOutcome.resolved;
+    }
+    try {
+      final result = await action(backup, revision);
+      if (result.outcome == ResolutionOutcome.resolved) {
+        // Both, not just the question. A resolve that failed once and then
+        // succeeded would otherwise leave its own fault standing under
+        // `resolve`, and a hard failure outranks everything: the dialog would
+        // close, the log would say "resolved", and the pill would stay red.
+        _conditions.remove('resolve');
+        _clearQuestion();
+        await _clearDeferred();
+        await log.recordSuccess(
+          operation: 'resolve',
+          kind: 'resolved',
+          message: successMessage,
+          targetIdentity: backup.targetIdentity,
+        );
+        await _markConfirmedStored();
+      } else if (result.outcome == ResolutionOutcome.remoteMovedAgain) {
+        // Re-point at the new head rather than leaving the operator deciding
+        // about a revision that is no longer there.
+        conflictRevision = result.revision;
+        if (deferredRevisionId != null) await _clearDeferred();
+      } else if (result.outcome == ResolutionOutcome.forkedAgain) {
+        // Our upload landed, and so did someone else's, from the same parent.
+        // Both bodies survive; the honest thing is to say so and re-ask.
+        conflictRevision = result.siblings?.first ?? result.revision;
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          conflictRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved at the same moment. Both copies were kept.',
+        );
+      }
+      _applyConditions();
+      await _refreshFacts();
+      return result.outcome;
+    } on AppFault catch (fault) {
+      await log.recordFault(fault);
+      _raise(fault);
+      _applyConditions();
+      await _refreshFacts();
+      rethrow;
+    }
+  }
+
+  Future<List<BackupRevision>> history() async {
+    final backup = service;
+    if (backup == null) return const [];
+    return backup.history();
+  }
+
+  /// Puts back the configuration "Use their copy" replaced, as the newest
+  /// backup. Upload first, then apply — the same shape as [restore].
+  Future<ResolutionOutcome> restoreReplacedSnapshot() async {
+    final backup = service;
+    if (backup == null) return ResolutionOutcome.resolved;
+    final saved = await BackupService.replacedSnapshot();
+    final bundle = saved?['bundle'];
+    if (bundle is! Map<String, dynamic>) return ResolutionOutcome.resolved;
+    try {
+      final result = await backup.restoreSnapshot(bundle);
+      if (result.outcome == ResolutionOutcome.resolved) {
+        _conditions.remove(_conflictKey);
+        _conditions.remove('push');
+        _conditions.remove('pull');
+        _conditions.remove('resolve');
+        conflictRevision = null;
+        await _clearDeferred();
+        final restored = result.revision!;
+        await log.recordSuccess(
+          operation: 'restore',
+          kind: 'restored',
+          message: 'Restored the backup from '
+              '${restored.deviceLabel}, '
+              '${relativeAge(restored.createdAt.toLocal(), _now())}.',
+          targetIdentity: backup.targetIdentity,
+        );
+        await _markConfirmedStored();
+      } else if (result.outcome ==
+              ResolutionOutcome.localChangedDuringResolve &&
+          result.revision != null) {
+        // The append already landed; other machines will pull it. Adopt's
+        // abort unwinds and is a local no-op — this one is not.
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          result.revision,
+          BackupFailureKind.conflict,
+          'The backup already went back to that version. Other devices will '
+          'follow it. This machine still has your newer edits.',
+        );
+      } else if (result.outcome == ResolutionOutcome.forkedAgain) {
+        // Our upload landed, and so did someone else's, from the same parent.
+        // Both bodies survive; the honest thing is to say so and re-ask.
+        conflictRevision = result.siblings?.first ?? result.revision;
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          conflictRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved at the same moment. Both copies were kept.',
+        );
+      }
+      _applyConditions();
+      await _refreshFacts();
+      return result.outcome;
+    } on AppFault catch (fault) {
+      await log.recordFault(fault);
+      _raise(fault);
+      _applyConditions();
+      await _refreshFacts();
+      rethrow;
+    }
+  }
+
+  /// Restores [revision] and makes it the newest backup. Nothing is deleted:
+  /// the revisions that came after it stay in the store.
+  Future<ResolutionOutcome> restore(BackupRevision revision) async {
+    final backup = service;
+    if (backup == null) return ResolutionOutcome.resolved;
+    try {
+      final result = await backup.restoreRevision(revision);
+      if (result.outcome == ResolutionOutcome.resolved) {
+        _conditions.remove(_conflictKey);
+        _conditions.remove('push');
+        _conditions.remove('pull');
+        _conditions.remove('resolve');
+        conflictRevision = null;
+        await _clearDeferred();
+        await log.recordSuccess(
+          operation: 'restore',
+          kind: 'restored',
+          message: 'Restored the backup from '
+              '${revision.deviceLabel}, '
+              '${relativeAge(revision.createdAt.toLocal(), _now())}.',
+          targetIdentity: backup.targetIdentity,
+        );
+        await _markConfirmedStored();
+      } else if (result.outcome ==
+              ResolutionOutcome.localChangedDuringResolve &&
+          result.revision != null) {
+        // The append already landed; other machines will pull it. Adopt's
+        // abort unwinds and is a local no-op — this one is not.
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          result.revision,
+          BackupFailureKind.conflict,
+          'The backup already went back to that version. Other devices will '
+          'follow it. This machine still has your newer edits.',
+        );
+      } else if (result.outcome == ResolutionOutcome.forkedAgain) {
+        // Our upload landed, and so did someone else's, from the same parent.
+        // Both bodies survive; the honest thing is to say so and re-ask.
+        conflictRevision = result.siblings?.first ?? result.revision;
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          conflictRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved at the same moment. Both copies were kept.',
+        );
+      }
+      _applyConditions();
+      await _refreshFacts();
+      return result.outcome;
+    } on AppFault catch (fault) {
+      await log.recordFault(fault);
+      _raise(fault);
+      _applyConditions();
+      await _refreshFacts();
+      rethrow;
+    }
+  }
+
+  /// Disk first, memory only if the disk took it.
+  ///
+  /// The reverse order — which an earlier draft used — lets the two disagree:
+  /// a refused `setString` leaves memory saying "deferred" over a disk that
+  /// says nothing, so the operator's decision looks recorded until the next
+  /// restart brings the same question back. `_clearDeferred` had the mirror
+  /// bug, where a cleared deferral resurrected. Both now fail closed: on a
+  /// refused write **neither** changes, so they cannot drift apart, and the
+  /// refusal is logged rather than swallowed.
+  ///
+  /// Neither throws. This is bookkeeping about a question the operator has
+  /// already been asked; failing the whole resolution over it would report a
+  /// successful upload as a failure.
+  Future<void> deferConflict() async {
+    final id = conflictRevision?.id;
+    if (id == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(suppressedKey, id)) {
+      await prefs.reload();
+      await log.recordFault(AppFault.backup(
+        BackupFailureKind.storageWriteFailed,
+        'Could not record that you chose to decide later. '
+        'This will be asked again.',
+        operation: 'resolve',
+        targetIdentity: service?.targetIdentity,
+      ));
+      return;
+    }
+    deferredRevisionId = id;
+  }
+
+  Future<void> _clearDeferred() async {
+    if (deferredRevisionId == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.remove(suppressedKey)) {
+      await prefs.reload();
+      await log.recordFault(AppFault.backup(
+        BackupFailureKind.storageWriteFailed,
+        'Could not clear a deferred conflict.',
+        operation: 'resolve',
+        targetIdentity: service?.targetIdentity,
+      ));
+      return;
+    }
+    deferredRevisionId = null;
   }
 
   void _applyConditions() {

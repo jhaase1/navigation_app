@@ -370,6 +370,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               await _loadOperators();
               setDialogState(() {});
             },
+            backupController: _backup,
           ),
         );
       },

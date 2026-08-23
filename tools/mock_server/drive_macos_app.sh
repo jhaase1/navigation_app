@@ -40,10 +40,14 @@ need() {
 pin() {
   osascript >/dev/null 2>&1 <<OSA
 tell application "$APP_NAME" to activate
-delay 0.6
-tell application "System Events" to tell process "$APP_NAME"
-  set position of window 1 to {$WIN_X, $WIN_Y}
-  set size of window 1 to {$WIN_W, $WIN_H}
+delay 0.4
+tell application "System Events"
+  set frontmost of process "$APP_NAME" to true
+  tell process "$APP_NAME"
+    set position of window 1 to {$WIN_X, $WIN_Y}
+    set size of window 1 to {$WIN_W, $WIN_H}
+    perform action "AXRaise" of window 1
+  end tell
 end tell
 OSA
   sleep 0.4

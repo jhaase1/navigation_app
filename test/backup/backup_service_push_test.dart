@@ -130,6 +130,23 @@ void main() {
     expect(r.siblings!.map((s) => s.deviceLabel), contains('iPad'));
   });
 
+  test('a writer that slips in between latest() and put() is reported',
+      () async {
+    target.concurrentWriterBeforePut(
+      body: '{"schemaVersion":1,"positions":[],"people":[],"services":[],'
+          '"heightRanges":[],"presetNames":{},"visibilities":{}}',
+      parentRevisionId: null,
+      deviceLabel: "Daniel's iPad",
+    );
+
+    final result = await service(doc()).push();
+
+    expect(result.outcome, PushOutcome.forked);
+    expect(result.siblings, isNotEmpty);
+    expect(target.revisions, hasLength(2),
+        reason: 'append-only: both bodies survive, and we say so');
+  });
+
   test('a successful push clears dirty', () async {
     await ConfigMutationNotifier.instance.notify();
     expect(await ConfigMutationNotifier.instance.isDirty(), isTrue);
