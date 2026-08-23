@@ -239,4 +239,24 @@ void main() {
         reason: 'the failure it is about has been superseded by success');
     expect(controller.status.value.state, BackupPillState.backedUp);
   });
+
+  test('a restore that forks re-asks rather than going quiet', () async {
+    final tuesday = await twoRevisions();
+    final head = (await target.latest())!;
+    target.concurrentWriterBeforePut(
+      body: emptyBundle,
+      parentRevisionId: head.id,
+      deviceLabel: 'A third machine',
+    );
+
+    final outcome = await controller.restore(tuesday);
+
+    expect(outcome, ResolutionOutcome.forkedAgain);
+    expect(controller.status.value.state, BackupPillState.needsReview);
+    expect(
+      controller.status.value.activeCondition!.message,
+      'Another machine saved at the same moment. Both copies were kept.',
+    );
+    expect(controller.conflictRevision, isNotNull);
+  });
 }

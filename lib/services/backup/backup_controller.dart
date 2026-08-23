@@ -493,6 +493,16 @@ class BackupController with WidgetsBindingObserver {
           'The backup already went back to that version. Other devices will '
           'follow it. This machine still has your newer edits.',
         );
+      } else if (result.outcome == ResolutionOutcome.forkedAgain) {
+        // Our upload landed, and so did someone else's, from the same parent.
+        // Both bodies survive; the honest thing is to say so and re-ask.
+        conflictRevision = result.siblings?.first ?? result.revision;
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          conflictRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved at the same moment. Both copies were kept.',
+        );
       }
       _applyConditions();
       await _refreshFacts();
