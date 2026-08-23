@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../config_bundle.dart';
 import 'abstract/backup_target_abstract.dart';
 import 'app_fault.dart';
@@ -355,6 +357,192 @@ class BackupService {
         .toList();
     return _AppendResult(revision, siblings);
   }
+
+  /// The local configuration that "Use the remote copy" replaced.
+  ///
+  /// One slot, most recent wins. The spec requires snapshotting local before
+  /// adopting and an earlier draft of this plan dropped that requirement: the
+  /// operator could have an hour of unpushed work, choose "Use their copy",
+  /// and have it vanish with no revision anywhere holding it. A single
+  /// recoverable slot is what a recovery UI can actually offer.
+  static const String replacedSnapshotKey = 'backup_replaced_snapshot';
+
+  static Future<Map<String, dynamic>?> replacedSnapshot() async {
+    final raw =
+        (await SharedPreferences.getInstance()).getString(replacedSnapshotKey);
+    if (raw == null) return null;
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<ResolutionResult> adoptRemote(BackupRevision revision) =>
+      _single(() => _withStorageBoundary('resolve', () async {
+            final generation =
+                await ConfigMutationNotifier.instance.generation();
+            final localBundle = await readBundleJson();
+            final localHash = canonicalHash(localBundle);
+
+            // Written BEFORE the fetch. A fetch that fails after the stores
+            // were replaced would otherwise leave nothing preserved, and the
+            // whole point of this slot is that it exists when it is needed.
+            final prefs = await SharedPreferences.getInstance();
+            final saved = await prefs.setString(
+              replacedSnapshotKey,
+              jsonEncode({
+                'replacedAt': DateTime.now().toUtc().toIso8601String(),
+                'hash': localHash,
+                'bundle': localBundle,
+              }),
+            );
+            if (!saved) {
+              await prefs.reload();
+              throw AppFault.backup(
+                BackupFailureKind.storageWriteFailed,
+                "Could not keep a copy of this device's settings before "
+                'replacing them, so nothing was changed.',
+                operation: 'resolve',
+                targetIdentity: targetIdentity,
+              );
+            }
+
+            final applied = await _applyRevision(
+              revision,
+              expectedLocalHash: localHash,
+              expectedGeneration: generation,
+            );
+            return ResolutionResult(
+              applied
+                  ? ResolutionOutcome.resolved
+                  : ResolutionOutcome.localChangedDuringResolve,
+              revision: revision,
+            );
+          }));
+
+  /// Append-only means this ADDS; the remote copy is not destroyed, it
+  /// becomes this revision's parent.
+  Future<ResolutionResult> keepLocalAsNewRevision(BackupRevision remoteHead) =>
+      _single(() => _withStorageBoundary('resolve', () async {
+            final generation =
+                await ConfigMutationNotifier.instance.generation();
+            final bundle = await readBundleJson();
+            final json = canonicalJsonEncode(bundle);
+            final hash = canonicalHash(bundle);
+
+            // Parenting on a head that has moved again would fork a second
+            // time, silently.
+            final head = await target.latest();
+            if (head == null || head.id != remoteHead.id) {
+              return ResolutionResult(ResolutionOutcome.remoteMovedAgain,
+                  revision: head);
+            }
+
+            final appended = await _appendRevision(
+              json: json,
+              hash: hash,
+              parentRevisionId: head.id,
+              adoptPointer: true,
+              generation: generation,
+            );
+            return ResolutionResult(
+              appended.siblings.isEmpty
+                  ? ResolutionOutcome.resolved
+                  : ResolutionOutcome.forkedAgain,
+              revision: appended.revision,
+              siblings: appended.siblings,
+            );
+          }));
+
+  /// Restores [revision] and makes it the newest backup.
+  ///
+  /// **Upload first, then apply.** The reverse order is a silent data-loss
+  /// bug, and it is the one an earlier draft of this plan specified.
+  /// [_applyRevision] moves the pointer onto the restored ancestor. If the
+  /// upload then fails — offline, or the process is killed — the next pull
+  /// finds `head.parentRevisionId == pointer` with local clean, matches
+  /// branch 6 of [_pull], and re-applies the exact revision the operator just
+  /// undid. Silently. And pull runs before push at every trigger, so nothing
+  /// heals it.
+  ///
+  /// Uploading first inverts every failure into a safe one: a crash before
+  /// `put` leaves local untouched, and a crash after `put` leaves one extra
+  /// revision at the target whose parent is the current head — which the next
+  /// pull applies through branch 6, finishing the restore rather than
+  /// reversing it.
+  Future<ResolutionResult> restoreRevision(BackupRevision revision) =>
+      _single(() => _withStorageBoundary('resolve', () async {
+            // Captured BEFORE the fetch. "Did local change while this ran"
+            // has to cover the download too — reading these afterwards makes
+            // the freshness guard blind to the exact window it exists for,
+            // and leaves localChangedDuringResolve unreachable. adoptRemote
+            // reads them in this order for the same reason.
+            final generation =
+                await ConfigMutationNotifier.instance.generation();
+            final localHash = canonicalHash(await readBundleJson());
+
+            final raw = await target.fetch(revision);
+            final decoded = _decodeRevision(revision, raw);
+            // Throws before anything is written anywhere.
+            ConfigBundle.fromJsonValidated(decoded);
+
+            final json = canonicalJsonEncode(decoded);
+            final hash = canonicalHash(decoded);
+
+            final head = await target.latest();
+
+            // Restoring the newest revision, or an older one byte-identical
+            // to it: there is nothing to append.
+            if (head != null && head.bodyChecksum == bodyChecksumOf(json)) {
+              final applied = await _applyRevision(
+                head,
+                expectedLocalHash: localHash,
+                expectedGeneration: generation,
+              );
+              return ResolutionResult(
+                applied
+                    ? ResolutionOutcome.resolved
+                    : ResolutionOutcome.localChangedDuringResolve,
+                revision: head,
+              );
+            }
+
+            final appended = await _appendRevision(
+              json: json,
+              hash: hash,
+              parentRevisionId: head?.id,
+              // The pointer moves when the STORES do, not before: a pointer
+              // naming a revision whose content is not on this machine makes
+              // isCleanAgainst lie.
+              adoptPointer: false,
+              generation: generation,
+            );
+            if (appended.siblings.isNotEmpty) {
+              return ResolutionResult(ResolutionOutcome.forkedAgain,
+                  revision: appended.revision, siblings: appended.siblings);
+            }
+
+            final applied = await _applyRevision(
+              appended.revision,
+              expectedLocalHash: localHash,
+              expectedGeneration: generation,
+            );
+            return ResolutionResult(
+              applied
+                  ? ResolutionOutcome.resolved
+                  : ResolutionOutcome.localChangedDuringResolve,
+              revision: appended.revision,
+            );
+          }));
+
+  /// Revisions for the history picker, newest first.
+  Future<List<BackupRevision>> history({int limit = 50}) => _single(
+      () => _withStorageBoundary('history', () => target.list(limit: limit)));
+
+  /// A revision's body, for the diff summary and the preview.
+  Future<String> fetchBody(BackupRevision revision) => _single(
+      () => _withStorageBoundary('history', () => target.fetch(revision)));
 
   Future<T> _withStorageBoundary<T>(
     String operation,
