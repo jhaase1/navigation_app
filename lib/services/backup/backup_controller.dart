@@ -459,6 +459,12 @@ class BackupController with WidgetsBindingObserver {
     }
   }
 
+  Future<List<BackupRevision>> history() async {
+    final backup = service;
+    if (backup == null) return const [];
+    return backup.history();
+  }
+
   /// Restores [revision] and makes it the newest backup. Nothing is deleted:
   /// the revisions that came after it stay in the store.
   Future<ResolutionOutcome> restore(BackupRevision revision) async {
