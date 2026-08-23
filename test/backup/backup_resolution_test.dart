@@ -33,6 +33,59 @@ void main() {
   const emptyBundle = '{"schemaVersion":1,"positions":[],"people":[],'
       '"services":[],"heightRanges":[],"presetNames":{},"visibilities":{}}';
 
+  /// Matches a malformed-body fault raised inside the [operation] boundary.
+  ///
+  /// The operation is the load-bearing half. `BackupController._raise` keys
+  /// hard conditions by it and `_onPull` unconditionally drops the `'pull'`
+  /// key, so a resolve-path fault mis-stamped `'pull'` is erased by the next
+  /// successful pull: the restore failed and the surface stops saying so.
+  Matcher malformedFrom(String operation) => isA<AppFault>()
+      .having((f) => f.kind, 'kind', BackupFailureKind.malformedRemote.name)
+      .having((f) => f.operation, 'operation', operation);
+
+  group('operation stamping', () {
+    test('a corrupt body hit while restoring is stamped resolve, not pull',
+        () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      await target.put('this is not JSON',
+          contentHash: 'corrupt',
+          parentRevisionId: (await target.latest())!.id,
+          deviceLabel: "Daniel's iPad");
+      final corrupt = (await target.latest())!;
+
+      await expectLater(
+          service.restoreRevision(corrupt), throwsA(malformedFrom('resolve')));
+    });
+
+    test('a corrupt body hit while adopting is stamped resolve, not pull',
+        () async {
+      await setPositions(['Pulpit']);
+      await service.push();
+      await target.put('this is not JSON',
+          contentHash: 'corrupt',
+          parentRevisionId: (await target.latest())!.id,
+          deviceLabel: "Daniel's iPad");
+      final corrupt = (await target.latest())!;
+
+      await expectLater(
+          service.adoptRemote(corrupt), throwsA(malformedFrom('resolve')));
+    });
+
+    test('the pull path still stamps pull', () async {
+      // The counterweight: without this, threading the operation through and
+      // hardcoding it to 'resolve' would look identical to the fix.
+      await setPositions(['Pulpit']);
+      await service.push();
+      await target.put('this is not JSON',
+          contentHash: 'corrupt',
+          parentRevisionId: (await target.latest())!.id,
+          deviceLabel: "Daniel's iPad");
+
+      await expectLater(service.pull(), throwsA(malformedFrom('pull')));
+    });
+  });
+
   group('adoptRemote', () {
     test('replaces local state and lands provenanced', () async {
       await setPositions(['Pulpit']);

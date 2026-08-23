@@ -157,6 +157,7 @@ class BackupService {
         head,
         expectedLocalHash: localHash,
         expectedGeneration: localGeneration,
+        operation: 'pull',
       );
       return PullResult(
         applied ? PullOutcome.adopted : PullOutcome.needsAdoptionChoice,
@@ -190,6 +191,7 @@ class BackupService {
         head,
         expectedLocalHash: localHash,
         expectedGeneration: localGeneration,
+        operation: 'pull',
       );
       return PullResult(
         applied ? PullOutcome.applied : PullOutcome.conflict,
@@ -201,7 +203,20 @@ class BackupService {
     return PullResult(PullOutcome.conflict, revision: head);
   }
 
-  Map<String, dynamic> _decodeRevision(BackupRevision revision, String raw) {
+  /// Decodes a fetched body, stamping any fault with the [operation] whose
+  /// boundary it was raised inside.
+  ///
+  /// The operation is threaded rather than hardcoded because
+  /// `BackupController._raise` keys hard conditions by it and `_onPull`
+  /// unconditionally drops the `'pull'` key. A corrupt body hit while
+  /// restoring or adopting, filed under `'pull'`, is therefore erased by the
+  /// next successful pull — the operator's restore failed and the surface
+  /// built to say so stops saying it.
+  Map<String, dynamic> _decodeRevision(
+    BackupRevision revision,
+    String raw, {
+    required String operation,
+  }) {
     final Object? decoded;
     try {
       decoded = jsonDecode(raw);
@@ -209,7 +224,7 @@ class BackupService {
       throw AppFault.backup(
         BackupFailureKind.malformedRemote,
         'revision ${revision.id} is not valid JSON',
-        operation: 'pull',
+        operation: operation,
         targetIdentity: targetIdentity,
         cause: e,
       );
@@ -218,20 +233,24 @@ class BackupService {
       throw AppFault.backup(
         BackupFailureKind.malformedRemote,
         'revision ${revision.id} is not a JSON object',
-        operation: 'pull',
+        operation: operation,
         targetIdentity: targetIdentity,
       );
     }
     return decoded;
   }
 
+  /// Applies [revision] to the live stores. [operation] is the boundary this
+  /// runs inside — `'pull'` or `'resolve'` — and stamps any fault raised on
+  /// the way, so the controller files it under the operation that failed.
   Future<bool> _applyRevision(
     BackupRevision revision, {
     required String expectedLocalHash,
     required int expectedGeneration,
+    required String operation,
   }) async {
     final raw = await target.fetch(revision);
-    final decoded = _decodeRevision(revision, raw);
+    final decoded = _decodeRevision(revision, raw, operation: operation);
 
     // Throws AppFault on anything malformed, before a single store is touched.
     final bundle = ConfigBundle.fromJsonValidated(decoded);
@@ -412,6 +431,7 @@ class BackupService {
               revision,
               expectedLocalHash: localHash,
               expectedGeneration: generation,
+              operation: 'resolve',
             );
             return ResolutionResult(
               applied
@@ -483,7 +503,8 @@ class BackupService {
             final localHash = canonicalHash(await readBundleJson());
 
             final raw = await target.fetch(revision);
-            final decoded = _decodeRevision(revision, raw);
+            final decoded =
+                _decodeRevision(revision, raw, operation: 'resolve');
             // Throws before anything is written anywhere.
             ConfigBundle.fromJsonValidated(decoded);
 
@@ -499,6 +520,7 @@ class BackupService {
                 head,
                 expectedLocalHash: localHash,
                 expectedGeneration: generation,
+                operation: 'resolve',
               );
               return ResolutionResult(
                 applied
@@ -527,6 +549,7 @@ class BackupService {
               appended.revision,
               expectedLocalHash: localHash,
               expectedGeneration: generation,
+              operation: 'resolve',
             );
             return ResolutionResult(
               applied
