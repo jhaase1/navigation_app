@@ -487,6 +487,7 @@ class BackupController with WidgetsBindingObserver {
           result.revision != null) {
         // The append already landed; other machines will pull it. Adopt's
         // abort unwinds and is a local no-op — this one is not.
+        _conditions.remove('resolve');
         await _raiseQuestion(
           result.revision,
           BackupFailureKind.conflict,

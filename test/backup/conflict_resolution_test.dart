@@ -203,6 +203,11 @@ void main() {
 
   test('an abort after append restore is visible', () async {
     final tuesday = await twoRevisions();
+    target.failNextPutWith(AppFault.backup(
+        BackupFailureKind.transientServer, 'Drive returned an error.',
+        operation: 'resolve', targetIdentity: 'mock:test'));
+    await expectLater(controller.restore(tuesday), throwsA(isA<AppFault>()));
+    expect(controller.status.value.state, BackupPillState.failing);
 
     target.beforeNextFetch(() => PositionStore.saveAll([
           Position(id: 'p1', name: 'Pulpit'),
@@ -214,7 +219,8 @@ void main() {
     expect(outcome, ResolutionOutcome.localChangedDuringResolve);
     expect((await target.latest())!.id, controller.conflictRevision!.id,
         reason: 'the restore is live at the target; the question names it');
-    expect(controller.status.value.state, BackupPillState.needsReview);
+    expect(controller.status.value.state, BackupPillState.needsReview,
+        reason: 'a prior resolve fault must not outrank the abort question');
     expect(
       controller.status.value.activeCondition!.message,
       'The backup already went back to that version. Other devices will '
