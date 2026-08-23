@@ -147,9 +147,21 @@ Recorded here because reviewers should attack them directly.
 | `backup_last_success_at` | String (ISO-8601 UTC) | `BackupController` | When this machine's configuration was last confirmed stored at the target. |
 | `backup_device_label` | String | `DeviceLabel` (3b) | Operator-declared machine name. |
 | `backup_conflict_suppressed` | String (revision id) | `BackupController` (3b) | The remote revision the operator chose to decide later about. |
+| `backup_replaced_snapshot` | String (JSON object) | `BackupService` (3b, Task 12) | The local configuration that "Use the remote copy" replaced. One slot, most recent wins. |
 
-All four are added to `RestoreJournal` engine keys in Task 3 and Task 17 so a
-rolled-back import cannot strand them.
+The first four are added to `RestoreJournal` engine keys — in Task 3
+(`backup_log`, `backup_last_success_at`), Task 14 (`backup_conflict_suppressed`)
+and Task 17 (`backup_device_label`) — so a rolled-back import cannot strand
+them.
+
+**`backup_replaced_snapshot` is deliberately NOT journalled. Do not add it.**
+`adoptRemote` writes the slot *before* it calls `_applyRevision`, so the
+journal's `capture()` already runs after the write and rolling it back would
+restore the value it already holds. On the manual-import path journalling it
+would be actively wrong: an import that rolled back would discard the copy of
+the settings the operator adopted away from, which is the one thing this slot
+exists to keep. It is a recovery affordance for a single action, deliberately
+outside the configuration it protects.
 
 ---
 
