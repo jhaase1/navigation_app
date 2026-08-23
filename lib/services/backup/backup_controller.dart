@@ -469,6 +469,68 @@ class BackupController with WidgetsBindingObserver {
     return backup.history();
   }
 
+  /// Puts back the configuration "Use their copy" replaced, as the newest
+  /// backup. Upload first, then apply — the same shape as [restore].
+  Future<ResolutionOutcome> restoreReplacedSnapshot() async {
+    final backup = service;
+    if (backup == null) return ResolutionOutcome.resolved;
+    final saved = await BackupService.replacedSnapshot();
+    final bundle = saved?['bundle'];
+    if (bundle is! Map<String, dynamic>) return ResolutionOutcome.resolved;
+    try {
+      final result = await backup.restoreSnapshot(bundle);
+      if (result.outcome == ResolutionOutcome.resolved) {
+        _conditions.remove(_conflictKey);
+        _conditions.remove('push');
+        _conditions.remove('pull');
+        _conditions.remove('resolve');
+        conflictRevision = null;
+        await _clearDeferred();
+        final restored = result.revision!;
+        await log.recordSuccess(
+          operation: 'restore',
+          kind: 'restored',
+          message: 'Restored the backup from '
+              '${restored.deviceLabel}, '
+              '${relativeAge(restored.createdAt.toLocal(), _now())}.',
+          targetIdentity: backup.targetIdentity,
+        );
+        await _markConfirmedStored();
+      } else if (result.outcome ==
+              ResolutionOutcome.localChangedDuringResolve &&
+          result.revision != null) {
+        // The append already landed; other machines will pull it. Adopt's
+        // abort unwinds and is a local no-op — this one is not.
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          result.revision,
+          BackupFailureKind.conflict,
+          'The backup already went back to that version. Other devices will '
+          'follow it. This machine still has your newer edits.',
+        );
+      } else if (result.outcome == ResolutionOutcome.forkedAgain) {
+        // Our upload landed, and so did someone else's, from the same parent.
+        // Both bodies survive; the honest thing is to say so and re-ask.
+        conflictRevision = result.siblings?.first ?? result.revision;
+        _conditions.remove('resolve');
+        await _raiseQuestion(
+          conflictRevision,
+          BackupFailureKind.conflict,
+          'Another machine saved at the same moment. Both copies were kept.',
+        );
+      }
+      _applyConditions();
+      await _refreshFacts();
+      return result.outcome;
+    } on AppFault catch (fault) {
+      await log.recordFault(fault);
+      _raise(fault);
+      _applyConditions();
+      await _refreshFacts();
+      rethrow;
+    }
+  }
+
   /// Restores [revision] and makes it the newest backup. Nothing is deleted:
   /// the revisions that came after it stay in the store.
   Future<ResolutionOutcome> restore(BackupRevision revision) async {

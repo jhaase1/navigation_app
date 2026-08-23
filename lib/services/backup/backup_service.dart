@@ -597,6 +597,68 @@ class BackupService {
             );
           }));
 
+  /// Uploads [bundle] as a child of the current head, then applies it.
+  ///
+  /// Same ordering as [restoreRevision]: generation and local hash are
+  /// captured before any fetch or apply. The body is already in hand, so
+  /// there is nothing to decode. Undo-"Use their copy" has to go through
+  /// here — applying locally then pushing leaves this machine
+  /// unprovenanced and immediately re-conflicts.
+  Future<ResolutionResult> restoreSnapshot(Map<String, dynamic> bundle) =>
+      _single(() => _withStorageBoundary('resolve', () async {
+            final generation =
+                await ConfigMutationNotifier.instance.generation();
+            final localHash = canonicalHash(await readBundleJson());
+
+            // Throws before anything is written anywhere.
+            ConfigBundle.fromJsonValidated(bundle);
+
+            final json = canonicalJsonEncode(bundle);
+            final hash = canonicalHash(bundle);
+
+            final head = await target.latest();
+
+            if (head != null && head.bodyChecksum == bodyChecksumOf(json)) {
+              final applied = await _applyRevision(
+                head,
+                expectedLocalHash: localHash,
+                expectedGeneration: generation,
+                operation: 'resolve',
+              );
+              return ResolutionResult(
+                applied
+                    ? ResolutionOutcome.resolved
+                    : ResolutionOutcome.localChangedDuringResolve,
+                revision: head,
+              );
+            }
+
+            final appended = await _appendRevision(
+              json: json,
+              hash: hash,
+              parentRevisionId: head?.id,
+              adoptPointer: false,
+              generation: generation,
+            );
+            if (appended.siblings.isNotEmpty) {
+              return ResolutionResult(ResolutionOutcome.forkedAgain,
+                  revision: appended.revision, siblings: appended.siblings);
+            }
+
+            final applied = await _applyRevision(
+              appended.revision,
+              expectedLocalHash: localHash,
+              expectedGeneration: generation,
+              operation: 'resolve',
+            );
+            return ResolutionResult(
+              applied
+                  ? ResolutionOutcome.resolved
+                  : ResolutionOutcome.localChangedDuringResolve,
+              revision: appended.revision,
+            );
+          }));
+
   /// Revisions for the history picker, newest first.
   Future<List<BackupRevision>> history({int limit = 50}) => _single(
       () => _withStorageBoundary('history', () => target.list(limit: limit)));

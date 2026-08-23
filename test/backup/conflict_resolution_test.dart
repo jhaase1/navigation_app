@@ -265,4 +265,93 @@ void main() {
     );
     expect(controller.conflictRevision, isNotNull);
   });
+
+  /// Push L1, they write a sibling, adopt theirs. Local is theirs; the slot
+  /// holds L1. The only operator path back to that slot.
+  Future<BackupRevision> adoptTheirsOverL1() async {
+    await PositionStore.saveAll([Position(id: 'p1', name: 'Pulpit')]);
+    await service.push();
+    final l1 = (await target.latest())!;
+    await target.put(
+      '{"schemaVersion":1,"positions":[{"id":"p9","name":"Balcony"}],'
+      '"people":[],"services":[],"heightRanges":[],"presetNames":{},'
+      '"visibilities":{}}',
+      contentHash: 'theirs',
+      parentRevisionId: l1.parentRevisionId,
+      deviceLabel: "Daniel's iPad",
+    );
+    final theirs = (await target.latest())!;
+    await controller.handleEvent(await service.pull());
+    expect(await controller.resolveUseRemote(), ResolutionOutcome.resolved);
+    expect((await PositionStore.loadAll()).map((p) => p.name), ['Balcony']);
+    return theirs;
+  }
+
+  test('undo adopt uploads the snapshot as newest, then stays in sync',
+      () async {
+    final theirs = await adoptTheirsOverL1();
+
+    final outcome = await controller.restoreReplacedSnapshot();
+
+    expect(outcome, ResolutionOutcome.resolved);
+    expect((await PositionStore.loadAll()).map((p) => p.name), ['Pulpit'],
+        reason: 'local is the replaced snapshot, not theirs');
+    expect((await service.pull()).outcome, PullOutcome.nothingToDo);
+    expect((await service.push()).outcome, PushOutcome.noOp);
+    final head = (await target.latest())!;
+    expect(head.id, isNot(theirs.id));
+    expect(head.parentRevisionId, theirs.id,
+        reason: 'theirs still exists as the parent; the restore was appended');
+    expect(target.revisions.any((r) => r.id == theirs.id), isTrue);
+    expect(controller.status.value.state, BackupPillState.backedUp);
+  });
+
+  test('a failed undo upload leaves local as theirs and keeps the slot',
+      () async {
+    final theirs = await adoptTheirsOverL1();
+    target.failNextPutWith(AppFault.backup(
+        BackupFailureKind.offline, 'Could not reach the backup.',
+        operation: 'resolve', targetIdentity: 'mock:test'));
+
+    await expectLater(
+        controller.restoreReplacedSnapshot(), throwsA(isA<AppFault>()));
+
+    expect((await PositionStore.loadAll()).map((p) => p.name), ['Balcony'],
+        reason: 'upload failed first, so local must still be theirs');
+    expect((await target.latest())!.id, theirs.id);
+    final saved = await BackupService.replacedSnapshot();
+    expect(saved, isNotNull);
+    expect(
+      ((saved!['bundle'] as Map)['positions'] as List)
+          .map((p) => (p as Map)['name']),
+      ['Pulpit'],
+    );
+  });
+
+  test('an abort after append undo is visible', () async {
+    await adoptTheirsOverL1();
+    target.failNextPutWith(AppFault.backup(
+        BackupFailureKind.transientServer, 'Drive returned an error.',
+        operation: 'resolve', targetIdentity: 'mock:test'));
+    await expectLater(
+        controller.restoreReplacedSnapshot(), throwsA(isA<AppFault>()));
+    expect(controller.status.value.state, BackupPillState.failing);
+
+    target.beforeNextFetch(() => PositionStore.saveAll([
+          Position(id: 'p9', name: 'Balcony'),
+          Position(id: 'p3', name: 'X'),
+        ]));
+    final outcome = await controller.restoreReplacedSnapshot();
+
+    expect(outcome, ResolutionOutcome.localChangedDuringResolve);
+    expect((await target.latest())!.id, controller.conflictRevision!.id,
+        reason: 'the restore is live at the target; the question names it');
+    expect(controller.status.value.state, BackupPillState.needsReview,
+        reason: 'a prior resolve fault must not outrank the abort question');
+    expect(
+      controller.status.value.activeCondition!.message,
+      'The backup already went back to that version. Other devices will '
+      'follow it. This machine still has your newer edits.',
+    );
+  });
 }

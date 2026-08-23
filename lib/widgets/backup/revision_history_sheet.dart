@@ -192,8 +192,8 @@ class _RevisionHistoryDialogState extends State<_RevisionHistoryDialog> {
     );
   }
 
-  /// Applies the local configuration that "Use the remote copy" replaced, and
-  /// pushes it as the newest revision — the same shape as any other restore.
+  /// Puts back the local configuration that "Use their copy" replaced, as
+  /// the newest backup.
   Future<void> _restoreReplacedCopy(Map<String, dynamic> saved) async {
     final bundle = saved['bundle'];
     if (bundle is! Map<String, dynamic>) return;
@@ -219,14 +219,29 @@ class _RevisionHistoryDialogState extends State<_RevisionHistoryDialog> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      await ConfigBundle.fromJsonValidated(bundle).applyTransactionally();
-      await widget.controller.retryNow();
-      if (mounted) Navigator.of(context).pop();
-    } on AppFault catch (fault) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Could not put them back: ${fault.message}')));
+      final outcome = await widget.controller.restoreReplacedSnapshot();
+      if (!mounted) return;
+      if (outcome == ResolutionOutcome.resolved) {
+        final messenger = ScaffoldMessenger.of(context);
+        Navigator.of(context).pop();
+        messenger.showSnackBar(const SnackBar(content: Text('Restored.')));
+      } else if (outcome == ResolutionOutcome.localChangedDuringResolve) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'The backup already went back to that version. Other devices will follow it. This machine still has your newer edits.')));
+      } else if (outcome == ResolutionOutcome.forkedAgain) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Another machine saved at the same moment. Both copies were kept.')));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Something changed on this machine while that ran. '
+                'Nothing was restored — try again.')));
       }
+    } on AppFault catch (fault) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not put them back: ${fault.message}')));
     }
   }
 }
