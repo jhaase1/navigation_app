@@ -15,10 +15,17 @@ The current implementation plan covers **Phases 0, 1, and 2** of the Backup & St
 ### What This Leaves on the Table:
 The engine logic is verified in memory against a mock, but does not yet connect to Google Drive, does not render UI status indicators, and does not capture hardware failures.
 
-TO DO: 
- 2. Write Implementation Plan #2: Status Surface & Conflict UI (Phase 3).                                          \\
-3.  Write Implementation Plan #3: Real Google Drive & Apple Auth (Phase 4).                                         
-4. Write Implementation Plan #4: Hardware Reliability & Production Cue Fixes (Phase 5 + Live Ops items).   
+### Plans written, plans still owed
+
+| Plan | Covers | State |
+|---|---|---|
+| `2026-08-21-backup-foundations-and-engine.md` | Phases 0-2 — engine against the mock | Written. |
+| `2026-08-21-status-surface.md` | **Phase 3, both lanes.** Lane 3a is Tasks 1-10, lane 3b is Tasks 11-18. | Written and reviewed — self-review, two cold cross-family reviewers (`gpt-5.6-sol`, `grok-4.6`), then a third round against the folded draft. Fifteen blockers fixed, two refuted with receipts. 3a merged as PR #19; **3b is planned, unstarted, and ready to execute.** |
+| Implementation Plan #3 | Phase 4 — real Google Drive target and Google/Apple auth | **Not written.** |
+| Implementation Plan #4 | Phase 5 + the Live Ops items in section 3 below | **Not written.** |
+
+Writing a fresh plan for lane 3b would be re-doing finished work. The two
+genuinely missing plans are #3 and #4.
 ---
 
 ## 2. Remaining Spec Phases
@@ -35,7 +42,8 @@ flowchart TD
 Phase 3: The Status Surface & UI
 
 **Lane 3a is DONE** — plan `docs/superpowers/plans/2026-08-21-status-surface.md`
-Tasks 1–10, merged via PR #19. **Lane 3b (Tasks 11–18) has not started.**
+Tasks 1–10, merged via PR #19. **Lane 3b (Tasks 11–18) is planned in that same
+document and is in progress on `lane/backup-resolution`.**
 Struck items ship today; unstruck items do not exist yet.
 
 - ~~**AppBar Status Pill:** 5-state priority indicator (`red` non-conflict fault > `amber` conflict > `grey` not backed up > `amber` dirty pending > `green` backed up).~~ **DONE (3a).**
