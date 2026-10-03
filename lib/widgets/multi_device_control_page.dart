@@ -397,26 +397,40 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     );
   }
 
-  // ── Operator selector ────────────────────────────────────────────────────
-
-  Widget _buildOperatorSelector({bool compact = false}) {
-    if (_operators.length <= 1 && _operators.first.isDefault) {
-      return const SizedBox.shrink();
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: _operators.map((op) {
-        final selected = op.id == _activeOperator.id;
-        return ChoiceChip(
-          label: Text(op.name,
-              style: TextStyle(
-                  fontSize: compact ? 12 : 14,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
-          selected: selected,
-          onSelected: (_) => _setActiveOperator(op),
-        );
-      }).toList(),
+  /// Shown above the tabs while nothing is connected, so service prep, rosters
+  /// and cue review stay available at home or before the rack is powered on.
+  Widget _buildOfflineBanner() {
+    final modeColor =
+        _mockMode ? Colors.orange.shade800 : Colors.blue.shade800;
+    return Material(
+      color: Colors.grey.shade200,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            const Icon(Icons.link_off, color: Colors.grey),
+            const Text('No devices connected',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(_mockMode ? 'Demo Mode' : 'Live Mode',
+                style: TextStyle(fontWeight: FontWeight.w600, color: modeColor)),
+            FilledButton.icon(
+              onPressed: _connectingAll ? null : _connectAll,
+              icon: _connectingAll
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.power_settings_new),
+              label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -426,79 +440,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   Widget build(BuildContext context) {
     final isConnected = _rolandConnected.value ||
         _panasonicCameras.any((c) => c.isConnected.value);
-
-    if (!isConnected) {
-      return Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: BackupStatusPill(controller: _backup),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.person_add),
-              tooltip: 'Manage People',
-              onPressed: () => _openPeopleManager(context),
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () => _showSettingsDialog(context),
-            ),
-          ],
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.devices, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
-              const Text(
-                'No devices connected',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color:
-                      _mockMode ? Colors.orange.shade100 : Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _mockMode ? 'Demo Mode' : 'Live Mode',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: _mockMode
-                        ? Colors.orange.shade800
-                        : Colors.blue.shade800,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildOperatorSelector(),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _connectingAll ? null : _connectAll,
-                icon: _connectingAll
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.power_settings_new),
-                label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () => _showSettingsDialog(context),
-                icon: const Icon(Icons.settings),
-                label: const Text('Settings'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -560,6 +501,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         length: 3,
         child: Column(
           children: [
+            if (!isConnected) _buildOfflineBanner(),
             const TabBar(
               tabs: [
                 Tab(text: 'Service'),

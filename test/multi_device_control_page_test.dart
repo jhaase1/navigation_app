@@ -64,6 +64,35 @@ void main() {
     });
   });
 
+  group('MultiDeviceControlPage — offline prep', () {
+    testWidgets('keeps the tabs usable while no device is connected',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Service'), findsOneWidget);
+      expect(find.text('Panel'), findsOneWidget);
+      expect(find.text('Positions'), findsOneWidget);
+      expect(find.text('No devices connected'), findsOneWidget);
+      expect(find.text('Connect All'), findsOneWidget);
+    });
+
+    testWidgets('offers the operator switcher while offline', (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Switch operator'), findsOneWidget);
+    });
+
+    testWidgets('drops the offline banner once connected', (tester) async {
+      await _connect(tester);
+
+      expect(find.text('No devices connected'), findsNothing);
+    });
+  });
+
   group('MultiDeviceControlPage — production mode default', () {
     testWidgets('defaults to Live Mode (not Demo Mode) before connecting',
         (tester) async {
