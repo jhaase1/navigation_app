@@ -62,6 +62,12 @@ class _ServiceTabState extends State<ServiceTab> {
   String? _selectedServiceId;
   int? _currentStepIndex;
 
+  // flat step index → outcome of its most recent firing
+  final Map<int, _CueState> _cueStates = {};
+  // Bumped whenever the cue list is swapped out, so a command that finishes
+  // afterwards cannot stamp its outcome onto a different service's cue.
+  int _cueGeneration = 0;
+
   // participantId → personId, set at run time for this service
   final Map<String, String?> _participantAssignments = {};
 
@@ -165,6 +171,8 @@ class _ServiceTabState extends State<ServiceTab> {
         !widget.services.any((s) => s.id == _selectedServiceId)) {
       _selectedServiceId = null;
       _currentStepIndex = null;
+      _cueStates.clear();
+      _cueGeneration++;
       _participantAssignments.clear();
     }
 
@@ -184,22 +192,30 @@ class _ServiceTabState extends State<ServiceTab> {
   Future<void> _fireStep(int index) async {
     final flat = _flatSteps;
     if (index < 0 || index >= flat.length) return;
-    setState(() => _currentStepIndex = index);
+    // A second tap on a cue still in flight would send the command twice.
+    if (_cueStates[index] == _CueState.executing) {
+      setState(() => _currentStepIndex = index);
+      return;
+    }
+    final generation = _cueGeneration;
+    setState(() {
+      _currentStepIndex = index;
+      _cueStates[index] = _CueState.executing;
+    });
     final s = flat[index];
 
-    switch (s.type) {
-      case StepType.ministry:
-        await _fireMinistryStep(s);
-      case StepType.macro:
-        await _fireMacroStep(s);
-      case StepType.shot:
-        await _fireShotStep(s);
-      case StepType.block:
-        break; // already flattened; should never appear
-    }
+    final ok = switch (s.type) {
+      StepType.ministry => await _fireMinistryStep(s),
+      StepType.macro => await _fireMacroStep(s),
+      StepType.shot => await _fireShotStep(s),
+      StepType.block => true, // already flattened; should never appear
+    };
+    if (!mounted || generation != _cueGeneration) return;
+    setState(() =>
+        _cueStates[index] = ok ? _CueState.succeeded : _CueState.failed);
   }
 
-  Future<void> _fireMinistryStep(_FlatStep s) async {
+  Future<bool> _fireMinistryStep(_FlatStep s) async {
     final service = _selectedService;
     final participant = s.participantId == null
         ? null
@@ -208,13 +224,13 @@ class _ServiceTabState extends State<ServiceTab> {
             .firstOrNull;
     if (participant == null) {
       widget.onResponse('Missing participant data');
-      return;
+      return false;
     }
     final personId = _participantAssignments[participant.id];
     if (personId == null) {
       widget.onResponse(
           'No one assigned to "${participant.name}" for this service');
-      return;
+      return false;
     }
     final person = widget.people.where((p) => p.id == personId).firstOrNull;
     final position = s.positionId == null
@@ -222,19 +238,19 @@ class _ServiceTabState extends State<ServiceTab> {
         : widget.positions.where((p) => p.id == s.positionId).firstOrNull;
     if (person == null || position == null) {
       widget.onResponse('Missing person or position data');
-      return;
+      return false;
     }
     if (s.cameraIp == null) {
       widget.onResponse(
           '${participant.name} · ${position.name} has no camera set');
-      return;
+      return false;
     }
     final camera = widget.cameras
         .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
       widget.onResponse('Camera not found (${s.cameraIp})');
-      return;
+      return false;
     }
     final presetIndex = resolvePreset(
       person: person,
@@ -245,61 +261,67 @@ class _ServiceTabState extends State<ServiceTab> {
     if (presetIndex == null) {
       widget.onResponse(
           '${person.name} has no preset for ${camera.name} at "${position.name}"');
-      return;
+      return false;
     }
     if (!camera.isConnected.value || camera.service == null) {
       widget.onResponse('${camera.name} not connected');
-      return;
+      return false;
     }
     try {
       final response = await camera.service!.recallPreset(presetIndex);
       widget.onResponse(
           '${participant.name} (${person.name}) · ${position.name} → ${camera.name}: $response');
+      return true;
     } catch (e) {
       widget.onResponse('Error: $e');
+      return false;
     }
   }
 
-  Future<void> _fireMacroStep(_FlatStep s) async {
+  Future<bool> _fireMacroStep(_FlatStep s) async {
     if (s.macroNumber == null) {
       widget.onResponse('Macro number not set');
-      return;
+      return false;
     }
     final connected = widget.rolandConnected?.value ?? false;
     if (!connected || widget.rolandService == null) {
       widget.onResponse('Roland not connected');
-      return;
+      return false;
     }
     try {
       await widget.rolandService!.executeMacro(s.macroNumber!);
       widget.onResponse('${_macroLabel(s.macroNumber!)} executed');
+      return true;
     } catch (e) {
       widget.onResponse('Macro error: $e');
+      return false;
     }
   }
 
-  Future<void> _fireShotStep(_FlatStep s) async {
+  Future<bool> _fireShotStep(_FlatStep s) async {
     if (s.cameraIp == null || s.cameraPresetIndex == null) {
       widget.onResponse('Camera or preset not set');
-      return;
+      return false;
     }
     final camera = widget.cameras
         .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
       widget.onResponse('Camera not found (${s.cameraIp})');
-      return;
+      return false;
     }
     if (!camera.isConnected.value || camera.service == null) {
       widget.onResponse('${camera.name} not connected');
-      return;
+      return false;
     }
     try {
       final response = await camera.service!.recallPreset(s.cameraPresetIndex!);
       widget.onResponse(
           '${camera.name} → ${_presetLabel(s.cameraIp!, s.cameraPresetIndex!)}: $response');
+      return true;
     } catch (e) {
       widget.onResponse('Error: $e');
+      return false;
     }
   }
 
@@ -427,6 +449,8 @@ class _ServiceTabState extends State<ServiceTab> {
           onChanged: (id) => setState(() {
             _selectedServiceId = id;
             _currentStepIndex = null;
+            _cueStates.clear();
+            _cueGeneration++;
             _participantAssignments.clear();
           }),
         ),
@@ -590,12 +614,20 @@ class _ServiceTabState extends State<ServiceTab> {
           ? Theme.of(context).colorScheme.primaryContainer
           : null,
       child: ListTile(
-        leading: isCurrent
-            ? Icon(Icons.play_arrow,
-                color: Theme.of(context).colorScheme.primary)
-            : Icon(typeIcon,
-                size: 18,
-                color: isCurrent ? null : Colors.grey.shade500),
+        leading: switch (_cueStates[index]) {
+          _CueState.executing => const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          _CueState.succeeded =>
+            const Icon(Icons.check_circle, color: Colors.green),
+          _CueState.failed => const Icon(Icons.error, color: Colors.red),
+          null => isCurrent
+              ? Icon(Icons.play_arrow,
+                  color: Theme.of(context).colorScheme.primary)
+              : Icon(typeIcon, size: 18, color: Colors.grey.shade500),
+        },
         title: Text(title,
             style: TextStyle(
                 fontWeight:
@@ -609,3 +641,7 @@ class _ServiceTabState extends State<ServiceTab> {
     );
   }
 }
+
+/// Where a fired cue stands, shown on its tile so the operator can tell a
+/// slow camera from a dead one.
+enum _CueState { executing, succeeded, failed }
