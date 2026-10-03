@@ -373,38 +373,27 @@ class ConfigBundle {
     return mutated;
   }
 
-  /// Suggested default export path using the platform Documents folder.
-  static String suggestedExportPath() {
+  /// Default file name offered in the export dialog.
+  static String suggestedExportFileName() {
     final now = DateTime.now();
     final stamp =
         '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final filename = 'nav_config_$stamp.json';
-    if (kIsWeb) return filename;
-    if (Platform.isWindows) {
-      final home = Platform.environment['USERPROFILE'];
-      if (home != null) return '$home\\Documents\\$filename';
-    } else {
-      final home = Platform.environment['HOME'];
-      if (home != null) return '$home/Documents/$filename';
-    }
-    return filename;
+    return 'nav_config_$stamp.json';
   }
 
-  static Future<void> writeToPath(String path, ConfigBundle bundle) {
-    if (kIsWeb) {
-      return Future.error(
-          UnsupportedError('File export is not supported on web'));
-    }
-    return File(path).writeAsString(
-      const JsonEncoder.withIndent('  ').convert(bundle.toJson()),
-    );
-  }
+  /// The export file's contents.
+  String toPrettyJson() => const JsonEncoder.withIndent('  ').convert(toJson());
 
   static Future<ConfigBundle> readFromPath(String path) async {
     if (kIsWeb) {
       throw UnsupportedError('File import is not supported on web');
     }
-    final content = await File(path).readAsString();
+    return parse(await File(path).readAsString());
+  }
+
+  /// Parses an export file's contents. Throws [AppFault] if it is not a
+  /// configuration bundle.
+  static ConfigBundle parse(String content) {
     final dynamic json;
     try {
       json = jsonDecode(content);
