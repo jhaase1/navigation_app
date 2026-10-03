@@ -19,6 +19,7 @@ import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
+import '../utils/device_feedback.dart';
 import 'backup/backup_status_pill.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
@@ -49,6 +50,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   final ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
   final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
   final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
+  StreamSubscription<bool>? _rolandLinkSub;
 
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
@@ -132,8 +134,25 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     DeviceConfigStore.save(rolandIp, entries);
   }
 
+  void _showResponse(String message) {
+    if (mounted) showDeviceResponse(context, message);
+  }
+
+  /// Keeps the Live badge truthful: when the switcher's link drops underneath
+  /// us, flip the shared flag instead of waiting for the next failed command.
+  void _watchRolandLink(RolandServiceAbstract service) {
+    _rolandLinkSub?.cancel();
+    _rolandLinkSub = service.connectionChanges.listen((up) {
+      if (!up && mounted && identical(_rolandService, service)) {
+        _rolandConnected.value = false;
+        _showResponse('Roland connection lost');
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _rolandLinkSub?.cancel();
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {
@@ -204,6 +223,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       await service.connect();
       setState(() {
         _rolandService = service;
+        _watchRolandLink(service);
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
@@ -337,7 +357,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onConnectRoland: _connectRoland,
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
-            onResponse: (_) {},
+            onResponse: _showResponse,
             positions: _positions,
             heightRanges: _heightRanges,
             onPositionsChanged: () async {
@@ -559,7 +579,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
-                    onResponse: (_) {},
+                    onResponse: _showResponse,
                   ),
                   OperatorPanel(
                     operator: _activeOperator,
@@ -567,7 +587,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
-                    onResponse: (_) {},
+                    onResponse: _showResponse,
                     onServicesChanged: _loadServices,
                   ),
                   PositionsTab(
@@ -575,7 +595,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     positions: _positions,
                     people: _people,
                     heightRanges: _heightRanges,
-                    onResponse: (_) {},
+                    onResponse: _showResponse,
                   ),
                 ],
               ),

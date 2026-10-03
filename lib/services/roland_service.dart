@@ -1592,6 +1592,11 @@ class RolandService extends RolandServiceAbstract
   final StreamController<dynamic> _responseController =
       StreamController<dynamic>.broadcast();
   Stream<dynamic> get responseStream => _responseController.stream;
+  final StreamController<bool> _connectionController =
+      StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get connectionChanges => _connectionController.stream;
   final Queue<Completer<void>> _ackCompleters = Queue<Completer<void>>();
   final Queue<String> _commandQueue = Queue<String>();
   int _commandId = 0;
@@ -1662,7 +1667,7 @@ class RolandService extends RolandServiceAbstract
         _socket = useSSL
             ? await SecureSocket.connect(host, port).timeout(connectTimeout)
             : await Socket.connect(host, port).timeout(connectTimeout);
-        _isConnected = true;
+        _setConnected(true);
 
         // Set up a completer for authentication
         final authCompleter = Completer<bool>();
@@ -1706,14 +1711,14 @@ class RolandService extends RolandServiceAbstract
           },
           onError: (error) {
             dev.log('Socket error: $error');
-            _isConnected = false;
+            _setConnected(false);
             _responseController
                 .addError(ConnectionException('Socket error: $error'));
             _responseController.close();
           },
           onDone: () {
             dev.log('Socket closed');
-            _isConnected = false;
+            _setConnected(false);
             disconnect();
           },
         );
@@ -1766,6 +1771,13 @@ class RolandService extends RolandServiceAbstract
     }
   }
 
+  /// Updates the connection flag and announces genuine changes only.
+  void _setConnected(bool value) {
+    if (_isConnected == value) return;
+    _isConnected = value;
+    if (!_connectionController.isClosed) _connectionController.add(value);
+  }
+
   /// Reconnects to the Roland device.
   Future<void> reconnect() async {
     if (_isConnected) disconnect();
@@ -1778,7 +1790,7 @@ class RolandService extends RolandServiceAbstract
     dev.log('Disconnecting');
     _socket?.close();
     _socket = null;
-    _isConnected = false;
+    _setConnected(false);
     _responseBuffer.clear();
     _responseController.close();
     // Complete any pending acks with error
