@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
+
 import 'package:navigation_app/models/operator_profile.dart';
+import 'package:navigation_app/services/mock/mock_roland_service.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
@@ -24,6 +27,35 @@ Future<void> _connect(WidgetTester tester) async {
   await tester.tap(find.text('Connect All'));
   await tester.pump(const Duration(milliseconds: 600));
   await tester.pumpAndSettle();
+}
+
+/// A switcher whose link can be dropped from the test, and which announces
+/// its own deliberate disconnect the way [RolandService] does.
+class _FakeRoland extends MockRolandService {
+  final _link = StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get connectionChanges => _link.stream;
+
+  void drop() => _link.add(false);
+
+  @override
+  Future<void> disconnect() async => _link.add(false);
+}
+
+/// Connects in Live Mode through an injected connector, so the page wires up
+/// the link watcher exactly as it would for real hardware.
+Future<_FakeRoland> _connectLive(WidgetTester tester) async {
+  final roland = _FakeRoland();
+  await tester.pumpWidget(MaterialApp(
+    home: MultiDeviceControlPage(
+      rolandConnector: (_) async => roland,
+    ),
+  ));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Connect All'));
+  await tester.pumpAndSettle();
+  return roland;
 }
 
 void main() {
@@ -198,6 +230,54 @@ void main() {
 
       expect(find.textContaining('Active:'), findsNothing);
       expect(find.text('Tap to switch operator'), findsNothing);
+    });
+  });
+
+  group('MultiDeviceControlPage — Roland link', () {
+    testWidgets('the AppBar reads Live while the switcher is up',
+        (tester) async {
+      await _connectLive(tester);
+
+      expect(find.text('Live'), findsOneWidget);
+      expect(find.text('Offline'), findsNothing);
+    });
+
+    testWidgets('the AppBar reads Offline before anything connects',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Offline'), findsOneWidget);
+      expect(find.text('Live'), findsNothing);
+    });
+
+    testWidgets('a dropped link flips to Offline and brings the banner back',
+        (tester) async {
+      final roland = await _connectLive(tester);
+
+      roland.drop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Offline'), findsOneWidget);
+      expect(find.text('No devices connected'), findsOneWidget);
+      expect(find.text('Roland connection lost'), findsOneWidget);
+    });
+
+    testWidgets('a deliberate disconnect does not claim the link was lost',
+        (tester) async {
+      await _connectLive(tester);
+
+      await tester.tap(find.descendant(
+          of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Disconnect').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Roland connection lost'), findsNothing);
     });
   });
 }

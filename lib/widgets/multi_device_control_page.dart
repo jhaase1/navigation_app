@@ -28,12 +28,17 @@ import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
-  const MultiDeviceControlPage({super.key, this.backupController});
+  const MultiDeviceControlPage(
+      {super.key, this.backupController, this.rolandConnector});
 
   /// Injected by tests. Production passes nothing and gets
   /// [BackupController.forEnvironment], which is disabled unless
   /// `--dart-define=BACKUP_MOCK=true`.
   final BackupController? backupController;
+
+  /// Injected by tests. Opens a live switcher link for the given host;
+  /// production passes nothing and gets a real [RolandService].
+  final Future<RolandServiceAbstract> Function(String host)? rolandConnector;
 
   @override
   State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();
@@ -121,11 +126,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
     setState(() {
       _rolandIpController.text = rolandIp;
-      if (_rolandConnected.value) {
-        _rolandService.disconnect();
-        _rolandConnected.value = false;
-        _rolandService = MockRolandService();
-      }
+      if (_rolandConnected.value) _releaseRoland();
       _panasonicCameras
         ..clear()
         ..addAll(entries
@@ -144,10 +145,26 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     _rolandLinkSub?.cancel();
     _rolandLinkSub = service.connectionChanges.listen((up) {
       if (!up && mounted && identical(_rolandService, service)) {
-        _rolandConnected.value = false;
+        setState(() => _rolandConnected.value = false);
         _showResponse('Roland connection lost');
       }
     });
+  }
+
+  static Future<RolandServiceAbstract> _openRoland(String host) async {
+    final service = RolandService(host: host);
+    await service.connect();
+    return service;
+  }
+
+  /// Deliberately lets go of the switcher. The link watcher is cancelled
+  /// first so our own disconnect is not reported as a lost connection.
+  void _releaseRoland() {
+    _rolandLinkSub?.cancel();
+    _rolandLinkSub = null;
+    _rolandService.disconnect();
+    _rolandConnected.value = false;
+    _rolandService = MockRolandService();
   }
 
   @override
@@ -193,10 +210,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   Future<void> _connectRoland() async {
     if (_rolandConnected.value) {
-      await _rolandService.disconnect();
       setState(() {
-        _rolandConnected.value = false;
-        _rolandService = MockRolandService();
+        _releaseRoland();
         _rolandConnectionError.value = '';
       });
       return;
@@ -218,9 +233,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       return;
     }
 
-    final service = RolandService(host: _rolandIpController.text);
     try {
-      await service.connect();
+      final service = await (widget.rolandConnector ?? _openRoland)(
+          _rolandIpController.text);
+      if (!mounted) return;
       setState(() {
         _rolandService = service;
         _watchRolandLink(service);
@@ -336,11 +352,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onMockModeChanged: (value) {
               setDialogState(() {
                 _mockMode = value;
-                if (_rolandConnected.value) {
-                  _rolandService.disconnect();
-                  _rolandConnected.value = false;
-                  _rolandService = MockRolandService();
-                }
+                if (_rolandConnected.value) _releaseRoland();
                 for (final camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
@@ -463,19 +475,27 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _mockMode
-                            ? Colors.orange.shade100
-                            : Colors.blue.shade100,
+                        color: !isConnected
+                            ? Colors.grey.shade300
+                            : _mockMode
+                                ? Colors.orange.shade100
+                                : Colors.blue.shade100,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        _mockMode ? 'Demo' : 'Live',
+                        !isConnected
+                            ? 'Offline'
+                            : _mockMode
+                                ? 'Demo'
+                                : 'Live',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: _mockMode
-                              ? Colors.orange.shade800
-                              : Colors.blue.shade800,
+                          color: !isConnected
+                              ? Colors.grey.shade800
+                              : _mockMode
+                                  ? Colors.orange.shade800
+                                  : Colors.blue.shade800,
                         ),
                       ),
                     ),
