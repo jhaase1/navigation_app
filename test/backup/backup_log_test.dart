@@ -144,4 +144,31 @@ void main() {
     await log.load();
     expect(log.entries.value, isEmpty);
   });
+
+  group('entries recorded in the same clock tick', () {
+    // Windows' clock ticks coarsely, so two faults a moment apart routinely
+    // share a timestamp. Newest-first must still mean newest first.
+    AppFault fault(BackupFailureKind kind, String op) =>
+        AppFault.backup(kind, 'm', operation: op, targetIdentity: 't');
+
+    test('a new row goes above older rows with the same time', () async {
+      final log = newLog();
+      await log.recordFault(fault(BackupFailureKind.conflict, 'pull'));
+      await log.recordFault(fault(BackupFailureKind.storageWriteFailed, 'resolve'));
+
+      expect(log.entries.value.map((e) => e.kind),
+          ['storageWriteFailed', 'conflict']);
+    });
+
+    test('a repeat moves its row above others with the same time', () async {
+      final log = newLog();
+      await log.recordFault(fault(BackupFailureKind.offline, 'push'));
+      await log.recordFault(fault(BackupFailureKind.conflict, 'pull'));
+      await log.recordFault(fault(BackupFailureKind.storageWriteFailed, 'resolve'));
+      await log.recordFault(fault(BackupFailureKind.offline, 'push'));
+
+      expect(log.entries.value.map((e) => e.kind),
+          ['offline', 'storageWriteFailed', 'conflict']);
+    });
+  });
 }

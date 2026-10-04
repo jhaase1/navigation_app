@@ -196,15 +196,20 @@ class BackupLog {
     // is closed: "I have read this" must not swallow the next occurrence.
     final i =
         next.indexWhere((e) => e.fingerprint == fingerprint && !e.dismissed);
+    // The touched row goes to the front: [_bounded] keeps list order among
+    // equal times, and on a coarse clock "equal" is common.
     if (i >= 0) {
-      next[i] = next[i].copyWith(
-        message: text,
-        lastDetail: trimmedDetail ?? next[i].lastDetail,
-        lastSeen: now,
-        count: next[i].count + 1,
-      );
+      final touched = next.removeAt(i);
+      next.insert(
+          0,
+          touched.copyWith(
+            message: text,
+            lastDetail: trimmedDetail ?? touched.lastDetail,
+            lastSeen: now,
+            count: touched.count + 1,
+          ));
     } else {
-      next.add(BackupLogEntry(
+      next.insert(0, BackupLogEntry(
         fingerprint: fingerprint,
         domain: domain,
         kind: kind,
@@ -224,8 +229,17 @@ class BackupLog {
 
   List<BackupLogEntry> _bounded(List<BackupLogEntry> rows, DateTime now) {
     final cutoff = now.subtract(maxAge);
+    // Newest first. Ties keep their incoming order explicitly: List.sort is
+    // not stable past 32 elements, and Windows' clock is coarse enough that
+    // two faults a moment apart share a timestamp, which would otherwise
+    // leave the newer one below the older.
+    final order = Map<BackupLogEntry, int>.identity()
+      ..addAll({for (var i = 0; i < rows.length; i++) rows[i]: i});
     var kept = rows.where((e) => !e.lastSeen.isBefore(cutoff)).toList()
-      ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+      ..sort((a, b) {
+        final byTime = b.lastSeen.compareTo(a.lastSeen);
+        return byTime != 0 ? byTime : order[a]!.compareTo(order[b]!);
+      });
     if (kept.length > maxRows) kept = kept.sublist(0, maxRows);
     while (kept.length > 1 && _encodedBytes(kept) > maxBytes) {
       kept = kept.sublist(0, kept.length - 1);
