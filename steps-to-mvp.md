@@ -79,6 +79,9 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | Changing one reader on a lapsed lineup re-saved the stale ones | #25 |
 | An offline or hung Google restore left backups signed out or stalled until restart | #27 |
 | The Panel tab kept driving cameras that Settings had replaced | #37 |
+| A camera down in Live came back on its real service after switching to Demo; a camera Connect mid-dial was installed under the Demo badge | #31 |
+| A failed camera Connect cleared its pill fault; same-named cameras shared one fault | #34 |
+| Leaving the Service tab and coming back let an in-flight cue fire twice | #24 |
 | #26's lock pinned test packages below main's (resolved on an older Flutter) | #26 |
 | A dropped switcher link could never be reconnected (closed response stream) | #29 |
 | A camera that stopped answering stayed "connected" for the rest of the service | #31 |
@@ -121,6 +124,12 @@ Conflicts to expect, all in the merge, none in the PRs themselves:
   three times: taking its side of that block brings back landmine 1
   (swallowed device responses). Take #23's side, or rebase #27 onto #23
   first.
+- `multi_device_control_page.dart`: #25 × #31 both add to `initState` and
+  `dispose` — keep both `_lineupLease` and `_cameraHealth`. #33 × #29 meet
+  in the same file and its test (the `_showFailure` line below). #29 and #33
+  both edit `pinp_tab.dart`; it auto-merges, keep #29's `onError: (_) {}`.
+- `test/panasonic_service_test.dart` and the page test: #36 × #31 — take
+  both sides.
 - #27 and #26 both touch `pubspec.yaml`/`pubspec.lock`, the plugin
   registrants and `settings_dialog_test.dart`: take both sides.
 - Once #33 is in alongside #29 and #31, switch their "connection lost" and
