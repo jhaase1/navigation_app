@@ -46,7 +46,9 @@ class PanasonicDevice extends ControllableDevice {
 
   @override
   Future<void> refreshItems() async {
-    if (camera.service == null) {
+    // Connected, not merely holding a service: a camera let go of may still
+    // hold one, and its presets are not this camera's to offer.
+    if (!isConnected) {
       _availableIndices = [];
       _isLoadingItems = false;
       return;
@@ -69,7 +71,7 @@ class PanasonicDevice extends ControllableDevice {
   @override
   Future<String> execute(int index) async {
     final service = camera.service;
-    if (service == null) {
+    if (service == null || !isConnected) {
       throw DeviceException('Camera ${camera.name} not connected');
     }
     try {

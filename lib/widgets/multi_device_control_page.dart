@@ -350,7 +350,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     _cameraHealth.forget(camera);
     camera.isConnecting.value = false;
     camera.isConnected.value = false;
-    camera.service = MockPanasonicService();
+    // No service at all, not a Demo stand-in: anything that forgets to check
+    // the connected flag then fails as not connected instead of "recalling"
+    // presets on a fake while the real camera sits dead.
+    camera.service = null;
   }
 
   Future<void> _connectPanasonic(int cameraIndex) async {
