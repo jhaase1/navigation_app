@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 
 import 'package:navigation_app/models/operator_profile.dart';
+import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
@@ -41,6 +42,16 @@ class _FakeRoland extends MockRolandService {
 
   @override
   Future<void> disconnect() async => _link.add(false);
+}
+
+/// A camera that can stop answering, the way one does when it loses power.
+class _FakeCamera extends MockPanasonicService {
+  bool up = true;
+
+  @override
+  Future<void> probe() async {
+    if (!up) throw Exception('no answer');
+  }
 }
 
 /// Connects in Live Mode through an injected connector, so the page wires up
@@ -279,5 +290,34 @@ void main() {
 
       expect(find.text('Roland connection lost'), findsNothing);
     });
+  });
+
+  testWidgets('a camera that stops answering is reported, and so is its return',
+      (tester) async {
+    final cameras = <String, _FakeCamera>{};
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => _FakeRoland(),
+        cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+
+    cameras['10.0.1.10']!.up = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Camera 1 not responding'), findsOneWidget);
+
+    cameras['10.0.1.10']!.up = true;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Camera 1 is back'), findsOneWidget);
+
+    // Disposing the page stops the health checks.
+    await tester.pumpWidget(const SizedBox());
   });
 }

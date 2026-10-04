@@ -523,6 +523,11 @@ class PanasonicService extends PanasonicServiceAbstract {
     return await _sendCommand(camEndpoint, getCameraInfoCmd);
   }
 
+  /// The same query connecting uses, so "reachable" means the same thing
+  /// before and after the first Connect.
+  @override
+  Future<void> probe() => getCameraInfo();
+
   /// Retrieves camera version.
   ///
   /// Sends QSV command.

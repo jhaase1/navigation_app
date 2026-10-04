@@ -9,7 +9,9 @@ import '../models/position.dart';
 import '../models/service.dart';
 import '../services/roland_service.dart';
 import '../services/panasonic_service.dart';
+import '../services/abstract/panasonic_service_abstract.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/camera_health_monitor.dart';
 import '../services/backup/backup_controller.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
@@ -28,8 +30,13 @@ import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
-  const MultiDeviceControlPage(
-      {super.key, this.backupController, this.rolandConnector});
+  const MultiDeviceControlPage({
+    super.key,
+    this.backupController,
+    this.rolandConnector,
+    this.cameraConnector,
+    this.cameraHealthInterval = const Duration(seconds: 5),
+  });
 
   /// Injected by tests. Production passes nothing and gets
   /// [BackupController.forEnvironment], which is disabled unless
@@ -39,6 +46,13 @@ class MultiDeviceControlPage extends StatefulWidget {
   /// Injected by tests. Opens a live switcher link for the given host;
   /// production passes nothing and gets a real [RolandService].
   final Future<RolandServiceAbstract> Function(String host)? rolandConnector;
+
+  /// Injected by tests. Reaches a live camera at the given address;
+  /// production passes nothing and gets a real [PanasonicService].
+  final Future<PanasonicServiceAbstract> Function(String ip)? cameraConnector;
+
+  /// How often connected cameras are asked whether they are still there.
+  final Duration cameraHealthInterval;
 
   @override
   State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();
@@ -56,6 +70,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
   final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
   StreamSubscription<bool>? _rolandLinkSub;
+  late final CameraHealthMonitor _cameraHealth;
 
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
@@ -78,6 +93,17 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     // foreground and flush on background are its business, not this widget's.
     _backup = widget.backupController ?? BackupController.forEnvironment();
     unawaited(_backup.start());
+    _cameraHealth = CameraHealthMonitor(
+      cameras: () => _panasonicCameras,
+      interval: widget.cameraHealthInterval,
+      onChange: (camera, up) {
+        if (!mounted) return;
+        setState(() {});
+        _showResponse(up
+            ? '${camera.name} is back'
+            : '${camera.name} not responding');
+      },
+    )..start();
     _loadDeviceConfig();
     _loadOperators();
     _loadPositions();
@@ -151,6 +177,12 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     });
   }
 
+  static Future<PanasonicServiceAbstract> _openCamera(String ip) async {
+    final service = PanasonicService(ipAddress: ip);
+    await service.probe();
+    return service;
+  }
+
   static Future<RolandServiceAbstract> _openRoland(String host) async {
     final service = RolandService(host: host);
     await service.connect();
@@ -169,6 +201,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   void dispose() {
+    _cameraHealth.stop();
     _rolandLinkSub?.cancel();
     _rolandService.disconnect();
     _rolandIpController.dispose();
@@ -257,6 +290,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     final camera = _panasonicCameras[cameraIndex];
 
     if (camera.isConnected.value) {
+      _cameraHealth.forget(camera);
       setState(() {
         camera.isConnected.value = false;
         camera.service = MockPanasonicService();
@@ -282,8 +316,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
 
     try {
-      final service = PanasonicService(ipAddress: camera.ipController.text);
-      await service.getCameraInfo();
+      final service = await (widget.cameraConnector ?? _openCamera)(
+          camera.ipController.text);
+      if (!mounted) return;
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
