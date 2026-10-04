@@ -169,4 +169,28 @@ void main() {
 
     expect(changes, [('Cam 1', false)]);
   });
+
+  test('a camera that takes connections but never answers is marked down',
+      () async {
+    // The wedged-camera case: the link looks fine, nothing comes back.
+    // Without the probe's own timeout this would stay "connected" forever.
+    config.service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        probeTimeout: const Duration(milliseconds: 50),
+        client: MockClient((_) => Completer<http.Response>().future));
+    final m = CameraHealthMonitor(
+      cameras: () => [config],
+      onChange: (c, up) => changes.add((c.name, up)),
+      interval: const Duration(milliseconds: 100),
+    )..start();
+    addTearDown(m.stop);
+
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (config.isConnected.value && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect(config.isConnected.value, isFalse);
+    expect(changes, [('Cam 1', false)]);
+  });
 }
