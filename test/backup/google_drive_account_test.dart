@@ -157,4 +157,44 @@ void main() {
     expect(a.status.value.state, DriveAccountState.signedOut);
     expect(await a.headers(), isNull);
   });
+
+  group('a sign-in SDK that fails once is asked again', () {
+    // Remembering the failed attempt meant one bad launch-time init left
+    // backups signed out — and Sign in broken — until the app restarted.
+    test('restore', () async {
+      platform
+        ..rememberedEmail = _expected
+        ..granted = true
+        ..initErrorOnce = StateError('keychain busy');
+      final a = account();
+
+      await expectLater(a.restore(), throwsA(anything));
+      await a.restore();
+
+      expect(a.status.value.state, DriveAccountState.signedIn);
+    });
+
+    test('headers', () async {
+      platform
+        ..rememberedEmail = _expected
+        ..granted = true
+        ..initErrorOnce = StateError('keychain busy');
+      final a = account();
+
+      await expectLater(a.headers(), throwsA(anything));
+      expect(await a.headers(), isNotNull);
+    });
+
+    test('Sign in', () async {
+      platform
+        ..pickedEmail = _expected
+        ..initErrorOnce = StateError('keychain busy');
+      final a = account();
+
+      await expectLater(a.signIn(), throwsA(anything));
+      await a.signIn();
+
+      expect(a.status.value.state, DriveAccountState.signedIn);
+    });
+  });
 }

@@ -121,4 +121,29 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
   });
+
+  test('a sign-in SDK that never answers is held to the same deadline',
+      () async {
+    // Asking for a token can refresh it over the network. Left unbounded, a
+    // hung refresh would hold the backup queue forever.
+    final client = AuthorizedDriveClient(
+      _HungCredentials(),
+      inner: MockClient((_) async => http.Response('ok', 200)),
+      timeout: const Duration(milliseconds: 50),
+      transferTimeout: const Duration(milliseconds: 50),
+    );
+
+    await expectLater(
+      client.get(Uri.parse('https://www.googleapis.com/drive/v3/files')),
+      throwsA(isA<TimeoutException>()),
+    ).timeout(const Duration(seconds: 5));
+  });
+}
+
+class _HungCredentials implements DriveCredentials {
+  @override
+  Future<Map<String, String>?> headers() => Completer<Map<String, String>?>().future;
+
+  @override
+  Future<void> invalidate(Map<String, String> rejected) async {}
 }

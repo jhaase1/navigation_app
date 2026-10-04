@@ -30,8 +30,16 @@ class FakeSignInPlatform extends GoogleSignInPlatform
         authenticationTokens: const AuthenticationTokenData(idToken: 'id'),
       );
 
+  /// Thrown by the next `init` only, the way a first launch can fail on a
+  /// flaky keychain and then work.
+  Object? initErrorOnce;
+
   @override
-  Future<void> init(InitParameters params) async {}
+  Future<void> init(InitParameters params) async {
+    final error = initErrorOnce;
+    initErrorOnce = null;
+    if (error != null) throw error;
+  }
 
   @override
   Future<AuthenticationResults?> attemptLightweightAuthentication(

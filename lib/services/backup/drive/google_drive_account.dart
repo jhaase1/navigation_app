@@ -51,13 +51,27 @@ class GoogleDriveAccount implements DriveCredentials {
 
   ValueListenable<DriveAccountStatus> get status => _status;
 
-  Future<void> _ready() => _initialized ??= _signIn.initialize();
+  Future<void> _ready() =>
+      _initialized ??= _forgetOnError(_signIn.initialize(), () {
+        _initialized = null;
+      });
+
+  /// Shares one attempt between callers, but not a failed one: remembering
+  /// a failure left backups signed out — and Sign in broken — until the app
+  /// restarted.
+  static Future<void> _forgetOnError(
+          Future<void> attempt, void Function() forget) =>
+      attempt.catchError((Object e, StackTrace s) {
+        forget();
+        Error.throwWithStackTrace(e, s);
+      });
 
   bool _isExpected(String email) =>
       email.trim().toLowerCase() == expectedAccount.trim().toLowerCase();
 
   /// Picks up a previous session without any UI.
-  Future<void> restore() => _restored ??= _restore();
+  Future<void> restore() =>
+      _restored ??= _forgetOnError(_restore(), () => _restored = null);
 
   Future<void> _restore() async {
     try {

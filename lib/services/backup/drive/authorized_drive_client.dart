@@ -60,7 +60,9 @@ class AuthorizedDriveClient extends http.BaseClient {
     List<int> body,
     Duration deadline,
   ) async {
-    final auth = await _credentials.headers();
+    // Fetching a token can refresh it over the network, so it gets the
+    // request's deadline too.
+    final auth = await _credentials.headers().timeout(deadline);
     if (auth == null) {
       throw AppFault.backup(
         BackupFailureKind.authExpired,
