@@ -77,6 +77,14 @@ class _ServiceTabState extends State<ServiceTab> {
   // toggle macro flips back.
   static final Set<String> _inFlight = {};
 
+  // Bumped when [_inFlight] changes, so a tab rebuilt while a cue was out
+  // stops its spinner when the command the old tab sent finishes.
+  static final ValueNotifier<int> _inFlightChanges = ValueNotifier(0);
+
+  void _onInFlightChanged() {
+    if (mounted) setState(() {});
+  }
+
   String _inFlightKey(String cueKey) => '$_selectedServiceId/$cueKey';
 
   // participantId → personId, set at run time for this service
@@ -94,6 +102,13 @@ class _ServiceTabState extends State<ServiceTab> {
     _lastRolandKey = _rolandKey;
     _lastCameraIps = _cameraIps;
     _loadNames();
+    _inFlightChanges.addListener(_onInFlightChanged);
+  }
+
+  @override
+  void dispose() {
+    _inFlightChanges.removeListener(_onInFlightChanged);
+    super.dispose();
   }
 
   String get _rolandKey => 'roland_${widget.rolandIpController?.text ?? ''}';
@@ -239,6 +254,7 @@ class _ServiceTabState extends State<ServiceTab> {
       };
     } finally {
       _inFlight.remove(flightKey);
+      _inFlightChanges.value++;
     }
     if (!mounted) return;
     if (generation != _cueGeneration) {
