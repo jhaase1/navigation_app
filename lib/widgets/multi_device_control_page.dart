@@ -236,7 +236,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     try {
       final service = await (widget.rolandConnector ?? _openRoland)(
           _rolandIpController.text);
-      if (!mounted) return;
+      if (!mounted) {
+        // The page went away mid-connect: nobody else will ever close this.
+        await service.disconnect();
+        return;
+      }
       setState(() {
         _rolandService = service;
         _watchRolandLink(service);
