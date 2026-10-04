@@ -148,4 +148,41 @@ void main() {
     expect(_castAlice, findsNothing,
         reason: 'the copy on screen would outlive the one that expired');
   });
+
+  testWidgets('changing one reader on a lapsed lineup does not save the rest',
+      (tester) async {
+    // The Mac woke from sleep before the renew timer ran. Re-saving the
+    // whole lineup on screen would give yesterday's readers a fresh 20
+    // minutes, and the next reader cue would aim at the wrong person.
+    var clock = DateTime(2026, 10, 4, 9, 0);
+    LineupStore.now = () => clock;
+    addTearDown(() => LineupStore.now = DateTime.now);
+    final twoReaders = Service(
+      id: 's1',
+      name: 'Mass',
+      participants: [
+        Participant(id: 'pt1', name: 'Reader 1'),
+        Participant(id: 'pt2', name: 'Reader 2'),
+      ],
+      steps: [
+        for (final pt in ['pt1', 'pt2'])
+          ServiceStep(
+              id: 'st-$pt',
+              type: StepType.ministry,
+              participantId: pt,
+              positionId: 'pos1'),
+      ],
+    );
+    await tester.pumpWidget(_tab(services: [twoReaders]));
+    await _assignAlice(tester);
+
+    clock = clock.add(const Duration(minutes: 30));
+    await tester.tap(find.text('— unassigned —').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bob').last);
+    await tester.pumpAndSettle();
+
+    expect(await LineupStore.load('s1'), {'pt2': 'p2'});
+    expect(_castAlice, findsNothing);
+  });
 }

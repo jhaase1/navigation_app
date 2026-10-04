@@ -132,11 +132,16 @@ class _ServiceTabState extends State<ServiceTab> {
     });
   }
 
-  void _assign(String participantId, String? personId) {
+  Future<void> _assign(String participantId, String? personId) async {
     final serviceId = _selectedServiceId;
     if (serviceId == null) return;
+    // Renew first. If the lineup lapsed — the screen woke before the renew
+    // timer ran — that clears the stale copy shown here, so the save below
+    // cannot hand yesterday's readers a fresh 20 minutes.
+    await LineupStore.renew();
+    if (!mounted || _selectedServiceId != serviceId) return;
     setState(() => _participantAssignments[participantId] = personId);
-    LineupStore.save(serviceId, Map.of(_participantAssignments));
+    await LineupStore.save(serviceId, Map.of(_participantAssignments));
   }
 
   String get _rolandKey => 'roland_${widget.rolandIpController?.text ?? ''}';

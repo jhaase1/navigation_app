@@ -38,8 +38,8 @@ class LineupStore {
 
   /// Bumped when [renew] finds a stored lineup lapsed and deletes it, so a
   /// Service tab still on screen can drop its own copy. Only renewal
-  /// announces: a lapse found by a save or load happens inside the tab's own
-  /// action, which already starts from the fresh state.
+  /// announces, so the tab renews before every change it saves: a save that
+  /// found the lapse itself would re-store the stale roles still on screen.
   static final ValueNotifier<int> expirations = ValueNotifier(0);
 
   static String _key(String serviceId) => '$keyPrefix$serviceId';
