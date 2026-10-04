@@ -41,8 +41,41 @@ class _FakeRoland extends MockRolandService {
 
   void drop() => _link.add(false);
 
+  /// Set once the page lets go of this session.
+  bool released = false;
+
   @override
-  Future<void> disconnect() async => _link.add(false);
+  Future<void> disconnect() async {
+    released = true;
+    _link.add(false);
+  }
+}
+
+/// A connector whose connects finish only when the test says so.
+class _SlowConnector {
+  final pending = <Completer<RolandServiceAbstract>>[];
+  final sessions = <_FakeRoland>[];
+
+  Future<RolandServiceAbstract> call(String host) {
+    final c = Completer<RolandServiceAbstract>();
+    pending.add(c);
+    return c.future;
+  }
+
+  void finishAll() {
+    for (final c in pending) {
+      final r = _FakeRoland();
+      sessions.add(r);
+      c.complete(r);
+    }
+  }
+}
+
+/// Fixed pumps: a connect still in flight spins forever, so nothing settles.
+Future<void> _openSettings(WidgetTester tester) async {
+  await tester.tap(find.descendant(
+      of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+  await tester.pump(const Duration(seconds: 1));
 }
 
 /// A camera that can stop answering, the way one does when it loses power.
@@ -311,6 +344,57 @@ void main() {
 
       expect(released, isTrue,
           reason: 'nobody is left to own the switcher session');
+    });
+
+    testWidgets('switching to Demo while the switcher is still connecting '
+        'does not install it', (tester) async {
+      final connector = _SlowConnector();
+      await tester.pumpWidget(MaterialApp(
+          home: MultiDeviceControlPage(rolandConnector: connector.call)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await _openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      connector.finishAll();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      // Installed, it would take rehearsal cuts to air under a Demo badge.
+      expect(connector.sessions.single.released, isTrue);
+      expect(find.text('Live'), findsNothing);
+    });
+
+    testWidgets('a second Connect while the first is dialling leaves one session',
+        (tester) async {
+      final connector = _SlowConnector();
+      await tester.pumpWidget(MaterialApp(
+          home: MultiDeviceControlPage(rolandConnector: connector.call)));
+      await tester.pumpAndSettle();
+
+      await _openSettings(tester);
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect').first);
+      await tester.pump();
+      await tester.tap(find.text('Save & Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      connector.finishAll();
+      await tester.pumpAndSettle();
+
+      expect(connector.sessions, hasLength(2));
+      expect(connector.sessions.where((r) => !r.released), hasLength(1),
+          reason: 'an orphaned session holds a telnet slot nobody can free');
+      expect(find.text('Live'), findsOneWidget);
     });
   });
 
