@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/panasonic_camera_config.dart';
+import 'abstract/panasonic_service_abstract.dart';
 
 /// Notices when a connected camera stops answering, and when it comes back.
 ///
@@ -19,10 +20,16 @@ class CameraHealthMonitor {
   /// request lost to a busy camera is not an outage.
   final int missesBeforeDown;
 
-  final Set<PanasonicCameraConfig> _watched = {};
+  /// Each watched camera, with the service it was watched through. A camera
+  /// whose service is swapped — Demo Mode, a reconnect, Settings replacing
+  /// it — is a different thing to watch: a demo stand-in always answers.
+  final Map<PanasonicCameraConfig, PanasonicServiceAbstract> _watched = {};
   final Map<PanasonicCameraConfig, int> _misses = {};
+
+  /// Cameras with a probe still out. Each is skipped until it returns, so a
+  /// camera that hangs never holds up checks on the others.
+  final Set<PanasonicCameraConfig> _inFlight = {};
   Timer? _timer;
-  bool _checking = false;
 
   CameraHealthMonitor({
     required this.cameras,
@@ -50,33 +57,40 @@ class CameraHealthMonitor {
 
   @visibleForTesting
   Future<void> checkNow() async {
-    if (_checking) return;
-    _checking = true;
-    try {
-      final current = cameras();
-      _watched.removeWhere((c) => !current.contains(c));
-      _misses.removeWhere((c, _) => !current.contains(c));
-      for (final c in current) {
-        if (c.isConnected.value && c.service != null) _watched.add(c);
+    final current = cameras();
+    _watched.removeWhere(
+        (c, service) => !current.contains(c) || !identical(c.service, service));
+    _misses.removeWhere((c, _) => !_watched.containsKey(c));
+    for (final c in current) {
+      final service = c.service;
+      if (c.isConnected.value && service != null) {
+        _watched.putIfAbsent(c, () => service);
       }
-      await Future.wait([for (final c in [..._watched]) _check(c)]);
-    } finally {
-      _checking = false;
     }
+    await Future.wait([
+      for (final MapEntry(key: camera, value: service) in [..._watched.entries])
+        if (!_inFlight.contains(camera)) _check(camera, service),
+    ]);
   }
 
-  Future<void> _check(PanasonicCameraConfig camera) async {
-    final service = camera.service;
-    if (service == null) return;
+  Future<void> _check(
+      PanasonicCameraConfig camera, PanasonicServiceAbstract service) async {
     bool answered;
+    _inFlight.add(camera);
     try {
       await service.probe();
       answered = true;
     } catch (_) {
       answered = false;
+    } finally {
+      _inFlight.remove(camera);
     }
-    // Forgotten or removed while the probe was out.
-    if (!_watched.contains(camera)) return;
+    // Forgotten, removed or given another service while the probe was out:
+    // the answer is about something that is no longer there.
+    if (!identical(_watched[camera], service) ||
+        !identical(camera.service, service)) {
+      return;
+    }
 
     if (answered) {
       _misses[camera] = 0;

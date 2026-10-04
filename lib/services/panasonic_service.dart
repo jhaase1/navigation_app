@@ -365,6 +365,7 @@ class PanasonicService extends PanasonicServiceAbstract {
     this.useHttps = false,
     Duration ptzCommandDelay = defaultPtzCommandDelay,
     this.maxRetries = defaultMaxRetries,
+    this.probeTimeout = defaultProbeTimeout,
   })  : _client = client ?? http.Client(),
         _ptzCommandQueue = CommandQueue(ptzCommandDelay),
         _notificationManager = NotificationManager(
@@ -523,10 +524,26 @@ class PanasonicService extends PanasonicServiceAbstract {
     return await _sendCommand(camEndpoint, getCameraInfoCmd);
   }
 
+  /// How long a liveness check waits. Short on purpose: it runs every few
+  /// seconds, and the monitor counts two misses before calling a camera gone.
+  static const Duration defaultProbeTimeout = Duration(seconds: 2);
+  final Duration probeTimeout;
+
   /// The same query connecting uses, so "reachable" means the same thing
-  /// before and after the first Connect.
+  /// before and after the first Connect — but asked once, with a short
+  /// timeout. Through the command path's retries a dead camera took about
+  /// 35 seconds to notice. Any HTTP 200 counts, a busy `ER2` included: the
+  /// camera answered.
   @override
-  Future<void> probe() => getCameraInfo();
+  Future<void> probe() async {
+    final protocol = useHttps ? 'https' : 'http';
+    final url = '$protocol://$ipAddress/cgi-bin/$camEndpoint'
+        '?cmd=${_encodeCommand(getCameraInfoCmd)}&res=1';
+    final response = await _client.get(Uri.parse(url)).timeout(probeTimeout);
+    if (response.statusCode != 200) {
+      throw CameraException('HTTP ${response.statusCode}: ${response.body}');
+    }
+  }
 
   /// Retrieves camera version.
   ///

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/services/camera_health_monitor.dart';
+import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/services/panasonic_service.dart';
 
 /// A camera on the network that can be unplugged: answers QID while up,
@@ -106,5 +109,64 @@ void main() {
     await m.checkNow();
 
     expect(changes, isEmpty);
+  });
+
+  test('a camera switched to Demo is not brought back by its demo stand-in',
+      () async {
+    cam.up = false;
+    await monitor.checkNow();
+    await monitor.checkNow();
+
+    // Settings -> Demo Mode swaps in a stand-in that always answers.
+    config.service = MockPanasonicService();
+    await monitor.checkNow();
+
+    // "Connected" here would read Live while every cue went nowhere.
+    expect(config.isConnected.value, isFalse);
+    expect(changes, [('Cam 1', false)]);
+  });
+
+  test('an answer that arrives after the camera was replaced is ignored',
+      () async {
+    final gate = Completer<void>();
+    config.service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        client: MockClient((_) async {
+          await gate.future;
+          return http.Response('OID:AW-UE150', 200);
+        }));
+    final check = monitor.checkNow();
+    await pumpEventQueue();
+
+    // Settings -> Connections replaces the camera list.
+    config.isConnected.value = false;
+    config.service = null;
+    config.dispose();
+    gate.complete();
+    await check;
+
+    expect(changes, isEmpty);
+  });
+
+  test('a camera that never answers does not hold up checks on the others',
+      () async {
+    final hung = PanasonicCameraConfig(name: 'Cam 2', ipAddress: '10.0.1.11')
+      ..service = PanasonicService(
+          ipAddress: '10.0.1.11',
+          maxRetries: 1,
+          client: MockClient((_) => Completer<http.Response>().future))
+      ..isConnected.value = true;
+    final m = CameraHealthMonitor(
+        cameras: () => [hung, config],
+        onChange: (c, up) => changes.add((c.name, up)));
+    cam.up = false;
+
+    unawaited(m.checkNow());
+    await pumpEventQueue();
+    unawaited(m.checkNow());
+    await pumpEventQueue();
+
+    expect(changes, [('Cam 1', false)]);
   });
 }
