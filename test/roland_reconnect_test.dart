@@ -13,6 +13,9 @@ class _FakeSwitcher {
   final commands = <String>[];
   int connections = 0;
 
+  /// Sessions that got as far as logging in.
+  int logins = 0;
+
   /// When true, the first login is refused, the way a wrong password is.
   bool rejectFirstLogin = false;
 
@@ -31,6 +34,7 @@ class _FakeSwitcher {
               s.write('Authentication error\r\n');
             } else {
               authed = true;
+              logins++;
               s.write('Welcome\r\n');
             }
           } else {
@@ -176,5 +180,41 @@ void main() {
     expect(states, isEmpty);
     await service.cut();
     expect(switcher.commands, contains('CUT;'));
+  });
+
+  test('letting go while it is still retrying keeps it down', () async {
+    // Demo Mode or a new IP lets go of a session mid-retry. Had it kept
+    // going, it would quietly take the real switcher back.
+    await connectWithAutoReconnect();
+    await switcher.stop();
+    await eventually(() => service.reconnectAttempts >= 1,
+        within: const Duration(seconds: 30));
+
+    await service.disconnect();
+    await switcher.start();
+    // Past the attempt that may still be out: a refused connection takes
+    // about a second to fail on Windows.
+    await Future<void>.delayed(const Duration(seconds: 2));
+
+    // An attempt already dialling may still reach the switcher — a TCP
+    // connect cannot be recalled — but it must hang up before logging in.
+    expect(switcher.logins, 1);
+    expect(states, [false]);
+  });
+
+  test('a cue tapped while the link is down is not replayed on reconnect',
+      () async {
+    // The operator has moved on by the time the link is back: a stale CUT
+    // arriving then swaps the wrong shot onto program.
+    await connectWithAutoReconnect();
+    await switcher.stop();
+    await eventually(() => states.contains(false));
+
+    await expectLater(service.cut(), throwsA(anything));
+    await switcher.start();
+    await eventually(() => states.last, within: const Duration(seconds: 30));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(switcher.commands, isNot(contains('CUT;')));
   });
 }

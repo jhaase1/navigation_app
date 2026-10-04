@@ -1682,6 +1682,10 @@ class RolandService extends RolandServiceAbstract
   /// await service.connect();
   /// print('Connected successfully');
   Future<void> connect({int retryCount = 3}) async {
+    // A [disconnect] while this is still dialling or logging in means the
+    // operator let go. Finishing anyway would log in a session nobody wants
+    // and, until noticed, hold one of the switcher's telnet slots.
+    final session = _session;
     for (int attempt = 0; attempt <= retryCount; attempt++) {
       Socket? socket;
       try {
@@ -1689,6 +1693,7 @@ class RolandService extends RolandServiceAbstract
         socket = useSSL
             ? await SecureSocket.connect(host, port).timeout(connectTimeout)
             : await Socket.connect(host, port).timeout(connectTimeout);
+        if (session != _session) throw ConnectionException('Let go');
         final live = socket;
         _socket = live;
 
@@ -1748,6 +1753,7 @@ class RolandService extends RolandServiceAbstract
 
         // Wait a moment for telnet negotiation, then send password
         await Future.delayed(const Duration(milliseconds: 500));
+        if (session != _session) throw ConnectionException('Let go');
         dev.log('Sending password');
         live.write('$password\r\n');
         await live.flush();
@@ -1761,6 +1767,7 @@ class RolandService extends RolandServiceAbstract
         if (!authResult || !identical(live, _socket)) {
           throw ConnectionException('Authentication failed');
         }
+        if (session != _session) throw ConnectionException('Let go');
 
         // Up only once authenticated: before that, commands would be
         // written into a login prompt.
@@ -1774,7 +1781,7 @@ class RolandService extends RolandServiceAbstract
           socket.destroy();
         }
         dev.log('Connection attempt ${attempt + 1} failed: $e');
-        if (attempt == retryCount) {
+        if (attempt == retryCount || session != _session) {
           throw ConnectionException(
               'Connection failed after $retryCount attempts: $e');
         }
