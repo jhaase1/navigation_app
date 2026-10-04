@@ -3,14 +3,21 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import 'authorized_drive_client.dart';
 
-enum DriveAccountState { signedOut, signedIn, wrongAccount }
+enum DriveAccountState {
+  /// The saved session has not been looked at yet. Nothing should ask the
+  /// operator to sign in while this is the state: they may already be.
+  checking,
+  signedOut,
+  signedIn,
+  wrongAccount,
+}
 
 @immutable
 class DriveAccountStatus {
   final DriveAccountState state;
 
   /// The Google account involved: the one signed in, or the wrong one that
-  /// was refused. Null when signed out.
+  /// was refused. Null otherwise.
   final String? email;
 
   const DriveAccountStatus(this.state, [this.email]);
@@ -34,7 +41,7 @@ class GoogleDriveAccount implements DriveCredentials {
   final GoogleSignIn _signIn;
 
   final ValueNotifier<DriveAccountStatus> _status =
-      ValueNotifier(const DriveAccountStatus(DriveAccountState.signedOut));
+      ValueNotifier(const DriveAccountStatus(DriveAccountState.checking));
   GoogleSignInAccount? _account;
   Future<void>? _initialized;
   Future<void>? _restored;
@@ -53,9 +60,17 @@ class GoogleDriveAccount implements DriveCredentials {
   Future<void> restore() => _restored ??= _restore();
 
   Future<void> _restore() async {
-    await _ready();
-    final account = await _signIn.attemptLightweightAuthentication();
-    if (account != null) await _adopt(account);
+    try {
+      await _ready();
+      final account = await _signIn.attemptLightweightAuthentication();
+      if (account != null && await _adopt(account)) return;
+    } on GoogleSignInException {
+      // Signed out is the honest answer. A misconfigured client resurfaces
+      // with its real message the moment the operator taps Sign in.
+    }
+    if (_status.value.state == DriveAccountState.checking) {
+      _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
+    }
   }
 
   /// Interactive sign-in, then the Drive grant. Operator-triggered only.
@@ -67,6 +82,9 @@ class GoogleDriveAccount implements DriveCredentials {
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled ||
           e.code == GoogleSignInExceptionCode.interrupted) {
+        if (_status.value.state == DriveAccountState.checking) {
+          _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
+        }
         return;
       }
       rethrow;

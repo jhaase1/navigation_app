@@ -4,10 +4,32 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../../services/backup/backup_controller.dart';
 import '../../services/backup/drive/google_drive_account.dart';
 
-/// Settings → Data: who backups go to, and the one place sign-in happens.
+/// Shows Google's sign-in sheet, then — once the right account is in —
+/// backs up straight away rather than waiting out the 10-minute sweep.
 ///
-/// The backup engine never prompts. When the pill says Drive needs a
-/// sign-in, this tile is where the operator goes to give it one.
+/// Every sign-in entry point (this tile, the pill's popover, the launch
+/// banner) goes through here. None of them opens on its own: the backup
+/// engine never prompts, so a sheet never lands on the operator mid-cue.
+Future<void> signInToGoogleDrive(
+  BuildContext context,
+  BackupController controller,
+  GoogleDriveAccount account,
+) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  try {
+    await account.signIn();
+  } on GoogleSignInException catch (e) {
+    messenger?.showSnackBar(SnackBar(
+        content:
+            Text('Google sign-in failed: ${e.description ?? e.code.name}')));
+    return;
+  }
+  if (account.status.value.state == DriveAccountState.signedIn) {
+    await controller.retryNow();
+  }
+}
+
+/// Settings → Data: who backups go to, and where to sign in or out.
 class GoogleDriveTile extends StatelessWidget {
   final BackupController controller;
   final GoogleDriveAccount account;
@@ -21,6 +43,7 @@ class GoogleDriveTile extends StatelessWidget {
       valueListenable: account.status,
       builder: (context, status, _) {
         final subtitle = switch (status.state) {
+          DriveAccountState.checking => 'Checking Google sign-in…',
           DriveAccountState.signedIn =>
             'Backing up to ${status.email}. Tap to sign out.',
           DriveAccountState.signedOut =>
@@ -41,25 +64,10 @@ class GoogleDriveTile extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           onTap: () => status.state == DriveAccountState.signedIn
               ? _confirmSignOut(context)
-              : _signIn(context),
+              : signInToGoogleDrive(context, controller, account),
         );
       },
     );
-  }
-
-  Future<void> _signIn(BuildContext context) async {
-    try {
-      await account.signIn();
-    } on GoogleSignInException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Google sign-in failed: ${e.description ?? e.code.name}')));
-      return;
-    }
-    if (account.status.value.state == DriveAccountState.signedIn) {
-      // Don't make the operator wait out the 10-minute sweep to see green.
-      await controller.retryNow();
-    }
   }
 
   Future<void> _confirmSignOut(BuildContext context) async {

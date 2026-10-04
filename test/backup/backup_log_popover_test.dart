@@ -4,7 +4,11 @@ import 'package:navigation_app/services/backup/app_fault.dart';
 import 'package:navigation_app/services/backup/backup_controller.dart';
 import 'package:navigation_app/services/backup/backup_status.dart';
 import 'package:navigation_app/widgets/backup/backup_log_popover.dart';
+import 'package:navigation_app/services/backup/drive/google_drive_account.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/drive_controller.dart';
+import 'support/fake_sign_in_platform.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -146,6 +150,41 @@ void main() {
     expect(find.text('Sign in again.'), findsOneWidget);
     expect(find.byTooltip('Mark as read'), findsNothing);
 
+    await controller.dispose();
+  });
+
+  testWidgets('a sign-in failure offers to sign in right there', (tester) async {
+    final platform = FakeSignInPlatform()..pickedEmail = driveTestAccount;
+    final controller = driveController(platform);
+    final fault = AppFault.backup(BackupFailureKind.authExpired,
+        'Sign in to Google Drive in Settings to resume backups.',
+        operation: 'pull', targetIdentity: 'drive:$driveTestAccount');
+    controller.status.value =
+        BackupStatus(configured: true, activeCondition: fault);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showBackupLogPopover(context, controller),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry now'), findsNothing,
+        reason: 'retrying cannot fix a missing sign-in');
+
+    await tester.tap(find.text('Sign in to Google'));
+    await tester.pumpAndSettle();
+
+    expect(controller.driveAccount!.status.value.state,
+        DriveAccountState.signedIn);
     await controller.dispose();
   });
 }

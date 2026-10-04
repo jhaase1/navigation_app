@@ -5,6 +5,9 @@ import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
+import 'backup/support/drive_controller.dart';
+import 'backup/support/fake_sign_in_platform.dart';
+
 // Connects using Demo Mode so tests never attempt a real network connection.
 // The app now defaults to production (live) mode, so tests must switch it
 // on explicitly before hitting "Connect All".
@@ -170,5 +173,18 @@ void main() {
       expect(find.textContaining('Active:'), findsNothing);
       expect(find.text('Tap to switch operator'), findsNothing);
     });
+  });
+
+  testWidgets('a Drive build that launches signed out asks for a sign-in',
+      (tester) async {
+    final controller = driveController(FakeSignInPlatform());
+
+    await tester.pumpWidget(
+        MaterialApp(home: MultiDeviceControlPage(backupController: controller)));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Backups are off'), findsOneWidget);
+    // Disposing the page stops the scheduler's timers.
+    await tester.pumpWidget(const SizedBox());
   });
 }

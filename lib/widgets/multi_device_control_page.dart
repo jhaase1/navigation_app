@@ -20,6 +20,7 @@ import '../services/people_store.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
 import 'backup/backup_status_pill.dart';
+import 'backup/google_sign_in_banner.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
 import 'service_tab.dart';
@@ -63,6 +64,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Service> _services = [];
   List<HeightRange> _heightRanges = [];
   late final BackupController _backup;
+
+  // One key for both layouts, so "Not now" survives connecting a device.
+  final _signInBannerKey = GlobalKey();
 
   @override
   void initState() {
@@ -424,58 +428,65 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             ),
           ],
         ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.devices, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
-              const Text(
-                'No devices connected',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color:
-                      _mockMode ? Colors.orange.shade100 : Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _mockMode ? 'Demo Mode' : 'Live Mode',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: _mockMode
-                        ? Colors.orange.shade800
-                        : Colors.blue.shade800,
+        body: Column(
+          children: [
+            GoogleSignInBanner(key: _signInBannerKey, controller: _backup),
+            Expanded(
+                child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.devices, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No devices connected',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _mockMode
+                          ? Colors.orange.shade100
+                          : Colors.blue.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _mockMode ? 'Demo Mode' : 'Live Mode',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: _mockMode
+                            ? Colors.orange.shade800
+                            : Colors.blue.shade800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildOperatorSelector(),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: _connectingAll ? null : _connectAll,
+                    icon: _connectingAll
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.power_settings_new),
+                    label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => _showSettingsDialog(context),
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Settings'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
-              _buildOperatorSelector(),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _connectingAll ? null : _connectAll,
-                icon: _connectingAll
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.power_settings_new),
-                label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () => _showSettingsDialog(context),
-                icon: const Icon(Icons.settings),
-                label: const Text('Settings'),
-              ),
-            ],
-          ),
+            )),
+          ],
         ),
       );
     }
@@ -536,52 +547,58 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           ),
         ],
       ),
-      body: DefaultTabController(
-        length: 3,
-        child: Column(
-          children: [
-            const TabBar(
-              tabs: [
-                Tab(text: 'Service'),
-                Tab(text: 'Panel'),
-                Tab(text: 'Positions'),
+      body: Column(
+        children: [
+          GoogleSignInBanner(key: _signInBannerKey, controller: _backup),
+          Expanded(
+              child: DefaultTabController(
+            length: 3,
+            child: Column(
+              children: [
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Service'),
+                    Tab(text: 'Panel'),
+                    Tab(text: 'Positions'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      ServiceTab(
+                        cameras: _panasonicCameras,
+                        people: _people,
+                        positions: _positions,
+                        services: _services,
+                        heightRanges: _heightRanges,
+                        rolandService: _rolandService,
+                        rolandConnected: _rolandConnected,
+                        rolandIpController: _rolandIpController,
+                        onResponse: (_) {},
+                      ),
+                      OperatorPanel(
+                        operator: _activeOperator,
+                        rolandService: _rolandService,
+                        rolandConnected: _rolandConnected,
+                        rolandIpController: _rolandIpController,
+                        cameras: _panasonicCameras,
+                        onResponse: (_) {},
+                        onServicesChanged: _loadServices,
+                      ),
+                      PositionsTab(
+                        cameras: _panasonicCameras,
+                        positions: _positions,
+                        people: _people,
+                        heightRanges: _heightRanges,
+                        onResponse: (_) {},
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  ServiceTab(
-                    cameras: _panasonicCameras,
-                    people: _people,
-                    positions: _positions,
-                    services: _services,
-                    heightRanges: _heightRanges,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    onResponse: (_) {},
-                  ),
-                  OperatorPanel(
-                    operator: _activeOperator,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    cameras: _panasonicCameras,
-                    onResponse: (_) {},
-                    onServicesChanged: _loadServices,
-                  ),
-                  PositionsTab(
-                    cameras: _panasonicCameras,
-                    positions: _positions,
-                    people: _people,
-                    heightRanges: _heightRanges,
-                    onResponse: (_) {},
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          )),
+        ],
       ),
     );
   }

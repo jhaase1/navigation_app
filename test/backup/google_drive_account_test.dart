@@ -19,6 +19,22 @@ void main() {
       GoogleDriveAccount(expectedAccount: _expected, signIn: GoogleSignIn.instance);
 
   group('restoring a previous session', () {
+    test('until the saved session is checked, it says so', () {
+      expect(account().status.value.state, DriveAccountState.checking);
+    });
+
+    test('a restore the SDK refuses leaves it signed out, not checking',
+        () async {
+      platform.lightweightError = const GoogleSignInException(
+          code: GoogleSignInExceptionCode.clientConfigurationError);
+      final a = account();
+
+      await a.restore();
+
+      expect(a.status.value.state, DriveAccountState.signedOut);
+      expect(await a.headers(), isNull);
+    });
+
     test('the expected account comes back signed in with a token', () async {
       platform
         ..rememberedEmail = _expected

@@ -207,6 +207,7 @@ void main() {
       ),
       driveAccount: account,
     );
+    await account.restore();
 
     await tester.pumpWidget(_settingsDialog(backupController: controller));
     await tester.tap(find.text('Open'));

@@ -11,6 +11,9 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   /// The account the operator picks in the interactive sheet.
   String? pickedEmail;
 
+  /// Thrown by a silent restore, the way a misconfigured client fails.
+  Object? lightweightError;
+
   /// Whether the operator cancels the interactive sheet.
   bool cancels = false;
 
@@ -33,6 +36,7 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   @override
   Future<AuthenticationResults?> attemptLightweightAuthentication(
       AttemptLightweightAuthenticationParameters params) async {
+    if (lightweightError != null) throw lightweightError!;
     final email = rememberedEmail;
     return email == null ? null : _results(email);
   }

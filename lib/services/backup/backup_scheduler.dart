@@ -110,12 +110,14 @@ class BackupScheduler {
     for (final op in _Op.values) {
       _retryTokens[op] = _retryTokens[op]! + 1;
     }
-    await _mutations?.cancel();
-    _mutations = null;
+    // Timers first, synchronously: a caller that does not await stop() —
+    // a widget's dispose() cannot — must not leave a sweep scheduled.
     _debounceTimer?.cancel();
     _debounceTimer = null;
     _sweepTimer?.cancel();
     _sweepTimer = null;
+    await _mutations?.cancel();
+    _mutations = null;
   }
 
   /// Pull on launch, then resume anything the last run left pending.

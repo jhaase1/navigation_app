@@ -237,6 +237,9 @@ class BackupController with WidgetsBindingObserver {
 
   Future<void> _start() async {
     if (_disposed) return;
+    // Settle "checking" promptly, so the sign-in banner and the Settings
+    // tile say something true even before the first pull gets that far.
+    unawaited(driveAccount?.restore());
     WidgetsBinding.instance.addObserver(this);
     await log.load();
     deferredRevisionId =

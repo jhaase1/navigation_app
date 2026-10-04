@@ -18,6 +18,22 @@ Plan: `plan.md` in this folder.
 | 8 Retention + fault context | `3acc1b0` | `backup_retention_test.dart` 9/9; the three context-stamping tests confirmed failing with the fix reverted |
 | 9 Target selection + wiring | `1e8caa8` | 4/4 |
 | 10 Google Drive settings tile | `1e8caa8` | one Class 2 test, signed out → tap → "Backing up to …" |
+| — Sign-in prompts (requested 2026-10-04) | see git log | `google_sign_in_banner_test.dart` 5/5, popover +1, account +2, page +1 |
+
+**Sign-in prompts.** On request, sign-in is offered where the operator
+already looks, not only in Settings. There's a "Sign in to Google" button in
+the pill's popover whenever the active condition is `authExpired` (replacing
+Retry, which cannot fix it), and a dismissible `MaterialBanner` above the
+page when a Drive build is signed out or on the wrong account. Both are
+non-modal. A modal at launch was offered and declined, because it would
+cover the controls after a mid-service restart. The account now starts in a
+`checking` state, so the banner never flashes on a machine whose saved
+session is about to come back. The controller starts that check at launch.
+
+Also fixed: `BackupScheduler.stop()` cancelled its timers only after an
+`await`, so a caller that couldn't await it (a widget's `dispose`) left the
+10-minute sweep timer alive. Found by the page test; timers now cancel
+synchronously.
 
 Every new test file was written before its implementation and run red first.
 The failures were the expected missing-symbol compile errors, not
@@ -65,6 +81,7 @@ another process…", which fails identically on `main` on this machine.
 - **Retention values (50 revisions, 90 days) are a proposal** awaiting
   Daniel's/John's OK. They are in `BackupService.retentionKeepCount` /
   `retentionKeepFor`.
+- **No screenshots of the banner or the popover button either.** Same reason.
 - **No screenshots.** The Settings tile is new UI. The lane process requires
   a looked-at screenshot from the macOS app, and that needs the Mac.
 - **No cross-family review** of the outline or the code yet.
