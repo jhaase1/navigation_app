@@ -143,6 +143,31 @@ void main() {
     await Future.wait(pending);
     expect(done, 3);
   });
+
+  test('a refused command fails alone; the next lines up with its own reply',
+      () async {
+    // A NACKed macro reported as done is a cue that silently did nothing;
+    // a NACK that shifted later replies would credit each to the wrong
+    // command.
+    final links = <bool>[];
+    service.connectionChanges.listen(links.add);
+    switcher.holdAcks = true;
+    final macro = service.executeMacro(3);
+    await _until(() => switcher.commands.length == 1);
+
+    switcher.send('NACK;');
+    await expectLater(macro, throwsA(isA<CommandException>()));
+
+    var cutDone = false;
+    final cut = service.cut().then((_) => cutDone = true);
+    await _until(() => switcher.commands.length == 2);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(cutDone, isFalse, reason: 'no reply for CUT has arrived yet');
+    switcher.ack();
+    await cut;
+
+    expect(links, isEmpty, reason: 'a refusal is not a dead link');
+  });
 }
 
 Future<void> _until(bool Function() condition) async {
