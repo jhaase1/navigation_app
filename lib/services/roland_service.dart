@@ -1910,6 +1910,7 @@ class RolandService extends RolandServiceAbstract
     if (!_isConnected) throw ConnectionException('Not connected');
 
     _pendingCount++;
+    final link = _socket;
     final completer = Completer<void>();
     _ackCompleters.add(completer);
     _commandQueue.add(command);
@@ -1919,9 +1920,14 @@ class RolandService extends RolandServiceAbstract
       await completer.future.timeout(ackTimeout);
       dev.log('Command completed: $command');
     } on TimeoutException {
-      // The expired completer stays queued on purpose. Acknowledgements
-      // arrive in order with no id; if this one is merely late, it must
-      // land on its own slot rather than be credited to the next command.
+      // Replies arrive in order and carry no id, so once one goes missing
+      // nothing after it can be matched to its command: drop the expired
+      // slot and every later ACK completes the command before its own,
+      // keep it and a reply that never comes shifts them all the same way.
+      // Start a clean link instead; auto-reconnect brings it back.
+      if (link != null && identical(_socket, link)) {
+        _linkLost('No reply from the switcher to $command');
+      }
       throw CommandException('No reply from the switcher to $command');
     } finally {
       _pendingCount--;
@@ -1968,24 +1974,13 @@ class RolandService extends RolandServiceAbstract
     while ((endIndex = buffer.indexOf('\n')) != -1) {
       String response = buffer.substring(0, endIndex).trim();
       buffer = buffer.substring(endIndex + 1);
-      int retryCount = 0;
-      const int maxRetries = 3;
-      bool parsed = false;
-      while (retryCount < maxRetries && !parsed) {
-        try {
-          _processCompleteResponse(response);
-          parsed = true;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= maxRetries) {
-            dev.log(
-                'Failed to parse response after $maxRetries attempts: $response. Error: $e');
-            _responseController.addError(e);
-          } else {
-            dev.log(
-                'Parsing failed with error: $e for response: $response, attempt $retryCount');
-          }
-        }
+      // Once only. Parsing the same text again cannot succeed, and every
+      // attempt used to complete another waiting command first.
+      try {
+        _processCompleteResponse(response);
+      } catch (e) {
+        dev.log('Failed to parse response: $response. Error: $e');
+        _responseController.addError(e);
       }
     }
     _responseBuffer.clear();

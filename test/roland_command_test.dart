@@ -44,7 +44,10 @@ class _ScriptedSwitcher {
   }
 
   /// Sends one acknowledgement now.
-  void ack() => _client!.write('ACK;\r\n');
+  void ack() => send('ACK;');
+
+  /// Sends one raw reply line now.
+  void send(String line) => _client!.write('$line\r\n');
 
   Future<void> stop() async {
     _client?.destroy();
@@ -88,27 +91,6 @@ void main() {
         reason: 'one timeout, not one per retry');
   });
 
-  test('a late acknowledgement is not credited to the next command',
-      () async {
-    switcher.holdAcks = true;
-    await expectLater(service.cut(), throwsA(anything));
-
-    var secondDone = false;
-    final second = service.setProgram('HDMI1')
-        .then((_) => secondDone = true);
-    await _until(() => switcher.commands.length == 2);
-    // CUT's acknowledgement finally turns up.
-    switcher.ack();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-
-    expect(secondDone, isFalse,
-        reason: "CUT's late ACK must not complete PGM:HDMI1");
-
-    switcher.ack();
-    await second;
-    expect(secondDone, isTrue);
-  });
-
   test('a command in flight when the link drops fails at once', () async {
     switcher.dropOnCommand = true;
     final started = DateTime.now();
@@ -119,15 +101,47 @@ void main() {
         reason: 'the socket is gone; waiting out timeouts tells nobody anything');
   });
 
-  test('commands still flow after a failed one', () async {
+  test('a lost acknowledgement does not fail every command after it',
+      () async {
+    // Replies carry no id. Had the lost one's slot stayed queued, each later
+    // ACK would complete the slot before it, so every later command would
+    // run on the switcher yet report "no reply" — and a second tap on a
+    // "failed" CUT puts the wrong shot on air.
+    final links = <bool>[];
+    service.connectionChanges.listen(links.add);
+    service.setAutoReconnect(true,
+        delay: const Duration(milliseconds: 20),
+        maxDelay: const Duration(milliseconds: 20));
     switcher.holdAcks = true;
     await expectLater(service.cut(), throwsA(anything));
-    switcher.ack(); // the late one, absorbed by its own expired slot
     switcher.holdAcks = false;
 
+    await _until(() => links.isNotEmpty && links.last);
     await service.setProgram('HDMI1');
+    await service.setProgram('HDMI2');
 
-    expect(switcher.commands.last, 'PGM:HDMI1;');
+    expect(switcher.commands, ['CUT;', 'PGM:HDMI1;', 'PGM:HDMI2;']);
+  });
+
+  test('one reply that fails to parse completes one command, not three',
+      () async {
+    switcher.holdAcks = true;
+    var done = 0;
+    final pending = [
+      service.getFaderLevel().then((_) => done++),
+      service.setProgram('HDMI1').then((_) => done++),
+      service.setProgram('HDMI2').then((_) => done++),
+    ];
+    await _until(() => switcher.commands.length == 3);
+
+    switcher.send('VFL:garbled;');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(done, 1, reason: 'the two unanswered commands are still waiting');
+
+    switcher.ack();
+    switcher.ack();
+    await Future.wait(pending);
+    expect(done, 3);
   });
 }
 
