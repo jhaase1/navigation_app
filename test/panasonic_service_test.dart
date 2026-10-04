@@ -273,6 +273,21 @@ void main() {
       await expectLater(service.probe(), throwsA(isA<TimeoutException>()));
     });
 
+    test('a probe that times out cancels its request', () async {
+      // A wedged camera takes the connection and never answers. A timeout
+      // that only stops waiting left that socket hanging — one more every
+      // 5 seconds, all service. Cancelling closes it.
+      final client = _AbortRecordingClient();
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: client,
+          probeTimeout: const Duration(milliseconds: 50));
+
+      await expectLater(service.probe(), throwsA(anything));
+
+      expect(client.aborted, 1);
+    });
+
     test('a busy camera has still answered', () async {
       final service = PanasonicService(
           ipAddress: '10.0.1.10',
@@ -281,4 +296,16 @@ void main() {
       await service.probe();
     });
   });
+}
+
+/// Never answers, and records requests the caller cancels.
+class _AbortRecordingClient extends http.BaseClient {
+  int aborted = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    final trigger = request is http.Abortable ? request.abortTrigger : null;
+    trigger?.then((_) => aborted++);
+    return Completer<http.StreamedResponse>().future;
+  }
 }
