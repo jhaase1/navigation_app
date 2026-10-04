@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -242,6 +244,41 @@ void main() {
       expect(result[80], true);
       expect(result[99], true);
       expect(result[79], false); // Before range 2
+    });
+  });
+
+  group('PanasonicService.probe', () {
+    // The liveness check runs every few seconds. With the command path's
+    // three retries and five-second timeouts, a dead camera took about 35s
+    // to be noticed.
+    test('asks once, without retrying', () async {
+      var requests = 0;
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: MockClient((r) async {
+            requests++;
+            throw http.ClientException('Connection refused', r.url);
+          }));
+
+      await expectLater(service.probe(), throwsA(anything));
+      expect(requests, 1);
+    });
+
+    test('gives up after its own short timeout', () async {
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          probeTimeout: const Duration(milliseconds: 50),
+          client: MockClient((_) => Completer<http.Response>().future));
+
+      await expectLater(service.probe(), throwsA(isA<TimeoutException>()));
+    });
+
+    test('a busy camera has still answered', () async {
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: MockClient((_) async => http.Response('ER2:QID', 200)));
+
+      await service.probe();
     });
   });
 }
