@@ -17,6 +17,9 @@ class OperatorPanel extends StatefulWidget {
   final TextEditingController? rolandIpController;
   final List<PanasonicCameraConfig> cameras;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
   final VoidCallback? onServicesChanged;
 
   const OperatorPanel({
@@ -26,6 +29,7 @@ class OperatorPanel extends StatefulWidget {
     required this.rolandConnected,
     required this.cameras,
     required this.onResponse,
+    this.onFailure,
     this.rolandIpController,
     this.onServicesChanged,
   });
@@ -35,6 +39,9 @@ class OperatorPanel extends StatefulWidget {
 }
 
 class _OperatorPanelState extends State<OperatorPanel> {
+
+  void _fail(String message) =>
+      (widget.onFailure ?? widget.onResponse)(message);
   late List<ControllableDevice> _devices;
   int _selectedDeviceIndex = 0;
   final Map<int, Map<int, String>> _namesByDevice = {};
@@ -147,7 +154,7 @@ class _OperatorPanelState extends State<OperatorPanel> {
     try {
       await _devices[idx].refreshItems();
     } catch (e) {
-      if (mounted) widget.onResponse('Error fetching data: $e');
+      if (mounted) _fail('Error fetching data: $e');
     }
     if (mounted) setState(() {});
   }
@@ -167,7 +174,7 @@ class _OperatorPanelState extends State<OperatorPanel> {
         setState(() => _recordedSteps.add(device.toServiceStep(index)));
       }
     } catch (e) {
-      widget.onResponse('$e');
+      _fail('$e');
     }
   }
 
@@ -223,7 +230,7 @@ class _OperatorPanelState extends State<OperatorPanel> {
       ));
       await ServiceStore.saveAll(services);
     } catch (e) {
-      if (mounted) widget.onResponse('Error saving service: $e');
+      if (mounted) _fail('Error saving service: $e');
       return;
     }
 

@@ -6,12 +6,16 @@ import '../services/roland_service.dart';
 class PinPTab extends StatefulWidget {
   final ValueNotifier<bool> rolandConnected;
   final ValueChanged<String> onRolandResponse;
+  /// Where failures go. Falls back to [onRolandResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
   final RolandServiceAbstract? rolandService;
 
   const PinPTab({
     super.key,
     required this.rolandConnected,
     required this.onRolandResponse,
+    this.onFailure,
     required this.rolandService,
   });
 
@@ -20,6 +24,9 @@ class PinPTab extends StatefulWidget {
 }
 
 class _PinPTabState extends State<PinPTab> {
+
+  void _fail(String message) =>
+      (widget.onFailure ?? widget.onRolandResponse)(message);
   int _selectedPinP = 1;
   String _pinpSource = 'HDMI1';
   double _pinpH = 0.0;
@@ -82,7 +89,7 @@ class _PinPTabState extends State<PinPTab> {
         widget
             .onRolandResponse('Set PinP$_selectedPinP source to $_pinpSource');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -93,7 +100,7 @@ class _PinPTabState extends State<PinPTab> {
         await widget.rolandService!.getPinPSource('PinP$_selectedPinP');
         widget.onRolandResponse('Requested PinP$_selectedPinP source');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -106,7 +113,7 @@ class _PinPTabState extends State<PinPTab> {
         widget.onRolandResponse(
             'Set PinP$_selectedPinP position H=${_pinpH.toInt()} V=${_pinpV.toInt()}');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -117,7 +124,7 @@ class _PinPTabState extends State<PinPTab> {
         await widget.rolandService!.getPinPPosition('PinP$_selectedPinP');
         widget.onRolandResponse('Requested PinP$_selectedPinP position');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -128,7 +135,7 @@ class _PinPTabState extends State<PinPTab> {
         await widget.rolandService!.setPinPPgm('PinP$_selectedPinP', _pinpPgm);
         widget.onRolandResponse('Set PinP$_selectedPinP PGM = $_pinpPgm');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -139,7 +146,7 @@ class _PinPTabState extends State<PinPTab> {
         await widget.rolandService!.getPinPPgm('PinP$_selectedPinP');
         widget.onRolandResponse('Requested PinP$_selectedPinP PGM');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -150,7 +157,7 @@ class _PinPTabState extends State<PinPTab> {
         await widget.rolandService!.setPinPPvw('PinP$_selectedPinP', _pinpPvw);
         widget.onRolandResponse('Set PinP$_selectedPinP PVW = $_pinpPvw');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }
@@ -161,7 +168,7 @@ class _PinPTabState extends State<PinPTab> {
         await widget.rolandService!.getPinPPvw('PinP$_selectedPinP');
         widget.onRolandResponse('Requested PinP$_selectedPinP PVW');
       } catch (e) {
-        widget.onRolandResponse('Error: ${e.toString()}');
+        _fail('Error: ${e.toString()}');
       }
     }
   }

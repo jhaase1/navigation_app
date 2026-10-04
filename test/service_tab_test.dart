@@ -20,6 +20,7 @@ ServiceTab _tab({
   List<Service> services = const [],
   List<HeightRange> heightRanges = const [],
   ValueChanged<String>? onResponse,
+  ValueChanged<String>? onFailure,
   RolandServiceAbstract? rolandService,
   ValueNotifier<bool>? rolandConnected,
   TextEditingController? rolandIpController,
@@ -34,6 +35,7 @@ ServiceTab _tab({
       rolandConnected: rolandConnected,
       rolandIpController: rolandIpController,
       onResponse: onResponse ?? (_) {},
+      onFailure: onFailure,
     );
 
 void main() {
@@ -675,6 +677,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Cantor (4)'), findsOneWidget);
+    });
+  });
+
+  group('ServiceTab — success and failure are told apart', () {
+    final service = Service(
+      id: 's1',
+      name: 'Mass',
+      steps: [
+        const ServiceStep(id: 'st1', type: StepType.macro, macroNumber: 3),
+      ],
+    );
+
+    Future<(List<String>, List<String>)> fire(
+        WidgetTester tester, bool rolandUp) async {
+      final ok = <String>[];
+      final failed = <String>[];
+      await tester.pumpWidget(_wrap(_tab(
+        services: [service],
+        rolandService: MockRolandService(),
+        rolandConnected: ValueNotifier(rolandUp),
+        onResponse: ok.add,
+        onFailure: failed.add,
+      )));
+      await tester.tap(find.byType(DropdownButton<String?>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mass').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Macro 3'));
+      await tester.pumpAndSettle();
+      return (ok, failed);
+    }
+
+    testWidgets('a cue that fires is a success', (tester) async {
+      final (ok, failed) = await fire(tester, true);
+
+      expect(ok, ['Macro 3 executed']);
+      expect(failed, isEmpty);
+    });
+
+    testWidgets('a cue that cannot fire is a failure', (tester) async {
+      final (ok, failed) = await fire(tester, false);
+
+      expect(failed, ['Roland not connected']);
+      expect(ok, isEmpty);
     });
   });
 }

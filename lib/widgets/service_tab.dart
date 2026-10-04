@@ -40,6 +40,9 @@ class ServiceTab extends StatefulWidget {
   final ValueNotifier<bool>? rolandConnected;
   final TextEditingController? rolandIpController;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
 
   const ServiceTab({
     super.key,
@@ -51,6 +54,7 @@ class ServiceTab extends StatefulWidget {
     required this.rolandService,
     required this.rolandConnected,
     required this.onResponse,
+    this.onFailure,
     this.rolandIpController,
   });
 
@@ -59,6 +63,9 @@ class ServiceTab extends StatefulWidget {
 }
 
 class _ServiceTabState extends State<ServiceTab> {
+
+  void _fail(String message) =>
+      (widget.onFailure ?? widget.onResponse)(message);
   String? _selectedServiceId;
   int? _currentStepIndex;
 
@@ -207,12 +214,12 @@ class _ServiceTabState extends State<ServiceTab> {
             .where((p) => p.id == s.participantId)
             .firstOrNull;
     if (participant == null) {
-      widget.onResponse('Missing participant data');
+      _fail('Missing participant data');
       return;
     }
     final personId = _participantAssignments[participant.id];
     if (personId == null) {
-      widget.onResponse(
+      _fail(
           'No one assigned to "${participant.name}" for this service');
       return;
     }
@@ -221,11 +228,11 @@ class _ServiceTabState extends State<ServiceTab> {
         ? null
         : widget.positions.where((p) => p.id == s.positionId).firstOrNull;
     if (person == null || position == null) {
-      widget.onResponse('Missing person or position data');
+      _fail('Missing person or position data');
       return;
     }
     if (s.cameraIp == null) {
-      widget.onResponse(
+      _fail(
           '${participant.name} · ${position.name} has no camera set');
       return;
     }
@@ -233,7 +240,7 @@ class _ServiceTabState extends State<ServiceTab> {
         .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
-      widget.onResponse('Camera not found (${s.cameraIp})');
+      _fail('Camera not found (${s.cameraIp})');
       return;
     }
     final presetIndex = resolvePreset(
@@ -243,12 +250,12 @@ class _ServiceTabState extends State<ServiceTab> {
       heightRanges: widget.heightRanges,
     );
     if (presetIndex == null) {
-      widget.onResponse(
+      _fail(
           '${person.name} has no preset for ${camera.name} at "${position.name}"');
       return;
     }
     if (!camera.isConnected.value || camera.service == null) {
-      widget.onResponse('${camera.name} not connected');
+      _fail('${camera.name} not connected');
       return;
     }
     try {
@@ -256,42 +263,42 @@ class _ServiceTabState extends State<ServiceTab> {
       widget.onResponse(
           '${participant.name} (${person.name}) · ${position.name} → ${camera.name}: $response');
     } catch (e) {
-      widget.onResponse('Error: $e');
+      _fail('Error: $e');
     }
   }
 
   Future<void> _fireMacroStep(_FlatStep s) async {
     if (s.macroNumber == null) {
-      widget.onResponse('Macro number not set');
+      _fail('Macro number not set');
       return;
     }
     final connected = widget.rolandConnected?.value ?? false;
     if (!connected || widget.rolandService == null) {
-      widget.onResponse('Roland not connected');
+      _fail('Roland not connected');
       return;
     }
     try {
       await widget.rolandService!.executeMacro(s.macroNumber!);
       widget.onResponse('${_macroLabel(s.macroNumber!)} executed');
     } catch (e) {
-      widget.onResponse('Macro error: $e');
+      _fail('Macro error: $e');
     }
   }
 
   Future<void> _fireShotStep(_FlatStep s) async {
     if (s.cameraIp == null || s.cameraPresetIndex == null) {
-      widget.onResponse('Camera or preset not set');
+      _fail('Camera or preset not set');
       return;
     }
     final camera = widget.cameras
         .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
-      widget.onResponse('Camera not found (${s.cameraIp})');
+      _fail('Camera not found (${s.cameraIp})');
       return;
     }
     if (!camera.isConnected.value || camera.service == null) {
-      widget.onResponse('${camera.name} not connected');
+      _fail('${camera.name} not connected');
       return;
     }
     try {
@@ -299,7 +306,7 @@ class _ServiceTabState extends State<ServiceTab> {
       widget.onResponse(
           '${camera.name} → ${_presetLabel(s.cameraIp!, s.cameraPresetIndex!)}: $response');
     } catch (e) {
-      widget.onResponse('Error: $e');
+      _fail('Error: $e');
     }
   }
 

@@ -15,6 +15,9 @@ class MasterControlWidget extends StatefulWidget {
   final TextEditingController? rolandIpController;
   final List<PanasonicCameraConfig> cameras;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
 
   /// Replaces the Roland/Panasonic devices normally built from the fields
   /// above. Lets tests substitute fakes with controllable async timing to
@@ -28,6 +31,7 @@ class MasterControlWidget extends StatefulWidget {
     required this.rolandConnected,
     required this.cameras,
     required this.onResponse,
+    this.onFailure,
     this.rolandIpController,
     this.devicesOverride,
   });
@@ -37,6 +41,9 @@ class MasterControlWidget extends StatefulWidget {
 }
 
 class _MasterControlWidgetState extends State<MasterControlWidget> {
+
+  void _fail(String message) =>
+      (widget.onFailure ?? widget.onResponse)(message);
   late final List<ControllableDevice> _devices;
   int _selectedDeviceIndex = 0;
   int? _selectedItemIndex;
@@ -156,7 +163,7 @@ class _MasterControlWidgetState extends State<MasterControlWidget> {
     try {
       await future;
     } catch (e) {
-      if (mounted) widget.onResponse('Error fetching preset data: $e');
+      if (mounted) _fail('Error fetching preset data: $e');
     }
     if (mounted) setState(() {});
   }
@@ -179,7 +186,7 @@ class _MasterControlWidgetState extends State<MasterControlWidget> {
       final msg = await _devices[_selectedDeviceIndex].execute(index);
       widget.onResponse(msg);
     } catch (e) {
-      widget.onResponse('$e');
+      _fail('$e');
     }
   }
 

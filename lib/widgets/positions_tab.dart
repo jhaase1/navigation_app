@@ -11,6 +11,9 @@ class PositionsTab extends StatefulWidget {
   final List<Person> people;
   final List<HeightRange> heightRanges;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
 
   const PositionsTab({
     super.key,
@@ -19,6 +22,7 @@ class PositionsTab extends StatefulWidget {
     required this.people,
     required this.heightRanges,
     required this.onResponse,
+    this.onFailure,
   });
 
   @override
@@ -26,6 +30,9 @@ class PositionsTab extends StatefulWidget {
 }
 
 class _PositionsTabState extends State<PositionsTab> {
+
+  void _fail(String message) =>
+      (widget.onFailure ?? widget.onResponse)(message);
   int _selectedCameraIndex = 0;
 
   Future<void> _executePerson(Position position, Person person) async {
@@ -40,12 +47,12 @@ class _PositionsTabState extends State<PositionsTab> {
     );
 
     if (presetIndex == null) {
-      widget.onResponse(
+      _fail(
           'No preset linked for ${camera.name} — ${person.name} at ${position.name}');
       return;
     }
     if (!camera.isConnected.value || camera.service == null) {
-      widget.onResponse('${camera.name} not connected');
+      _fail('${camera.name} not connected');
       return;
     }
     try {
@@ -53,7 +60,7 @@ class _PositionsTabState extends State<PositionsTab> {
       widget.onResponse(
           '${person.name} · ${position.name} → ${camera.name}: $response');
     } catch (e) {
-      widget.onResponse('Error: $e');
+      _fail('Error: $e');
     }
   }
 

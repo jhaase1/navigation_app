@@ -29,6 +29,9 @@ class SettingsDialog extends StatelessWidget {
   final List<PanasonicCameraConfig> panasonicCameras;
   final Function(int) onConnectPanasonic;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
   final List<Position> positions;
   final List<HeightRange> heightRanges;
   final VoidCallback onPositionsChanged;
@@ -58,6 +61,7 @@ class SettingsDialog extends StatelessWidget {
     required this.panasonicCameras,
     required this.onConnectPanasonic,
     required this.onResponse,
+    this.onFailure,
     required this.positions,
     required this.heightRanges,
     required this.onPositionsChanged,
@@ -116,6 +120,7 @@ class SettingsDialog extends StatelessWidget {
             rolandIpController: rolandIpController,
             cameras: panasonicCameras,
             onResponse: onResponse,
+            onFailure: onFailure,
           ),
         ),
         actions: [
@@ -138,6 +143,7 @@ class SettingsDialog extends StatelessWidget {
           child: PinPTab(
             rolandConnected: rolandConnected,
             onRolandResponse: onResponse,
+            onFailure: onFailure,
             rolandService: rolandService,
           ),
         ),
