@@ -47,13 +47,20 @@ Future<void> _pick(WidgetTester tester, String name) async {
 
 Future<void> _open(WidgetTester tester, _GatedRoland roland,
     {bool connected = true}) async {
+  await _show(tester, roland, [_service, _other], connected: connected);
+  await _pick(tester, 'Mass');
+}
+
+Future<void> _show(
+    WidgetTester tester, _GatedRoland roland, List<Service> services,
+    {bool connected = true}) async {
   await tester.pumpWidget(MaterialApp(
     home: Scaffold(
       body: ServiceTab(
         cameras: const [],
         people: const [],
         positions: const [],
-        services: [_service, _other],
+        services: services,
         heightRanges: const [],
         rolandService: roland,
         rolandConnected: ValueNotifier(connected),
@@ -61,7 +68,6 @@ Future<void> _open(WidgetTester tester, _GatedRoland roland,
       ),
     ),
   ));
-  await _pick(tester, 'Mass');
 }
 
 Finder _inStep(String label, Finder matching) => find.descendant(
@@ -174,5 +180,51 @@ void main() {
     expect(find.byIcon(Icons.check_circle), findsNothing);
     await _pick(tester, 'Mass');
     expect(find.byIcon(Icons.check_circle), findsNothing);
+  });
+
+  testWidgets('a badge stays on its cue when a step is added above it',
+      (tester) async {
+    final roland = _GatedRoland()..gate.complete();
+    await _open(tester, roland);
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pumpAndSettle();
+
+    // Someone records a new opening step into the running service.
+    await _show(tester, roland, [
+      Service(id: 's1', name: 'Mass', steps: [
+        const ServiceStep(id: 'st0', type: StepType.macro, macroNumber: 9),
+        ..._service.steps,
+      ]),
+      _other,
+    ]);
+    await tester.pumpAndSettle();
+
+    // A check on a cue that never ran tells the operator it is done.
+    expect(_inStep('1. Macro 9', find.byIcon(Icons.check_circle)),
+        findsNothing);
+    expect(_inStep('2. Macro 1', find.byIcon(Icons.check_circle)),
+        findsOneWidget);
+  });
+
+  testWidgets('a block used twice keeps a badge per occurrence',
+      (tester) async {
+    final roland = _GatedRoland()..gate.complete();
+    final block = Service(id: 'b', name: 'Psalm', steps: [
+      const ServiceStep(id: 'pb', type: StepType.macro, macroNumber: 5),
+    ]);
+    await _show(tester, roland, [
+      Service(id: 's1', name: 'Mass', steps: [
+        const ServiceStep(id: 'x1', type: StepType.block, subServiceId: 'b'),
+        const ServiceStep(id: 'x2', type: StepType.block, subServiceId: 'b'),
+      ]),
+      block,
+    ]);
+    await _pick(tester, 'Mass');
+
+    await tester.tap(find.text('1. Macro 5'));
+    await tester.pumpAndSettle();
+
+    expect(_inStep('2. Macro 5', find.byIcon(Icons.check_circle)),
+        findsNothing);
   });
 }

@@ -62,8 +62,10 @@ class _ServiceTabState extends State<ServiceTab> {
   String? _selectedServiceId;
   int? _currentStepIndex;
 
-  // flat step index → outcome of its most recent firing
-  final Map<int, _CueState> _cueStates = {};
+  // cue key (see [_cueKey]) → outcome of its most recent firing. Keyed by
+  // step, not list position: a step recorded above a fired cue would
+  // otherwise move its check onto a cue that never ran.
+  final Map<String, _CueState> _cueStates = {};
   // Bumped whenever the cue list is swapped out, so a command that finishes
   // afterwards cannot stamp its outcome onto a different service's cue.
   int _cueGeneration = 0;
@@ -157,6 +159,17 @@ class _ServiceTabState extends State<ServiceTab> {
     return result;
   }
 
+  /// Identifies the cue at [index]: its step id, plus which occurrence of
+  /// that step it is, since a block used twice repeats the same steps.
+  static String _cueKey(List<_FlatStep> flat, int index) {
+    final id = flat[index].id;
+    var occurrence = 0;
+    for (var i = 0; i < index; i++) {
+      if (flat[i].id == id) occurrence++;
+    }
+    return '$id#$occurrence';
+  }
+
   Set<String> get _referencedParticipantIds {
     return _flatSteps
         .where((s) => s.type == StepType.ministry && s.participantId != null)
@@ -193,14 +206,15 @@ class _ServiceTabState extends State<ServiceTab> {
     final flat = _flatSteps;
     if (index < 0 || index >= flat.length) return;
     // A second tap on a cue still in flight would send the command twice.
-    if (_cueStates[index] == _CueState.executing) {
+    final key = _cueKey(flat, index);
+    if (_cueStates[key] == _CueState.executing) {
       setState(() => _currentStepIndex = index);
       return;
     }
     final generation = _cueGeneration;
     setState(() {
       _currentStepIndex = index;
-      _cueStates[index] = _CueState.executing;
+      _cueStates[key] = _CueState.executing;
     });
     final s = flat[index];
 
@@ -212,7 +226,7 @@ class _ServiceTabState extends State<ServiceTab> {
     };
     if (!mounted || generation != _cueGeneration) return;
     setState(() =>
-        _cueStates[index] = ok ? _CueState.succeeded : _CueState.failed);
+        _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
   }
 
   Future<bool> _fireMinistryStep(_FlatStep s) async {
@@ -383,7 +397,8 @@ class _ServiceTabState extends State<ServiceTab> {
                   : ListView.builder(
                       padding: const EdgeInsets.all(8),
                       itemCount: flat.length,
-                      itemBuilder: (context, i) => _buildStepTile(flat[i], i),
+                      itemBuilder: (context, i) =>
+                          _buildStepTile(flat[i], i, _cueKey(flat, i)),
                     ),
         ),
 
@@ -533,7 +548,7 @@ class _ServiceTabState extends State<ServiceTab> {
     );
   }
 
-  Widget _buildStepTile(_FlatStep s, int index) {
+  Widget _buildStepTile(_FlatStep s, int index, String cueKey) {
     final isCurrent = _currentStepIndex == index;
     final service = _selectedService;
 
@@ -614,7 +629,7 @@ class _ServiceTabState extends State<ServiceTab> {
           ? Theme.of(context).colorScheme.primaryContainer
           : null,
       child: ListTile(
-        leading: switch (_cueStates[index]) {
+        leading: switch (_cueStates[cueKey]) {
           _CueState.executing => const SizedBox(
               width: 18,
               height: 18,
