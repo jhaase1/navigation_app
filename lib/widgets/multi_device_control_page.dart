@@ -126,7 +126,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
     setState(() {
       _rolandIpController.text = rolandIp;
-      if (_rolandConnected.value) _releaseRoland();
+      _releaseRoland();
       _panasonicCameras
         ..clear()
         ..addAll(entries
@@ -163,6 +163,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   /// Deliberately lets go of the switcher. The link watcher is cancelled
   /// first so our own disconnect is not reported as a lost connection.
+  ///
+  /// Called whether or not the link is up: a session whose link dropped is
+  /// still trying to reconnect, and only this stops it. Safe to repeat.
   void _releaseRoland() {
     _rolandLinkSub?.cancel();
     _rolandLinkSub = null;
@@ -222,6 +225,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
 
     setState(() {
+      // A session that dropped is still reconnecting on its own: end it
+      // before opening another, or two would fight over the switcher.
+      _releaseRoland();
       _rolandConnecting.value = true;
       _rolandConnectionError.value = '';
     });
@@ -360,7 +366,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onMockModeChanged: (value) {
               setDialogState(() {
                 _mockMode = value;
-                if (_rolandConnected.value) _releaseRoland();
+                _releaseRoland();
                 for (final camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
