@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
@@ -195,6 +197,42 @@ void main() {
       await a.signIn();
 
       expect(a.status.value.state, DriveAccountState.signedIn);
+    });
+  });
+
+  group('a silent restore that did not get an answer is tried again', () {
+    test('after the SDK refused it (offline at launch)', () async {
+      platform.lightweightError = const GoogleSignInException(
+          code: GoogleSignInExceptionCode.unknownError);
+      final a = account();
+      await a.restore();
+      expect(a.status.value.state, DriveAccountState.signedOut);
+
+      platform
+        ..lightweightError = null
+        ..rememberedEmail = _expected
+        ..granted = true;
+
+      expect(await a.headers(), isNotNull,
+          reason: 'one bad launch must not leave backups signed out');
+      expect(a.status.value.state, DriveAccountState.signedIn);
+    });
+
+    test('after it never answered', () async {
+      platform
+        ..rememberedEmail = _expected
+        ..granted = true
+        ..lightweightHang = Completer<void>();
+      final a = GoogleDriveAccount(
+          expectedAccount: _expected,
+          signIn: GoogleSignIn.instance,
+          restoreTimeout: const Duration(milliseconds: 50));
+
+      await a.restore().timeout(const Duration(seconds: 2));
+      expect(a.status.value.state, DriveAccountState.signedOut);
+
+      platform.lightweightHang = null;
+      expect(await a.headers().timeout(const Duration(seconds: 2)), isNotNull);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -46,8 +48,14 @@ class GoogleDriveAccount implements DriveCredentials {
   Future<void>? _initialized;
   Future<void>? _restored;
 
-  GoogleDriveAccount({required this.expectedAccount, GoogleSignIn? signIn})
-      : _signIn = signIn ?? GoogleSignIn.instance;
+  /// How long a silent restore may take before it counts as not signed in.
+  final Duration restoreTimeout;
+
+  GoogleDriveAccount({
+    required this.expectedAccount,
+    GoogleSignIn? signIn,
+    this.restoreTimeout = const Duration(seconds: 15),
+  }) : _signIn = signIn ?? GoogleSignIn.instance;
 
   ValueListenable<DriveAccountStatus> get status => _status;
 
@@ -74,17 +82,29 @@ class GoogleDriveAccount implements DriveCredentials {
       _restored ??= _forgetOnError(_restore(), () => _restored = null);
 
   Future<void> _restore() async {
+    var answered = true;
     try {
-      await _ready();
-      final account = await _signIn.attemptLightweightAuthentication();
-      if (account != null && await _adopt(account)) return;
+      final adopted = await () async {
+        await _ready();
+        final account = await _signIn.attemptLightweightAuthentication();
+        return account != null && await _adopt(account);
+      }()
+          .timeout(restoreTimeout);
+      if (adopted) return;
     } on GoogleSignInException {
-      // Signed out is the honest answer. A misconfigured client resurfaces
-      // with its real message the moment the operator taps Sign in.
+      // Signed out is the honest answer for now. A misconfigured client
+      // resurfaces with its real message the moment the operator taps Sign in.
+      answered = false;
+    } on TimeoutException {
+      answered = false;
     }
     if (_status.value.state == DriveAccountState.checking) {
       _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
     }
+    // Refused (offline at launch) or never answered is not "nobody signed
+    // in": let the next restore — the next backup's headers() — ask again
+    // instead of caching signed out until someone signs in by hand.
+    if (!answered) _restored = null;
   }
 
   /// Interactive sign-in, then the Drive grant. Operator-triggered only.

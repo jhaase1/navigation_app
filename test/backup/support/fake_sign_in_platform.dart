@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
@@ -10,6 +12,9 @@ class FakeSignInPlatform extends GoogleSignInPlatform
 
   /// The account the operator picks in the interactive sheet.
   String? pickedEmail;
+
+  /// While set, a silent restore does not answer until it completes.
+  Completer<void>? lightweightHang;
 
   /// Thrown by a silent restore, the way a misconfigured client fails.
   Object? lightweightError;
@@ -44,6 +49,8 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   @override
   Future<AuthenticationResults?> attemptLightweightAuthentication(
       AttemptLightweightAuthenticationParameters params) async {
+    final hang = lightweightHang;
+    if (hang != null) await hang.future;
     if (lightweightError != null) throw lightweightError!;
     final email = rememberedEmail;
     return email == null ? null : _results(email);
