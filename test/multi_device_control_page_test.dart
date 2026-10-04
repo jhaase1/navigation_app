@@ -501,4 +501,36 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   });
+
+  testWidgets('a camera whose Connect failed is not driven from the Panel',
+      (tester) async {
+    // Connect lets go of the camera first. Had the Panel driven whatever
+    // service that left behind, a dead camera would "recall" presets and
+    // report success while the real one never moved.
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => _FakeRoland(),
+        cameraConnector: (_) async => throw Exception('No route to host'),
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Panel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Camera 1'));
+    await tester.pumpAndSettle();
+    final presets = find.widgetWithText(FilledButton, '1');
+    if (presets.evaluate().isNotEmpty) {
+      await tester.tap(presets.first);
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.textContaining('Recalled preset'), findsNothing);
+    expect(presets, findsNothing,
+        reason: 'no presets to offer for a camera that is not connected');
+    await tester.pumpWidget(const SizedBox());
+  });
 }
