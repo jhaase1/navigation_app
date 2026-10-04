@@ -1996,12 +1996,17 @@ class RolandService extends RolandServiceAbstract
 
   void _processCompleteResponse(String response) {
     dev.log('Received response: $response');
+    // A refusal. `ERR:n;` is listed for Roland's LAN protocol but unconfirmed
+    // on the V-160HD; it carries a colon like a query answer, so without
+    // this it would complete a refused command as done.
+    final refused = response.contains('NACK') ||
+        response.contains('ERROR') ||
+        response.startsWith('ERR:');
     // Check for ACK completion: either explicit ACK, or query responses without ACK
     bool shouldCompleteAck = response.endsWith(';ACK;') ||
         response == 'ACK;' ||
         (response.contains(':') &&
-            !response.contains('NACK') &&
-            !response.contains('ERROR') &&
+            !refused &&
             !_autoTransmitPrefixes
                 .any((prefix) => response.startsWith('$prefix:')));
     if (shouldCompleteAck) {
@@ -2021,7 +2026,7 @@ class RolandService extends RolandServiceAbstract
       if (parsed != null) {
         _responseController.add(parsed);
       }
-    } else if (response.contains('NACK') || response.contains('ERROR')) {
+    } else if (refused) {
       // Handle errors
       if (_ackCompleters.isNotEmpty) {
         _ackCompleters

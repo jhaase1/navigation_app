@@ -168,6 +168,19 @@ void main() {
 
     expect(links, isEmpty, reason: 'a refusal is not a dead link');
   });
+
+  test('an ERR reply is a refusal, not a success', () async {
+    // Roland's LAN protocol may report a refused command as `ERR:n;`. It
+    // contains a colon like a query answer, so it used to complete the
+    // command as done: a refused cue with a green check.
+    switcher.holdAcks = true;
+    final macro = service.executeMacro(5);
+    await _until(() => switcher.commands.length == 1);
+
+    switcher.send('ERR:4;');
+
+    await expectLater(macro, throwsA(isA<CommandException>()));
+  });
 }
 
 Future<void> _until(bool Function() condition) async {
