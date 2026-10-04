@@ -18,7 +18,7 @@ Plan: `plan.md` in this folder.
 | 8 Retention + fault context | `3acc1b0` | `backup_retention_test.dart` 9/9; the three context-stamping tests confirmed failing with the fix reverted |
 | 9 Target selection + wiring | `1e8caa8` | 4/4 |
 | 10 Google Drive settings tile | `1e8caa8` | one Class 2 test, signed out → tap → "Backing up to …" |
-| — Sign-in prompts (requested 2026-10-04) | see git log | `google_sign_in_banner_test.dart` 5/5, popover +1, account +2, page +1 |
+| — Sign-in prompts (requested 2026-10-04) | `570d520` | `google_sign_in_banner_test.dart` 5/5, popover +1, account +2, page +1 |
 
 **Sign-in prompts.** On request, sign-in is offered where the operator
 already looks, not only in Settings. There's a "Sign in to Google" button in
@@ -40,7 +40,7 @@ The failures were the expected missing-symbol compile errors, not
 assertions, except Task 8, whose engine tests were also run red against the
 reverted fix.
 
-Sweep on Windows: `flutter analyze` clean. `flutter test` 763 passed, 1
+Sweep on Windows: `flutter analyze` clean. `flutter test` 772 passed, 1
 failed: `test/backup/startup_test.dart` "SingleInstance the OS lock refuses
 another process…", which fails identically on `main` on this machine.
 
