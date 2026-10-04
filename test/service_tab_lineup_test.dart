@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:navigation_app/models/person.dart';
 import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/models/service.dart';
+import 'package:navigation_app/services/lineup_store.dart';
 import 'package:navigation_app/widgets/service_tab.dart';
 
 final _mass = Service(
@@ -129,5 +130,22 @@ void main() {
     await tester.tap(find.text('Mass').last);
     await tester.pumpAndSettle();
     expect(_castAlice, findsOneWidget);
+  });
+
+  testWidgets('a lineup that expires while the tab is open is dropped',
+      (tester) async {
+    var clock = DateTime(2026, 10, 4, 9, 0);
+    LineupStore.now = () => clock;
+    addTearDown(() => LineupStore.now = DateTime.now);
+    await tester.pumpWidget(_tab());
+    await _assignAlice(tester);
+
+    // The iPad sat locked on this tab for half an hour, then woke up.
+    clock = clock.add(const Duration(minutes: 30));
+    await LineupStore.renew();
+    await tester.pumpAndSettle();
+
+    expect(_castAlice, findsNothing,
+        reason: 'the copy on screen would outlive the one that expired');
   });
 }

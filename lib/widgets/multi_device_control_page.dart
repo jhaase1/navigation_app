@@ -17,6 +17,7 @@ import '../services/device_config_store.dart';
 import '../services/height_range_store.dart';
 import '../services/operator_store.dart';
 import '../services/people_store.dart';
+import '../services/lineup_lease.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
 import 'backup/backup_status_pill.dart';
@@ -63,6 +64,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Service> _services = [];
   List<HeightRange> _heightRanges = [];
   late final BackupController _backup;
+  final _lineupLease = LineupLease();
 
   @override
   void initState() {
@@ -71,6 +73,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     // foreground and flush on background are its business, not this widget's.
     _backup = widget.backupController ?? BackupController.forEnvironment();
     unawaited(_backup.start());
+    _lineupLease.start();
     _loadDeviceConfig();
     _loadOperators();
     _loadPositions();
@@ -134,6 +137,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   void dispose() {
+    _lineupLease.dispose();
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {

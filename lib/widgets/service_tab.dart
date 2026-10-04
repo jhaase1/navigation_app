@@ -84,6 +84,20 @@ class _ServiceTabState extends State<ServiceTab> {
     _lastCameraIps = _cameraIps;
     _loadNames();
     _restoreSelection();
+    LineupStore.expirations.addListener(_onLineupExpired);
+  }
+
+  @override
+  void dispose() {
+    LineupStore.expirations.removeListener(_onLineupExpired);
+    super.dispose();
+  }
+
+  /// The stored lineup lapsed while this tab sat on screen with the screen
+  /// off. Drop the copy shown here too, or it would outlive the one deleted.
+  void _onLineupExpired() {
+    if (!mounted) return;
+    setState(_participantAssignments.clear);
   }
 
   Future<void> _restoreSelection() async {
