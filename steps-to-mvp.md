@@ -145,7 +145,8 @@ Conflicts to expect, all in the merge, none in the PRs themselves:
   - Offline badge and banner
   - cue spinner/check/error
   - failure snackbar
-  - red device pill
+  - red device pill (including a long camera name on the iPad in portrait: the label
+    should shorten with an ellipsis, not overflow)
   - Drive tile, sign-in banner and popover button
 - **`flutter test integration_test/`** on the merged result.
 - **Hand tests:**
@@ -181,5 +182,10 @@ the Mac.
   other command waiting at that moment fails too, and the badge briefly
   reads Offline. Replies carry no id, so after one goes missing nothing
   later can be matched to its command; a fresh link is the only safe reset.
+- **A camera Connect that fails stops the automatic check on that camera**
+  (#31). Pressing Connect lets go of the camera first; if the Connect then
+  fails, a camera that powers back on later is not picked up by itself. The
+  pill stays red and the error shows, so press Connect again. Worth trying
+  in the rehearsal.
 - **Command failures stay as failure snackbars**, not standing pill conditions
   (#34).
