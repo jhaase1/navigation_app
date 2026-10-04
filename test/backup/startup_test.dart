@@ -98,6 +98,8 @@ void main() {
       'dart',
       ['--packages=${Directory.current.path}/.dart_tool/package_config.json', helper.path],
       workingDirectory: Directory.current.path,
+      // On Windows `dart` is `dart.bat`, which only a shell can launch.
+      runInShell: Platform.isWindows,
     );
     expect(result.exitCode, 0, reason: result.stderr as String);
     return (result.stdout as String).trim() == 'true';
