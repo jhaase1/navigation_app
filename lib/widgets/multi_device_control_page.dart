@@ -139,21 +139,25 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) showDeviceResponse(context, message);
   }
 
-  /// Keeps the Live badge truthful: when the switcher's link drops underneath
-  /// us, flip the shared flag instead of waiting for the next failed command.
+  /// Keeps the Live badge truthful: follow the switcher's link both ways —
+  /// down when it drops underneath us, up again when it reconnects on its own.
   void _watchRolandLink(RolandServiceAbstract service) {
     _rolandLinkSub?.cancel();
     _rolandLinkSub = service.connectionChanges.listen((up) {
-      if (!up && mounted && identical(_rolandService, service)) {
-        setState(() => _rolandConnected.value = false);
-        _showResponse('Roland connection lost');
-      }
+      if (!mounted || !identical(_rolandService, service)) return;
+      if (up == _rolandConnected.value) return;
+      setState(() => _rolandConnected.value = up);
+      _showResponse(
+          up ? 'Roland reconnected' : 'Roland connection lost. Reconnecting…');
     });
   }
 
   static Future<RolandServiceAbstract> _openRoland(String host) async {
     final service = RolandService(host: host);
     await service.connect();
+    // A switcher that reboots or loses its cable mid-service comes back
+    // without anyone touching Settings.
+    service.setAutoReconnect(true);
     return service;
   }
 

@@ -39,6 +39,9 @@ class _FakeRoland extends MockRolandService {
 
   void drop() => _link.add(false);
 
+  /// The service reconnected on its own.
+  void restore() => _link.add(true);
+
   @override
   Future<void> disconnect() async => _link.add(false);
 }
@@ -261,7 +264,7 @@ void main() {
 
       expect(find.text('Offline'), findsOneWidget);
       expect(find.text('No devices connected'), findsOneWidget);
-      expect(find.text('Roland connection lost'), findsOneWidget);
+      expect(find.textContaining('Roland connection lost'), findsOneWidget);
     });
 
     testWidgets('a deliberate disconnect does not claim the link was lost',
@@ -277,7 +280,21 @@ void main() {
       await tester.tap(find.text('Disconnect').first);
       await tester.pumpAndSettle();
 
-      expect(find.text('Roland connection lost'), findsNothing);
+      expect(find.textContaining('Roland connection lost'), findsNothing);
+    });
+
+    testWidgets('a link that comes back on its own reads Live again',
+        (tester) async {
+      final roland = await _connectLive(tester);
+      roland.drop();
+      await tester.pumpAndSettle();
+
+      roland.restore();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Live'), findsOneWidget);
+      expect(find.text('No devices connected'), findsNothing);
+      expect(find.text('Roland reconnected'), findsOneWidget);
     });
   });
 }
