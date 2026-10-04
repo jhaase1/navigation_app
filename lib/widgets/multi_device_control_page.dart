@@ -146,6 +146,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
     for (final c in _panasonicCameras) {
+      // A connect still dialling for a replaced camera is now stale.
+      _cameraConnectGeneration.remove(c);
       c.isConnected.value = false;
       c.service = null;
       c.dispose();
@@ -304,27 +306,47 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
   }
 
+  /// Per camera, bumped by every Connect and every let-go — the camera
+  /// counterpart of [_rolandConnectGeneration]. A camera connect still
+  /// dialling when it changes is discarded, never installed.
+  final Map<PanasonicCameraConfig, int> _cameraConnectGeneration = {};
+
+  /// Lets go of [camera] whether or not it reads connected. A camera the
+  /// monitor had marked down still holds its real service and is still
+  /// watched; skipping it let the monitor bring it back, live, in Demo.
+  void _releaseCamera(PanasonicCameraConfig camera) {
+    _cameraConnectGeneration[camera] =
+        (_cameraConnectGeneration[camera] ?? 0) + 1;
+    _cameraHealth.forget(camera);
+    camera.isConnecting.value = false;
+    camera.isConnected.value = false;
+    camera.service = MockPanasonicService();
+  }
+
   Future<void> _connectPanasonic(int cameraIndex) async {
     if (cameraIndex >= _panasonicCameras.length) return;
     final camera = _panasonicCameras[cameraIndex];
 
     if (camera.isConnected.value) {
-      _cameraHealth.forget(camera);
       setState(() {
-        camera.isConnected.value = false;
-        camera.service = MockPanasonicService();
+        _releaseCamera(camera);
         camera.connectionError.value = '';
       });
       return;
     }
 
     setState(() {
+      _releaseCamera(camera);
       camera.isConnecting.value = true;
       camera.connectionError.value = '';
     });
+    final generation = _cameraConnectGeneration[camera];
+    bool stale() =>
+        !mounted || generation != _cameraConnectGeneration[camera];
 
     if (_mockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (stale()) return;
       setState(() {
         camera.service = MockPanasonicService();
         camera.isConnected.value = true;
@@ -337,7 +359,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     try {
       final service = await (widget.cameraConnector ?? _openCamera)(
           camera.ipController.text);
-      if (!mounted) return;
+      if (stale() || _mockMode) return;
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
@@ -345,6 +367,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         camera.connectionError.value = '';
       });
     } catch (e) {
+      if (stale()) return;
       setState(() {
         camera.isConnecting.value = false;
         camera.connectionError.value =
@@ -408,10 +431,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 _mockMode = value;
                 _releaseRoland();
                 for (final camera in _panasonicCameras) {
-                  if (camera.isConnected.value) {
-                    camera.isConnected.value = false;
-                    camera.service = MockPanasonicService();
-                  }
+                  _releaseCamera(camera);
                 }
               });
             },
