@@ -69,6 +69,8 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | A dropped switcher kept reconnecting after Demo, an IP change or a fresh Connect | #29 |
 | A camera's red pill fault stuck after reconnecting it by hand | #34 |
 | A lineup carried from one service into the next | #25 |
+| One refused preset froze that camera's queue: every later recall waited forever | #36 |
+| Letting go of the switcher mid-reconnect still logged a session in | #29 |
 | A dropped switcher link could never be reconnected (closed response stream) | #29 |
 | A camera that stopped answering stayed "connected" for the rest of the service | #31 |
 | An unstamped Drive fault would never clear from the pill | #27 |
@@ -84,7 +86,7 @@ The stacks have to land bottom-up:
 ```
 main ← #23 ← #29 ← #30
           ← #31 ← #34
-          ← #33
+          ← #33 ← #36
 main ← #24, #25, #26, #28, #32   (independent)
 main ← #27                       (after #23 and #26 — see below)
 ```
@@ -95,7 +97,9 @@ Conflicts to expect, all in the merge, none in the PRs themselves:
 - `multi_device_control_page.dart`, the switcher link watcher: #29 and #34.
   When both are in, #29's "link came back" path must also call
   `clearDeviceFault` for the switcher, or the pill stays red after an
-  automatic reconnect.
+  automatic reconnect. Start that fix from a failing test: connect live,
+  drop the link (pill reads "Switcher offline"), restore it, expect the
+  pill clear.
 - `multi_device_control_page.dart`: #27 adds the Google sign-in banner into
   the offline layout that #23 replaces. Re-add the banner to #23's layout —
   dropping it silently hides "sign in to resume backups".
@@ -118,7 +122,13 @@ Conflicts to expect, all in the merge, none in the PRs themselves:
   - Drive tile, sign-in banner and popover button
 - **`flutter test integration_test/`** on the merged result.
 - **Hand tests:**
-  - native export/import dialogs (#26) on the Mac mini and iPad
+  - native export/import dialogs (#26) on the Mac mini and iPad. Export,
+    then import that same file: the test fake can't prove the file was
+    actually written
+  - the switcher's error reply. The app treats only `NACK` / `ERROR` as a
+    refusal. If the V-160HD's LAN reference shows another form (for example
+    `ERR:n;`), that reply currently reads as success. Check the manual, or
+    send a bad command on the rig
   - auto-reconnect (#29) against a real V-160HD, by pulling the cable
 - **A dress rehearsal on the actual rig** — Mac mini, V-160HD, PTZ cameras —
   running a full service's cues, with a pulled Ethernet cable, a powered-off
