@@ -377,4 +377,63 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  group('camera faults on the pill clear when the page reconnects it', () {
+    Future<Map<String, _FakeCamera>> downCamera1(WidgetTester tester) async {
+      final cameras = <String, _FakeCamera>{};
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => _FakeRoland(),
+          cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+          cameraHealthInterval: const Duration(seconds: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+      cameras['10.0.1.10']!.up = false;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('Camera 1 offline'), findsOneWidget);
+      return cameras;
+    }
+
+    Future<void> openSettings(WidgetTester tester) async {
+      await tester.tap(find.descendant(
+          of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('pressing Connect on a dead camera', (tester) async {
+      await downCamera1(tester);
+
+      await openSettings(tester);
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Camera 1 offline'), findsNothing,
+          reason: 'the camera answers again; red for the rest of the '
+              'service would hide the next real problem');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('switching to Demo', (tester) async {
+      await downCamera1(tester);
+
+      await openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Camera 1 offline'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
 }

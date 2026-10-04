@@ -159,6 +159,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
     for (final c in _panasonicCameras) {
+      // Renamed or removed, nothing would ever clear it again.
+      _backup.clearDeviceFault(FaultDomain.camera, c.name);
       c.isConnected.value = false;
       c.service = null;
       c.dispose();
@@ -342,6 +344,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       final service = await (widget.cameraConnector ?? _openCamera)(
           camera.ipController.text);
       if (!mounted) return;
+      // Already "connected" again, so the monitor will never report it back.
+      _backup.clearDeviceFault(FaultDomain.camera, camera.name);
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
@@ -412,6 +416,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 _mockMode = value;
                 if (_rolandConnected.value) _releaseRoland();
                 for (final camera in _panasonicCameras) {
+                  // A changed mode is a fresh start for every camera.
+                  _backup.clearDeviceFault(FaultDomain.camera, camera.name);
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
                     camera.service = MockPanasonicService();
