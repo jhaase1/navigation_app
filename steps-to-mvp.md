@@ -71,6 +71,15 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | A lineup carried from one service into the next | #25 |
 | One refused preset froze that camera's queue: every later recall waited forever | #36 |
 | Letting go of the switcher mid-reconnect still logged a session in | #29 |
+| A Demo switch, IP change or second Connect made while the switcher was still dialling was overridden (real switcher live under a Demo badge, or an orphaned session) | #23 |
+| A switcher `ERR:n;` reply read as success | #30 |
+| A camera probe that timed out left its socket open | #31 |
+| A failed Connect cleared "Switcher offline" from the pill | #34 |
+| Re-picking the service let an in-flight cue fire twice | #24 |
+| Changing one reader on a lapsed lineup re-saved the stale ones | #25 |
+| An offline or hung Google restore left backups signed out or stalled until restart | #27 |
+| The Panel tab kept driving cameras that Settings had replaced | #37 |
+| #26's lock pinned test packages below main's (resolved on an older Flutter) | #26 |
 | A dropped switcher link could never be reconnected (closed response stream) | #29 |
 | A camera that stopped answering stayed "connected" for the rest of the service | #31 |
 | An unstamped Drive fault would never clear from the pill | #27 |
@@ -87,22 +96,31 @@ The stacks have to land bottom-up:
 main ← #23 ← #29 ← #30
           ← #31 ← #34
           ← #33 ← #36
-main ← #24, #25, #26, #28, #32   (independent)
+main ← #24, #25, #26, #28, #32, #37   (independent)
 main ← #27                       (after #23 and #26 — see below)
 ```
 
 Conflicts to expect, all in the merge, none in the PRs themselves:
-- `service_tab.dart`: #24, #25 and #33. Keep #24's per-step cue key, #25's
-  lineup expiry listener and #33's `_fail` calls.
+- `service_tab.dart`: #24, #25 and #33. Keep #24's per-step cue key and
+  in-flight set, #25's lineup expiry listener and renew-before-assign, and
+  #33's `_fail` calls. #24's dropdown `onChanged` clears `_cueStates` and
+  bumps `_cueGeneration`; #25 replaces it with `onChanged: _selectService`.
+  Move that clear and bump into `_selectService` (and its restore paths),
+  or a late result stamps a check onto the newly picked service's cue.
 - `multi_device_control_page.dart`, the switcher link watcher: #29 and #34.
   When both are in, #29's "link came back" path must also call
   `clearDeviceFault` for the switcher, or the pill stays red after an
   automatic reconnect. Start that fix from a failing test: connect live,
   drop the link (pill reads "Switcher offline"), restore it, expect the
-  pill clear.
+  pill clear. Keep #34's `_releaseRoland(clearFault: false)` before a
+  Connect, so a Connect that fails leaves the pill red.
 - `multi_device_control_page.dart`: #27 adds the Google sign-in banner into
   the offline layout that #23 replaces. Re-add the banner to #23's layout —
-  dropping it silently hides "sign in to resume backups".
+  dropping it silently hides "sign in to resume backups". #27 also
+  re-indents the whole TabBarView and still carries `onResponse: (_) {}`
+  three times: taking its side of that block brings back landmine 1
+  (swallowed device responses). Take #23's side, or rebase #27 onto #23
+  first.
 - #27 and #26 both touch `pubspec.yaml`/`pubspec.lock`, the plugin
   registrants and `settings_dialog_test.dart`: take both sides.
 - Once #33 is in alongside #29 and #31, switch their "connection lost" and
@@ -125,10 +143,11 @@ Conflicts to expect, all in the merge, none in the PRs themselves:
   - native export/import dialogs (#26) on the Mac mini and iPad. Export,
     then import that same file: the test fake can't prove the file was
     actually written
-  - the switcher's error reply. The app treats only `NACK` / `ERROR` as a
-    refusal. If the V-160HD's LAN reference shows another form (for example
-    `ERR:n;`), that reply currently reads as success. Check the manual, or
-    send a bad command on the rig
+  - the switcher's error reply. The app now treats `NACK`, `ERROR` and
+    `ERR:n;` as a refusal (#30). Send one bad command on the rig (for
+    example `PGM:INPUT99;`) and confirm the reply is one of those
+  - #26's lock file: run `flutter pub get` on the Mac and confirm it
+    leaves `pubspec.lock` unchanged
   - auto-reconnect (#29) against a real V-160HD, by pulling the cable
 - **A dress rehearsal on the actual rig** — Mac mini, V-160HD, PTZ cameras —
   running a full service's cues, with a pulled Ethernet cable, a powered-off
