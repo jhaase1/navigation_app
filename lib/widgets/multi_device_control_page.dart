@@ -12,6 +12,7 @@ import '../services/panasonic_service.dart';
 import '../services/abstract/panasonic_service_abstract.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/camera_health_monitor.dart';
+import '../services/backup/app_fault.dart';
 import '../services/backup/backup_controller.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
@@ -72,6 +73,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   StreamSubscription<bool>? _rolandLinkSub;
   late final CameraHealthMonitor _cameraHealth;
 
+  /// How the switcher is named in device faults.
+  static const _switcherName = 'Roland';
+
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
 
@@ -102,6 +106,15 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         _showResponse(up
             ? '${camera.name} is back'
             : '${camera.name} not responding');
+        if (up) {
+          _backup.clearDeviceFault(FaultDomain.camera, camera.name);
+        } else {
+          _backup.reportDeviceFault(AppFault.device(
+              FaultDomain.camera,
+              camera.name,
+              '${camera.name} is not answering. Shots on it will fail until '
+              'it comes back.'));
+        }
       },
     )..start();
     _loadDeviceConfig();
@@ -173,6 +186,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       if (!up && mounted && identical(_rolandService, service)) {
         setState(() => _rolandConnected.value = false);
         _showResponse('Roland connection lost');
+        _backup.reportDeviceFault(AppFault.device(FaultDomain.roland,
+            _switcherName, 'The switcher is not connected. Macros will fail.'));
       }
     });
   }
@@ -192,6 +207,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   /// Deliberately lets go of the switcher. The link watcher is cancelled
   /// first so our own disconnect is not reported as a lost connection.
   void _releaseRoland() {
+    // Let go on purpose: nothing is wrong, so nothing stays on the pill.
+    _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
     _rolandLinkSub?.cancel();
     _rolandLinkSub = null;
     _rolandService.disconnect();
@@ -273,6 +290,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       setState(() {
         _rolandService = service;
         _watchRolandLink(service);
+        _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
@@ -291,6 +309,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     if (camera.isConnected.value) {
       _cameraHealth.forget(camera);
+      _backup.clearDeviceFault(FaultDomain.camera, camera.name);
       setState(() {
         camera.isConnected.value = false;
         camera.service = MockPanasonicService();

@@ -320,4 +320,39 @@ void main() {
     // Disposing the page stops the health checks.
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('a lost switcher and a lost camera show on the status pill',
+      (tester) async {
+    final roland = _FakeRoland();
+    final cameras = <String, _FakeCamera>{};
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => roland,
+        cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+
+    roland.drop();
+    await tester.pumpAndSettle();
+    expect(find.text('Switcher offline'), findsOneWidget);
+
+    cameras['10.0.1.11']!.up = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Camera 2 offline'), findsOneWidget,
+        reason: 'the newest problem is the one the pill names');
+
+    cameras['10.0.1.11']!.up = true;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Switcher offline'), findsOneWidget,
+        reason: 'the camera came back; the switcher is still down');
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }

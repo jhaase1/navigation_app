@@ -348,11 +348,33 @@ class BackupController with WidgetsBindingObserver {
   void _raise(AppFault fault) {
     final key = BackupStatus.isQuestion(fault.kind)
         ? _conflictKey
-        : (fault.operation ?? 'unknown');
+        : fault.domain != FaultDomain.backup
+            ? _deviceKey(fault.domain, fault.targetIdentity ?? '')
+            : (fault.operation ?? 'unknown');
     // Remove before insert so insertion order tracks recency.
     _conditions.remove(key);
     _conditions[key] = fault;
   }
+
+  static String _deviceKey(FaultDomain domain, String device) =>
+      'device:${domain.name}:$device';
+
+  /// Puts a device that has dropped off on the pill and in the log. The pill
+  /// is the one surface for every failure in the app, not only backup's.
+  /// Stays until [clearDeviceFault] — no backup success clears it.
+  Future<void> reportDeviceFault(AppFault fault) => _enqueue(() async {
+        await log.recordFault(fault);
+        _raise(fault);
+        _applyConditions();
+      });
+
+  /// The device is back, or the operator disconnected it on purpose.
+  Future<void> clearDeviceFault(FaultDomain domain, String device) =>
+      _enqueue(() async {
+        if (_conditions.remove(_deviceKey(domain, device)) != null) {
+          _applyConditions();
+        }
+      });
 
   void _clearQuestion() {
     _conditions.remove(_conflictKey);
