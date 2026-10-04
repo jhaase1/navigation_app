@@ -379,6 +379,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                   }
                 }
               });
+              // Every device was just let go of. The badge and the offline
+              // banner live on the page, not the dialog: without this they
+              // kept reading Live until something else rebuilt the page.
+              setState(() {});
             },
             rolandService: _rolandService,
             rolandIpController: _rolandIpController,
