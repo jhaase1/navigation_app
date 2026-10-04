@@ -261,4 +261,23 @@ void main() {
     roland.gate.complete();
     await tester.pumpAndSettle();
   });
+
+  testWidgets('leaving the tab and coming back does not let an in-flight cue '
+      'fire twice', (tester) async {
+    // The Service tab is rebuilt from scratch when the operator flips to
+    // Panel and back; the guard has to outlive it.
+    final roland = _GatedRoland();
+    await _open(tester, roland);
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pump();
+
+    await tester.pumpWidget(const SizedBox());
+    await _open(tester, roland);
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pump();
+
+    expect(roland.calls, [1]);
+    roland.gate.complete();
+    await tester.pumpAndSettle();
+  });
 }

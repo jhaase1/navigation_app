@@ -71,9 +71,11 @@ class _ServiceTabState extends State<ServiceTab> {
   int _cueGeneration = 0;
 
   // "serviceId/cueKey" for every cue whose command is still out. Unlike
-  // [_cueStates] it survives a service switch or re-pick: clearing it let a
-  // second tap send the same command again, and a toggle macro flips back.
-  final Set<String> _inFlight = {};
+  // [_cueStates] it survives a service switch or re-pick, and — being
+  // static — the tab being rebuilt when the operator flips to Panel and
+  // back. Losing it let a second tap send the same command again, and a
+  // toggle macro flips back.
+  static final Set<String> _inFlight = {};
 
   String _inFlightKey(String cueKey) => '$_selectedServiceId/$cueKey';
 
