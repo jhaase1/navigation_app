@@ -82,6 +82,8 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | A camera down in Live came back on its real service after switching to Demo; a camera Connect mid-dial was installed under the Demo badge | #31 |
 | A failed camera Connect cleared its pill fault; same-named cameras shared one fault | #34 |
 | Leaving the Service tab and coming back let an in-flight cue fire twice | #24 |
+| After a failed camera Connect or a mode switch, the Panel tab "recalled" presets on a Demo stand-in while the real camera was dead | #31 |
+| Switching Live/Demo left the badge reading Live and the Connect banner hidden | #23 |
 | #26's lock pinned test packages below main's (resolved on an older Flutter) | #26 |
 | A dropped switcher link could never be reconnected (closed response stream) | #29 |
 | A camera that stopped answering stayed "connected" for the rest of the service | #31 |
@@ -132,6 +134,12 @@ Conflicts to expect, all in the merge, none in the PRs themselves:
   both sides.
 - #27 and #26 both touch `pubspec.yaml`/`pubspec.lock`, the plugin
   registrants and `settings_dialog_test.dart`: take both sides.
+- `_watchRolandLink`, #33 (and #36) × #34: #33 turns the "connection lost"
+  line into `_showFailure`; #34 keeps `_showResponse` and adds
+  `_backup.reportDeviceFault(...)`. Keep both: `_showFailure` *and*
+  `reportDeviceFault`, or the switcher fault never reaches the pill (the
+  page test "a lost switcher and a lost camera show on the status pill"
+  catches it).
 - Once #33 is in alongside #29 and #31, switch their "connection lost" and
   "not responding" messages from `_showResponse` to `_showFailure`, or they
   show in success grey.
