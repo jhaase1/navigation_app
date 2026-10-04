@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
@@ -295,6 +296,27 @@ void main() {
       expect(find.text('Live'), findsOneWidget);
       expect(find.text('No devices connected'), findsNothing);
       expect(find.text('Roland reconnected'), findsOneWidget);
+    });
+
+    testWidgets('a connect that finishes after the page is gone is let go',
+        (tester) async {
+      final roland = _FakeRoland();
+      var released = false;
+      roland.connectionChanges.listen((up) => released = !up);
+      final pending = Completer<RolandServiceAbstract>();
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(rolandConnector: (_) => pending.future),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await tester.pumpWidget(const SizedBox());
+      pending.complete(roland);
+      await tester.pumpAndSettle();
+
+      expect(released, isTrue,
+          reason: 'nobody is left to own the switcher session');
     });
   });
 }
