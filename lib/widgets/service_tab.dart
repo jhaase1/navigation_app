@@ -70,6 +70,13 @@ class _ServiceTabState extends State<ServiceTab> {
   // afterwards cannot stamp its outcome onto a different service's cue.
   int _cueGeneration = 0;
 
+  // "serviceId/cueKey" for every cue whose command is still out. Unlike
+  // [_cueStates] it survives a service switch or re-pick: clearing it let a
+  // second tap send the same command again, and a toggle macro flips back.
+  final Set<String> _inFlight = {};
+
+  String _inFlightKey(String cueKey) => '$_selectedServiceId/$cueKey';
+
   // participantId → personId, set at run time for this service
   final Map<String, String?> _participantAssignments = {};
 
@@ -207,24 +214,36 @@ class _ServiceTabState extends State<ServiceTab> {
     if (index < 0 || index >= flat.length) return;
     // A second tap on a cue still in flight would send the command twice.
     final key = _cueKey(flat, index);
-    if (_cueStates[key] == _CueState.executing) {
+    final flightKey = _inFlightKey(key);
+    if (_inFlight.contains(flightKey)) {
       setState(() => _currentStepIndex = index);
       return;
     }
     final generation = _cueGeneration;
+    _inFlight.add(flightKey);
     setState(() {
       _currentStepIndex = index;
       _cueStates[key] = _CueState.executing;
     });
     final s = flat[index];
 
-    final ok = switch (s.type) {
-      StepType.ministry => await _fireMinistryStep(s),
-      StepType.macro => await _fireMacroStep(s),
-      StepType.shot => await _fireShotStep(s),
-      StepType.block => true, // already flattened; should never appear
-    };
-    if (!mounted || generation != _cueGeneration) return;
+    final bool ok;
+    try {
+      ok = switch (s.type) {
+        StepType.ministry => await _fireMinistryStep(s),
+        StepType.macro => await _fireMacroStep(s),
+        StepType.shot => await _fireShotStep(s),
+        StepType.block => true, // already flattened; should never appear
+      };
+    } finally {
+      _inFlight.remove(flightKey);
+    }
+    if (!mounted) return;
+    if (generation != _cueGeneration) {
+      // Stops the spinner shown if the operator switched back meanwhile.
+      setState(() {});
+      return;
+    }
     setState(() =>
         _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
   }
@@ -629,7 +648,9 @@ class _ServiceTabState extends State<ServiceTab> {
           ? Theme.of(context).colorScheme.primaryContainer
           : null,
       child: ListTile(
-        leading: switch (_cueStates[cueKey]) {
+        leading: switch (_inFlight.contains(_inFlightKey(cueKey))
+            ? _CueState.executing
+            : _cueStates[cueKey]) {
           _CueState.executing => const SizedBox(
               width: 18,
               height: 18,

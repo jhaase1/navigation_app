@@ -227,4 +227,38 @@ void main() {
     expect(_inStep('2. Macro 5', find.byIcon(Icons.check_circle)),
         findsNothing);
   });
+
+  testWidgets('re-picking the service does not let an in-flight cue fire twice',
+      (tester) async {
+    // A toggle-style macro (a key, PinP) sent twice flips straight back.
+    final roland = _GatedRoland();
+    await _open(tester, roland);
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pump();
+
+    await _pick(tester, 'Mass');
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pump();
+
+    expect(roland.calls, [1]);
+    roland.gate.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('switching away and back does not let an in-flight cue fire '
+      'twice', (tester) async {
+    final roland = _GatedRoland();
+    await _open(tester, roland);
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pump();
+
+    await _pick(tester, 'Vespers');
+    await _pick(tester, 'Mass');
+    await tester.tap(find.text('1. Macro 1'));
+    await tester.pump();
+
+    expect(roland.calls, [1]);
+    roland.gate.complete();
+    await tester.pumpAndSettle();
+  });
 }
