@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
@@ -42,8 +43,15 @@ class _FakeRoland extends MockRolandService {
   /// The service reconnected on its own.
   void restore() => _link.add(true);
 
+  /// Set once the page lets go of this session. A real service that is
+  /// never let go keeps reconnecting on its own, forever.
+  bool released = false;
+
   @override
-  Future<void> disconnect() async => _link.add(false);
+  Future<void> disconnect() async {
+    released = true;
+    _link.add(false);
+  }
 }
 
 /// Connects in Live Mode through an injected connector, so the page wires up
@@ -295,6 +303,74 @@ void main() {
       expect(find.text('Live'), findsOneWidget);
       expect(find.text('No devices connected'), findsNothing);
       expect(find.text('Roland reconnected'), findsOneWidget);
+    });
+
+    testWidgets('switching to Demo lets go of a switcher that is reconnecting',
+        (tester) async {
+      final roland = await _connectLive(tester);
+      roland.drop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.descendant(
+          of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(roland.released, isTrue);
+      // Had it been kept, its reconnect would put the real switcher back in
+      // charge while the operator thinks they are in Demo.
+      roland.restore();
+      await tester.pumpAndSettle();
+      expect(find.text('Live'), findsNothing);
+    });
+
+    testWidgets('Connect while reconnecting replaces the old session',
+        (tester) async {
+      final sessions = <_FakeRoland>[];
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(rolandConnector: (_) async {
+          final r = _FakeRoland();
+          sessions.add(r);
+          return r;
+        }),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+      sessions.first.drop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+
+      expect(sessions, hasLength(2));
+      expect(sessions.first.released, isTrue,
+          reason: 'two telnet sessions would fight over one switcher');
+      expect(sessions.last.released, isFalse);
+    });
+
+    testWidgets('a connect that finishes after the page is gone is let go',
+        (tester) async {
+      final roland = _FakeRoland();
+      var released = false;
+      roland.connectionChanges.listen((up) => released = !up);
+      final pending = Completer<RolandServiceAbstract>();
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(rolandConnector: (_) => pending.future),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await tester.pumpWidget(const SizedBox());
+      pending.complete(roland);
+      await tester.pumpAndSettle();
+
+      expect(released, isTrue,
+          reason: 'nobody is left to own the switcher session');
     });
   });
 }

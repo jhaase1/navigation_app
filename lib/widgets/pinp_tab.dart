@@ -44,7 +44,10 @@ class _PinPTabState extends State<PinPTab> {
                 response.pinp == 'PinP$_selectedPinP') {
               setState(() => _pinpPvw = response.status == 'ON');
             }
-          })
+          },
+                // A dropped link is reported on the badge and the pill; here
+                // it only means no PinP state until the link is back.
+                onError: (_) {})
         : null;
     _startPolling();
   }
