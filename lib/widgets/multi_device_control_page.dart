@@ -107,11 +107,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             ? '${camera.name} is back'
             : '${camera.name} not responding');
         if (up) {
-          _backup.clearDeviceFault(FaultDomain.camera, camera.name);
+          _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
         } else {
           _backup.reportDeviceFault(AppFault.device(
               FaultDomain.camera,
-              camera.name,
+              _cameraFaultId(camera),
               '${camera.name} is not answering. Shots on it will fail until '
               'it comes back.'));
         }
@@ -160,7 +160,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
     for (final c in _panasonicCameras) {
       // Renamed or removed, nothing would ever clear it again.
-      _backup.clearDeviceFault(FaultDomain.camera, c.name);
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(c));
+      // A connect still dialling for a replaced camera is now stale.
+      _cameraConnectGeneration.remove(c);
       c.isConnected.value = false;
       c.service = null;
       c.dispose();
@@ -326,28 +328,57 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
   }
 
+  /// Names a camera in device faults. The address keeps two cameras that
+  /// share a name apart: one coming back must not clear the other's fault.
+  static String _cameraFaultId(PanasonicCameraConfig camera) =>
+      '${camera.name} (${camera.ipController.text})';
+
+  /// Per camera, bumped by every Connect and every let-go — the camera
+  /// counterpart of [_rolandConnectGeneration]. A camera connect still
+  /// dialling when it changes is discarded, never installed.
+  final Map<PanasonicCameraConfig, int> _cameraConnectGeneration = {};
+
+  /// Lets go of [camera] whether or not it reads connected. A camera the
+  /// monitor had marked down still holds its real service and is still
+  /// watched; skipping it let the monitor bring it back, live, in Demo.
+  void _releaseCamera(PanasonicCameraConfig camera, {bool clearFault = true}) {
+    _cameraConnectGeneration[camera] =
+        (_cameraConnectGeneration[camera] ?? 0) + 1;
+    if (clearFault) {
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
+    }
+    _cameraHealth.forget(camera);
+    camera.isConnecting.value = false;
+    camera.isConnected.value = false;
+    camera.service = MockPanasonicService();
+  }
+
   Future<void> _connectPanasonic(int cameraIndex) async {
     if (cameraIndex >= _panasonicCameras.length) return;
     final camera = _panasonicCameras[cameraIndex];
 
     if (camera.isConnected.value) {
-      _cameraHealth.forget(camera);
-      _backup.clearDeviceFault(FaultDomain.camera, camera.name);
       setState(() {
-        camera.isConnected.value = false;
-        camera.service = MockPanasonicService();
+        _releaseCamera(camera);
         camera.connectionError.value = '';
       });
       return;
     }
 
     setState(() {
+      // Not a deliberate let-go: if this Connect fails the camera is still
+      // unreachable, and the pill must keep saying so.
+      _releaseCamera(camera, clearFault: false);
       camera.isConnecting.value = true;
       camera.connectionError.value = '';
     });
+    final generation = _cameraConnectGeneration[camera];
+    bool stale() =>
+        !mounted || generation != _cameraConnectGeneration[camera];
 
     if (_mockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (stale()) return;
       setState(() {
         camera.service = MockPanasonicService();
         camera.isConnected.value = true;
@@ -360,9 +391,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     try {
       final service = await (widget.cameraConnector ?? _openCamera)(
           camera.ipController.text);
-      if (!mounted) return;
+      if (stale() || _mockMode) return;
       // Already "connected" again, so the monitor will never report it back.
-      _backup.clearDeviceFault(FaultDomain.camera, camera.name);
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
@@ -370,6 +401,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         camera.connectionError.value = '';
       });
     } catch (e) {
+      if (stale()) return;
       setState(() {
         camera.isConnecting.value = false;
         camera.connectionError.value =
@@ -434,11 +466,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 _releaseRoland();
                 for (final camera in _panasonicCameras) {
                   // A changed mode is a fresh start for every camera.
-                  _backup.clearDeviceFault(FaultDomain.camera, camera.name);
-                  if (camera.isConnected.value) {
-                    camera.isConnected.value = false;
-                    camera.service = MockPanasonicService();
-                  }
+                  _releaseCamera(camera);
                 }
               });
             },

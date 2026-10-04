@@ -6,7 +6,9 @@ import 'dart:async';
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/abstract/panasonic_service_abstract.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
+import 'package:navigation_app/services/device_config_store.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
@@ -81,9 +83,11 @@ Future<void> _openSettings(WidgetTester tester) async {
 /// A camera that can stop answering, the way one does when it loses power.
 class _FakeCamera extends MockPanasonicService {
   bool up = true;
+  int probes = 0;
 
   @override
   Future<void> probe() async {
+    probes++;
     if (!up) throw Exception('no answer');
   }
 }
@@ -450,7 +454,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    expect(find.text('Camera 2 offline'), findsOneWidget,
+    expect(find.text('Camera 2 (10.0.1.11) offline'), findsOneWidget,
         reason: 'the newest problem is the one the pill names');
 
     cameras['10.0.1.11']!.up = true;
@@ -479,7 +483,7 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
-      expect(find.text('Camera 1 offline'), findsOneWidget);
+      expect(find.text('Camera 1 (10.0.1.10) offline'), findsOneWidget);
       return cameras;
     }
 
@@ -501,7 +505,7 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
 
-      expect(find.text('Camera 1 offline'), findsNothing,
+      expect(find.text('Camera 1 (10.0.1.10) offline'), findsNothing,
           reason: 'the camera answers again; red for the rest of the '
               'service would hide the next real problem');
       await tester.pumpWidget(const SizedBox());
@@ -516,7 +520,7 @@ void main() {
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Camera 1 offline'), findsNothing);
+      expect(find.text('Camera 1 (10.0.1.10) offline'), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
   });
@@ -544,5 +548,149 @@ void main() {
     expect(calls, 2);
     expect(find.text('Switcher offline'), findsOneWidget,
         reason: 'it is still unreachable; green here would be a lie');
+  });
+
+  group('Demo Mode lets go of every real camera', () {
+    Future<void> toggleDemo(WidgetTester tester) async {
+      await _openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      await tester.tap(find.text('Close'));
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('a camera that was down when switching to Demo', (tester) async {
+      // Down in Live, so the toggle skipped it and it kept its real service
+      // under watch. When it came back, Demo cues moved the real camera.
+      final cameras = <String, _FakeCamera>{};
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => _FakeRoland(),
+          cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+          cameraHealthInterval: const Duration(seconds: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+      final cam1 = cameras['10.0.1.10']!..up = false;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      await toggleDemo(tester);
+      final probesAtToggle = cam1.probes;
+      cam1.up = true;
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Camera 1 is back'), findsNothing);
+      expect(cam1.probes, probesAtToggle,
+          reason: 'nothing in Demo should be talking to the real camera');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a camera still connecting when switching to Demo',
+        (tester) async {
+      final pending = <Completer<PanasonicServiceAbstract>>[];
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => _FakeRoland(),
+          cameraConnector: (ip) {
+            final c = Completer<PanasonicServiceAbstract>();
+            pending.add(c);
+            return c.future;
+          },
+          cameraHealthInterval: const Duration(seconds: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await toggleDemo(tester);
+      final real = [for (final _ in pending) _FakeCamera()];
+      for (var i = 0; i < pending.length; i++) {
+        pending[i].complete(real[i]);
+      }
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(real.map((c) => c.probes), everyElement(0),
+          reason: 'a connect let go of mid-dial must not be installed');
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  testWidgets('two cameras with the same name keep their own faults',
+      (tester) async {
+    await DeviceConfigStore.save('10.0.1.100', const [
+      CameraEntry(name: 'PTZ', ip: '10.0.1.10'),
+      CameraEntry(name: 'PTZ', ip: '10.0.1.11'),
+    ]);
+    final cameras = <String, _FakeCamera>{};
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => _FakeRoland(),
+        cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+
+    cameras['10.0.1.10']!.up = false;
+    cameras['10.0.1.11']!.up = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    cameras['10.0.1.11']!.up = true;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PTZ (10.0.1.10) offline'), findsOneWidget,
+        reason: 'the other PTZ coming back must not clear this one');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a camera Connect that fails leaves its fault on the pill',
+      (tester) async {
+    final cameras = <String, _FakeCamera>{};
+    var refuse = false;
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => _FakeRoland(),
+        cameraConnector: (ip) async {
+          if (refuse) throw Exception('No route to host');
+          return cameras[ip] = _FakeCamera();
+        },
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+    cameras['10.0.1.10']!.up = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    refuse = true;
+    await _openSettings(tester);
+    await tester.ensureVisible(find.text('Connections'));
+    await tester.tap(find.text('Connections'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect').last);
+    await tester.pumpAndSettle();
+    // Cancel, not Save & Close: saving replaces the camera list outright.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Camera 1 (10.0.1.10) offline'), findsOneWidget,
+        reason: 'still unreachable; green here would be a lie');
+    await tester.pumpWidget(const SizedBox());
   });
 }
