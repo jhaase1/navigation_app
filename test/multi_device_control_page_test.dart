@@ -399,6 +399,23 @@ void main() {
           reason: 'an orphaned session holds a telnet slot nobody can free');
       expect(find.text('Live'), findsOneWidget);
     });
+
+    testWidgets('switching Live to Demo updates the badge and banner at once',
+        (tester) async {
+      // Every device is let go of on the switch; a badge still reading Live
+      // would be the lie the Offline badge exists to prevent.
+      await _connectLive(tester);
+      expect(find.text('Live'), findsOneWidget);
+
+      await _openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Live'), findsNothing);
+      expect(find.text('No devices connected'), findsOneWidget);
+    });
   });
 
   testWidgets('a camera that stops answering is reported, and so is its return',
