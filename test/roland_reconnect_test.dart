@@ -202,10 +202,13 @@ void main() {
     expect(states, [false]);
   });
 
-  test('a cue tapped while the link is down is not replayed on reconnect',
+  test('a cue tapped while the link is down fails, and is not sent later',
       () async {
     // The operator has moved on by the time the link is back: a stale CUT
-    // arriving then swaps the wrong shot onto program.
+    // arriving then swaps the wrong shot onto program. This pins the
+    // not-connected refusal; commands already queued when a link dies are
+    // dropped by _failPending, which loopback cannot stage (it cannot hold
+    // a write open).
     await connectWithAutoReconnect();
     await switcher.stop();
     await eventually(() => states.contains(false));
