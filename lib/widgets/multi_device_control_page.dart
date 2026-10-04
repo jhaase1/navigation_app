@@ -126,7 +126,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
     setState(() {
       _rolandIpController.text = rolandIp;
-      if (_rolandConnected.value) _releaseRoland();
+      _releaseRoland();
       _panasonicCameras
         ..clear()
         ..addAll(entries
@@ -161,9 +161,18 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     return service;
   }
 
-  /// Deliberately lets go of the switcher. The link watcher is cancelled
-  /// first so our own disconnect is not reported as a lost connection.
+  /// Bumped by every Connect and every let-go. A connect still dialling when
+  /// it changes is stale: whatever it returns is hung up, never installed —
+  /// otherwise a Demo switch, an IP change or a second Connect made while it
+  /// dialled would be overridden when it finished, or leave an orphan.
+  int _rolandConnectGeneration = 0;
+
+  /// Deliberately lets go of the switcher, including one still connecting.
+  /// The link watcher is cancelled first so our own disconnect is not
+  /// reported as a lost connection. Safe to call when nothing is connected.
   void _releaseRoland() {
+    _rolandConnectGeneration++;
+    _rolandConnecting.value = false;
     _rolandLinkSub?.cancel();
     _rolandLinkSub = null;
     _rolandService.disconnect();
@@ -222,12 +231,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
 
     setState(() {
+      _releaseRoland();
       _rolandConnecting.value = true;
       _rolandConnectionError.value = '';
     });
+    final generation = _rolandConnectGeneration;
+    bool stale() => !mounted || generation != _rolandConnectGeneration;
 
     if (_mockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (stale()) return;
       setState(() {
         _rolandService = MockRolandService();
         _rolandConnected.value = true;
@@ -240,8 +253,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     try {
       final service = await (widget.rolandConnector ?? _openRoland)(
           _rolandIpController.text);
-      if (!mounted) {
-        // The page went away mid-connect: nobody else will ever close this.
+      if (stale() || _mockMode) {
+        // Let go of, or superseded, while dialling: nobody else will ever
+        // close this session.
         await service.disconnect();
         return;
       }
@@ -253,6 +267,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         _rolandConnectionError.value = '';
       });
     } catch (e) {
+      if (stale()) return;
       setState(() {
         _rolandConnecting.value = false;
         _rolandConnectionError.value = e.toString();
@@ -360,7 +375,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onMockModeChanged: (value) {
               setDialogState(() {
                 _mockMode = value;
-                if (_rolandConnected.value) _releaseRoland();
+                _releaseRoland();
                 for (final camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
