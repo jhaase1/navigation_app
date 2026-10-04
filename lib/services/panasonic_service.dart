@@ -539,9 +539,25 @@ class PanasonicService extends PanasonicServiceAbstract {
     final protocol = useHttps ? 'https' : 'http';
     final url = '$protocol://$ipAddress/cgi-bin/$camEndpoint'
         '?cmd=${_encodeCommand(getCameraInfoCmd)}&res=1';
-    final response = await _client.get(Uri.parse(url)).timeout(probeTimeout);
-    if (response.statusCode != 200) {
-      throw CameraException('HTTP ${response.statusCode}: ${response.body}');
+    // Cancelled at the deadline, not just abandoned: a camera that takes
+    // the connection and never answers would otherwise keep one more
+    // socket open with every probe.
+    final abort = Completer<void>();
+    final deadline = Timer(probeTimeout, abort.complete);
+    try {
+      final request = http.AbortableRequest('GET', Uri.parse(url),
+          abortTrigger: abort.future);
+      // The backstop for a client that ignores the cancel.
+      final streamed = await _client
+          .send(request)
+          .timeout(probeTimeout + const Duration(milliseconds: 500));
+      final response =
+          await http.Response.fromStream(streamed).timeout(probeTimeout);
+      if (response.statusCode != 200) {
+        throw CameraException('HTTP ${response.statusCode}: ${response.body}');
+      }
+    } finally {
+      deadline.cancel();
     }
   }
 
