@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -242,6 +244,31 @@ void main() {
       expect(result[80], true);
       expect(result[99], true);
       expect(result[79], false); // Before range 2
+    });
+  });
+
+  group('PanasonicService — a refused PTZ command', () {
+    // PTZ commands share one queue per camera. A failure used to escape the
+    // queue unhandled and leave it marked busy, so every later recall to
+    // that camera waited forever: the camera froze on its last shot.
+    test('does not stop the next recall reaching the camera', () async {
+      final sent = <String>[];
+      var refuse = true;
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) async {
+          sent.add(r.url.queryParameters['cmd']!);
+          return http.Response(refuse ? 'ER3:R04' : 's05', 200);
+        }),
+      );
+
+      await expectLater(service.recallPreset(3), throwsA(anything));
+      refuse = false;
+      await service.recallPreset(4).timeout(const Duration(seconds: 2));
+
+      expect(sent, ['#R03', '#R04']);
     });
   });
 }

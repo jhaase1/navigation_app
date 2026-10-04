@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
@@ -8,6 +10,7 @@ import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/panasonic_service.dart';
 import 'package:navigation_app/services/preset_name_store.dart';
 import 'package:navigation_app/widgets/service_tab.dart';
 
@@ -714,6 +717,39 @@ void main() {
 
       expect(ok, ['Macro 3 executed']);
       expect(failed, isEmpty);
+    });
+
+    testWidgets('a preset the camera refuses is a failure', (tester) async {
+      // The original silent failure: a recall the camera rejected looked
+      // exactly like one it took.
+      final shot = Service(id: 's2', name: 'Vespers', steps: [
+        const ServiceStep(
+            id: 'sh', type: StepType.shot,
+            cameraIp: '10.0.1.10', cameraPresetIndex: 4),
+      ]);
+      final cam = PanasonicCameraConfig(name: 'Cam 1', ipAddress: '10.0.1.10')
+        ..service = PanasonicService(
+            ipAddress: '10.0.1.10',
+            maxRetries: 1,
+            client: MockClient((_) async => http.Response('ER3:R04', 200)))
+        ..isConnected.value = true;
+      final ok = <String>[];
+      final failed = <String>[];
+      await tester.pumpWidget(_wrap(_tab(
+        cameras: [cam],
+        services: [shot],
+        onResponse: ok.add,
+        onFailure: failed.add,
+      )));
+      await tester.tap(find.byType(DropdownButton<String?>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Vespers').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Preset 5'));
+      await tester.pumpAndSettle();
+
+      expect(failed, hasLength(1));
+      expect(ok, isEmpty);
     });
 
     testWidgets('a cue that cannot fire is a failure', (tester) async {
