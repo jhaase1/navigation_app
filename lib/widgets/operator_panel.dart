@@ -79,6 +79,24 @@ class _OperatorPanelState extends State<OperatorPanel> {
   @override
   void didUpdateWidget(OperatorPanel old) {
     super.didUpdateWidget(old);
+    // Settings -> Connections replaces the camera configs inside the same
+    // list. Devices still wrapping the old ones would drive disposed
+    // configs: every preset "not connected" until the tab was left.
+    final current = _devices.skip(1).map((d) => (d as PanasonicDevice).camera);
+    if (current.length != widget.cameras.length ||
+        !current.indexed.every((e) => identical(e.$2, widget.cameras[e.$1]))) {
+      _removeListeners();
+      _buildDevices();
+      _setupListeners();
+      _namesByDevice.clear();
+      _hiddenByDevice.clear();
+      _lastStorageKeys = _devices.map((d) => d.storageKey).toList();
+      if (_selectedDeviceIndex >= _devices.length) _selectedDeviceIndex = 0;
+      _loadNames(_selectedDeviceIndex);
+      _loadVisibility(_selectedDeviceIndex);
+      _refresh();
+      return;
+    }
     final keys = _devices.map((d) => d.storageKey).toList();
     for (var i = 0; i < keys.length; i++) {
       if (keys[i] != _lastStorageKeys[i]) {

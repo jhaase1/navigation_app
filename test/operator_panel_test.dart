@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/panasonic_service.dart';
 import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/services/visibility_store.dart';
 import 'package:navigation_app/services/preset_name_store.dart';
@@ -439,5 +442,48 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+  });
+
+  testWidgets('a camera replaced in Settings is the one the Panel drives',
+      (tester) async {
+    // Settings -> Connections swaps the camera configs inside the same list
+    // while the Panel tab stays mounted. The Panel kept the old ones, so
+    // every preset tap reported "not connected" until the operator left the
+    // tab and came back.
+    final recalls = <String>[];
+    final cams = [
+      PanasonicCameraConfig(name: 'Wide', ipAddress: '10.0.1.10')
+        ..isConnected.value = false
+    ];
+    await tester.pumpWidget(_buildConnected(cameras: cams));
+    await tester.pumpAndSettle();
+
+    final replacement =
+        PanasonicCameraConfig(name: 'Wide', ipAddress: '10.0.1.20')
+          ..service = PanasonicService(
+              ipAddress: '10.0.1.20',
+              maxRetries: 1,
+              ptzCommandDelay: Duration.zero,
+              client: MockClient((r) async {
+                final cmd = r.url.queryParameters['cmd']!;
+                if (cmd.startsWith('#R')) recalls.add(cmd);
+                return http.Response('ok', 200);
+              }))
+          ..isConnected.value = true;
+    addTearDown(replacement.dispose);
+    cams
+      ..clear()
+      ..add(replacement);
+    await tester.pumpWidget(_buildConnected(cameras: cams));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Wide'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, '1'), findsWidgets,
+        reason: 'the replacement is connected; its presets must be offered');
+    await tester.tap(find.widgetWithText(FilledButton, '1').first);
+    await tester.pumpAndSettle();
+
+    expect(recalls, ['#R00']);
   });
 }
