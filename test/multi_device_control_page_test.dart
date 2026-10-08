@@ -360,6 +360,34 @@ void main() {
       expect(find.text('Roland reconnected'), findsOneWidget);
     });
 
+    testWidgets('a dead switcher is not Live just because a camera is up',
+        (tester) async {
+      final roland = _FakeRoland();
+      final cameras = <String, _FakeCamera>{};
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => roland,
+          cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+          cameraHealthInterval: const Duration(seconds: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+      expect(find.text('Live'), findsOneWidget);
+
+      roland.drop();
+      await tester.pumpAndSettle();
+
+      // Macros will fail; the badge must not tell the operator otherwise.
+      expect(find.text('Live'), findsNothing);
+      expect(find.text('Offline'), findsOneWidget);
+      // The cameras still work, so prep stays open and no "nothing
+      // connected" banner claims otherwise.
+      expect(find.text('No devices connected'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('a switcher that reconnects on its own clears the pill',
         (tester) async {
       final roland = await _connectLive(tester);

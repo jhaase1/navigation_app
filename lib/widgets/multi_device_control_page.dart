@@ -605,6 +605,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   Widget build(BuildContext context) {
     final isConnected = _rolandConnected.value ||
         _panasonicCameras.any((c) => c.isConnected.value);
+    // The badge answers "will a macro go out?", so it follows the switcher
+    // alone; a camera that is still up keeps the banner away, not the badge.
+    final switcherUp = _rolandConnected.value;
 
     return Scaffold(
       appBar: AppBar(
@@ -628,7 +631,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: !isConnected
+                        color: !switcherUp
                             ? Colors.grey.shade300
                             : _mockMode
                                 ? Colors.orange.shade100
@@ -636,7 +639,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        !isConnected
+                        !switcherUp
                             ? 'Offline'
                             : _mockMode
                                 ? 'Demo'
@@ -644,7 +647,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: !isConnected
+                          color: !switcherUp
                               ? Colors.grey.shade800
                               : _mockMode
                                   ? Colors.orange.shade800
