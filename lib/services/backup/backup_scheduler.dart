@@ -191,8 +191,12 @@ class BackupScheduler {
       return _Attempt.fault(fault);
     } catch (error) {
       if (_stopped) return const _Attempt.stopped();
-      final fault =
-          AppFault.backup(BackupFailureKind.unknown, '$error', cause: error);
+      // Filed under its operation, like every other fault: without one the
+      // status surface keys it 'unknown', which no later success clears.
+      final fault = AppFault.backup(BackupFailureKind.unknown, '$error',
+          operation: op.name,
+          targetIdentity: service.targetIdentity,
+          cause: error);
       _events.add(fault);
       return _Attempt.fault(fault);
     }

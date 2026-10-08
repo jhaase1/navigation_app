@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:navigation_app/services/backup/app_fault.dart';
@@ -112,6 +114,67 @@ void main() {
         'multipart/related; boundary="b"');
   });
 
+  group('a sign-in SDK failure while fetching a token is an AppFault', () {
+    // Not a raw exception: one of those reaches the pill with no operation,
+    // under a key nothing clears, and with no Sign in button.
+    final cases = <(String, Object, BackupFailureKind)>[
+      (
+        // Refresh token revoked or expired: only a sign-in fixes it.
+        'the token endpoint refusing the refresh',
+        PlatformException(
+            code: 'org.openid.appauth.oauth_token: -10',
+            message: 'invalid_grant'),
+        BackupFailureKind.authExpired,
+      ),
+      (
+        'the SDK no longer having the user',
+        const GoogleSignInException(
+            code: GoogleSignInExceptionCode.userMismatch,
+            description: 'The user is no longer signed in.'),
+        BackupFailureKind.authExpired,
+      ),
+      (
+        'no network for the refresh',
+        PlatformException(
+            code: 'org.openid.appauth.general: -5',
+            message: 'The Internet connection appears to be offline.'),
+        BackupFailureKind.offline,
+      ),
+      (
+        'an unexplained SDK error',
+        const GoogleSignInException(
+            code: GoogleSignInExceptionCode.unknownError,
+            description: 'The operation couldn’t be completed.'),
+        BackupFailureKind.offline,
+      ),
+      (
+        'the keychain failing',
+        const GoogleSignInException(
+            code: GoogleSignInExceptionCode.providerConfigurationError),
+        BackupFailureKind.offline,
+      ),
+    ];
+    for (final (name, error, kind) in cases) {
+      test('$name is ${kind.name}', () async {
+        final client = AuthorizedDriveClient(
+          _ThrowingCredentials(error),
+          inner: MockClient((r) async {
+            seen.add(r);
+            return http.Response('ok', 200);
+          }),
+        );
+
+        await expectLater(
+          client.get(Uri.parse('https://www.googleapis.com/drive/v3/files')),
+          throwsA(isA<AppFault>()
+              .having((f) => f.kind, 'kind', kind.name)
+              .having((f) => f.cause, 'cause', error)),
+        );
+        expect(seen, isEmpty);
+      });
+    }
+  });
+
   test('a request that never answers times out instead of hanging', () async {
     final client = clientWith((_) => Completer<http.Response>().future,
         timeout: const Duration(milliseconds: 50));
@@ -143,6 +206,17 @@ void main() {
 class _HungCredentials implements DriveCredentials {
   @override
   Future<Map<String, String>?> headers() => Completer<Map<String, String>?>().future;
+
+  @override
+  Future<void> invalidate(Map<String, String> rejected) async {}
+}
+
+class _ThrowingCredentials implements DriveCredentials {
+  final Object error;
+  _ThrowingCredentials(this.error);
+
+  @override
+  Future<Map<String, String>?> headers() async => throw error;
 
   @override
   Future<void> invalidate(Map<String, String> rejected) async {}
