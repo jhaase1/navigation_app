@@ -3,6 +3,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
 import 'dart:developer' as dev;
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'abstract/roland_service_abstract.dart';
 
 /// Custom exception for Roland service errors.
@@ -1609,8 +1612,22 @@ class RolandService extends RolandServiceAbstract
 
   // Auto-reconnect
   bool _autoReconnect = false;
-  int _maxReconnectAttempts = 3;
-  Duration _reconnectDelay = const Duration(seconds: 5);
+  Duration _reconnectDelay = const Duration(seconds: 1);
+  Duration _reconnectMaxDelay = const Duration(seconds: 30);
+
+  /// Whether the operator wants the link up. A deliberate [disconnect]
+  /// clears it; only a link lost while this is set is reconnected.
+  bool _wantConnected = false;
+  bool _reconnecting = false;
+  bool _disposed = false;
+
+  /// Bumped by every deliberate [disconnect], so a reconnect attempt that
+  /// was already in flight cannot bring the link back up afterwards.
+  int _session = 0;
+
+  /// Reconnect attempts made since this service was created.
+  @visibleForTesting
+  int reconnectAttempts = 0;
   final Duration _minCommandInterval = const Duration(milliseconds: 10);
   DateTime _lastCommandTime = DateTime.now();
 
@@ -1636,12 +1653,16 @@ class RolandService extends RolandServiceAbstract
     return _parseResponse(response);
   }
 
-  /// Sets auto-reconnect on disconnection.
+  /// Reconnects on its own whenever the link drops without [disconnect]
+  /// being called — waiting [delay], doubling up to [maxDelay], and never
+  /// giving up. A switcher that reboots mid-service must come back without
+  /// anyone touching the app.
   void setAutoReconnect(bool enable,
-      {int maxAttempts = 3, Duration delay = const Duration(seconds: 5)}) {
+      {Duration delay = const Duration(seconds: 1),
+      Duration maxDelay = const Duration(seconds: 30)}) {
     _autoReconnect = enable;
-    _maxReconnectAttempts = maxAttempts;
     _reconnectDelay = delay;
+    _reconnectMaxDelay = maxDelay;
   }
 
   /// Helper to build commands.
@@ -1661,25 +1682,36 @@ class RolandService extends RolandServiceAbstract
   /// await service.connect();
   /// print('Connected successfully');
   Future<void> connect({int retryCount = 3}) async {
+    // A [disconnect] while this is still dialling or logging in means the
+    // operator let go. Finishing anyway would log in a session nobody wants
+    // and, until noticed, hold one of the switcher's telnet slots.
+    final session = _session;
     for (int attempt = 0; attempt <= retryCount; attempt++) {
+      Socket? socket;
       try {
         dev.log('Connecting to $host:$port (attempt ${attempt + 1})');
-        _socket = useSSL
+        socket = useSSL
             ? await SecureSocket.connect(host, port).timeout(connectTimeout)
             : await Socket.connect(host, port).timeout(connectTimeout);
-        _setConnected(true);
+        if (session != _session) throw ConnectionException('Let go');
+        final live = socket;
+        _socket = live;
 
         // Set up a completer for authentication
         final authCompleter = Completer<bool>();
         bool authenticated = false;
 
-        _socket!.listen(
+        // Every handler checks that its socket is still the current one. A
+        // socket from a failed attempt can close long after a later attempt
+        // succeeded, and must not tear that connection down.
+        live.listen(
           (data) {
+            if (!identical(live, _socket)) return;
             // Handle Telnet negotiation bytes (0xFF = IAC)
             if (data.isNotEmpty && data[0] == 0xFF) {
               // Respond to Telnet DO with WILL
               if (data.length >= 3 && data[1] == 0xFD) {
-                _socket!.add([0xFF, 0xFB, data[2]]);
+                live.add([0xFF, 0xFB, data[2]]);
               }
               // Check if there's text after telnet bytes
               int textStart = 0;
@@ -1710,24 +1742,21 @@ class RolandService extends RolandServiceAbstract
             }
           },
           onError: (error) {
-            dev.log('Socket error: $error');
-            _setConnected(false);
-            _responseController
-                .addError(ConnectionException('Socket error: $error'));
-            _responseController.close();
+            if (!authCompleter.isCompleted) authCompleter.complete(false);
+            if (identical(live, _socket)) _linkLost('Socket error: $error');
           },
           onDone: () {
-            dev.log('Socket closed');
-            _setConnected(false);
-            disconnect();
+            if (!authCompleter.isCompleted) authCompleter.complete(false);
+            if (identical(live, _socket)) _linkLost('Socket closed');
           },
         );
 
         // Wait a moment for telnet negotiation, then send password
         await Future.delayed(const Duration(milliseconds: 500));
+        if (session != _session) throw ConnectionException('Let go');
         dev.log('Sending password');
-        _socket!.write('$password\r\n');
-        await _socket!.flush();
+        live.write('$password\r\n');
+        await live.flush();
 
         // Wait for authentication
         final authResult = await authCompleter.future.timeout(
@@ -1735,15 +1764,24 @@ class RolandService extends RolandServiceAbstract
           onTimeout: () => false,
         );
 
-        if (!authResult) {
+        if (!authResult || !identical(live, _socket)) {
           throw ConnectionException('Authentication failed');
         }
+        if (session != _session) throw ConnectionException('Let go');
 
+        // Up only once authenticated: before that, commands would be
+        // written into a login prompt.
+        _wantConnected = true;
+        _setConnected(true);
         dev.log('Connected and authenticated successfully');
         return;
       } catch (e) {
+        if (socket != null) {
+          if (identical(socket, _socket)) _socket = null;
+          socket.destroy();
+        }
         dev.log('Connection attempt ${attempt + 1} failed: $e');
-        if (attempt == retryCount) {
+        if (attempt == retryCount || session != _session) {
           throw ConnectionException(
               'Connection failed after $retryCount attempts: $e');
         }
@@ -1780,48 +1818,78 @@ class RolandService extends RolandServiceAbstract
 
   /// Reconnects to the Roland device.
   Future<void> reconnect() async {
-    if (_isConnected) disconnect();
+    if (_isConnected) await disconnect();
     await connect();
   }
 
-  /// Disconnects from the Roland device.
+  /// Deliberately disconnects. Auto-reconnect does not undo this.
   @override
   Future<void> disconnect() async {
     dev.log('Disconnecting');
-    _socket?.close();
-    _socket = null;
+    _wantConnected = false;
+    _session++;
+    _dropSocket();
     _setConnected(false);
-    _responseBuffer.clear();
-    _responseController.close();
-    // Complete any pending acks with error
-    while (_ackCompleters.isNotEmpty) {
-      _ackCompleters
-          .removeFirst()
-          .completeError(RolandException('Disconnected'));
+    _failPending(RolandException('Disconnected'));
+  }
+
+  /// The link went down without anyone asking. Unlike [disconnect], the
+  /// response stream stays open — listeners outlive the socket — and the
+  /// link is brought back if auto-reconnect is on.
+  void _linkLost(String reason) {
+    dev.log(reason);
+    _dropSocket();
+    _setConnected(false);
+    _failPending(ConnectionException(reason));
+    if (!_responseController.isClosed) {
+      _responseController.addError(ConnectionException(reason));
     }
-    // Auto-reconnect if enabled
-    if (_autoReconnect && !_isConnected) {
-      _attemptReconnect();
+    if (_autoReconnect && _wantConnected && !_disposed) _startReconnecting();
+  }
+
+  void _dropSocket() {
+    final socket = _socket;
+    _socket = null;
+    socket?.destroy();
+    _responseBuffer.clear();
+  }
+
+  void _failPending(Exception error) {
+    while (_ackCompleters.isNotEmpty) {
+      final c = _ackCompleters.removeFirst();
+      if (!c.isCompleted) c.completeError(error);
     }
   }
 
-  /// Attempts to reconnect with retries.
-  void _attemptReconnect() async {
-    for (int i = 0; i < _maxReconnectAttempts; i++) {
+  /// Retries until the link is back or the operator lets go, backing off to
+  /// at most the configured ceiling. There is no attempt limit: a loop that
+  /// gives up leaves a switcher that rebooted mid-service dead until someone
+  /// notices.
+  void _startReconnecting() {
+    if (_reconnecting) return;
+    _reconnecting = true;
+    final session = _session;
+    unawaited(() async {
+      var delay = _reconnectDelay;
       try {
-        await connect(retryCount: 0); // No internal retries
-        return;
-      } catch (e) {
-        if (i < _maxReconnectAttempts - 1) {
-          final delay = Duration(seconds: _reconnectDelay.inSeconds * (1 << i));
-          dev.log(
-              'Reconnection attempt ${i + 1} failed: $e, retrying in ${delay.inSeconds} seconds');
+        while (_wantConnected && !_disposed && !_isConnected) {
           await Future.delayed(delay);
-        } else {
-          dev.log('Reconnection failed after $_maxReconnectAttempts attempts');
+          if (!_wantConnected || _disposed || _isConnected) break;
+          if (session != _session) break;
+          reconnectAttempts++;
+          try {
+            await connect(retryCount: 0);
+            if (session != _session) await disconnect();
+          } catch (e) {
+            dev.log('Reconnection attempt $reconnectAttempts failed: $e');
+          }
+          final doubled = delay * 2;
+          delay = doubled > _reconnectMaxDelay ? _reconnectMaxDelay : doubled;
         }
+      } finally {
+        _reconnecting = false;
       }
-    }
+    }());
   }
 
   @override
@@ -2421,7 +2489,9 @@ class RolandService extends RolandServiceAbstract
 
   /// Disposes the service, closing streams and disconnecting.
   void dispose() {
+    _disposed = true;
     disconnect();
     _responseController.close();
+    _connectionController.close();
   }
 }
