@@ -25,6 +25,7 @@ import '../services/position_store.dart';
 import '../services/service_store.dart';
 import '../utils/device_feedback.dart';
 import 'backup/backup_status_pill.dart';
+import 'backup/google_sign_in_banner.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
 import 'service_tab.dart';
@@ -91,6 +92,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<HeightRange> _heightRanges = [];
   late final BackupController _backup;
   final _lineupLease = LineupLease();
+
+  // One key for both layouts, so "Not now" survives connecting a device.
+  final _signInBannerKey = GlobalKey();
 
   @override
   void initState() {
@@ -654,56 +658,63 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           ),
         ],
       ),
-      body: DefaultTabController(
-        length: 3,
-        child: Column(
-          children: [
-            if (!isConnected) _buildOfflineBanner(),
-            const TabBar(
-              tabs: [
-                Tab(text: 'Service'),
-                Tab(text: 'Panel'),
-                Tab(text: 'Positions'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
+      body: Column(
+        children: [
+          GoogleSignInBanner(key: _signInBannerKey, controller: _backup),
+          Expanded(
+            child: DefaultTabController(
+              length: 3,
+              child: Column(
                 children: [
-                  ServiceTab(
-                    cameras: _panasonicCameras,
-                    people: _people,
-                    positions: _positions,
-                    services: _services,
-                    heightRanges: _heightRanges,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    onResponse: _showResponse,
-                    onFailure: _showFailure,
+                  if (!isConnected) _buildOfflineBanner(),
+                  const TabBar(
+                    tabs: [
+                      Tab(text: 'Service'),
+                      Tab(text: 'Panel'),
+                      Tab(text: 'Positions'),
+                    ],
                   ),
-                  OperatorPanel(
-                    operator: _activeOperator,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    cameras: _panasonicCameras,
-                    onResponse: _showResponse,
-                    onFailure: _showFailure,
-                    onServicesChanged: _loadServices,
-                  ),
-                  PositionsTab(
-                    cameras: _panasonicCameras,
-                    positions: _positions,
-                    people: _people,
-                    heightRanges: _heightRanges,
-                    onResponse: _showResponse,
-                    onFailure: _showFailure,
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        ServiceTab(
+                          cameras: _panasonicCameras,
+                          people: _people,
+                          positions: _positions,
+                          services: _services,
+                          heightRanges: _heightRanges,
+                          rolandService: _rolandService,
+                          rolandConnected: _rolandConnected,
+                          rolandIpController: _rolandIpController,
+                          onResponse: _showResponse,
+                          onFailure: _showFailure,
+                        ),
+                        OperatorPanel(
+                          operator: _activeOperator,
+                          rolandService: _rolandService,
+                          rolandConnected: _rolandConnected,
+                          rolandIpController: _rolandIpController,
+                          cameras: _panasonicCameras,
+                          onResponse: _showResponse,
+                          onFailure: _showFailure,
+                          onServicesChanged: _loadServices,
+                        ),
+                        PositionsTab(
+                          cameras: _panasonicCameras,
+                          positions: _positions,
+                          people: _people,
+                          heightRanges: _heightRanges,
+                          onResponse: _showResponse,
+                          onFailure: _showFailure,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

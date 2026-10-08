@@ -5,13 +5,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/operator_profile.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
+import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/config_mutation_notifier.dart';
 import 'package:navigation_app/services/config_bundle.dart';
 import 'package:navigation_app/services/config_file_picker.dart';
+import 'package:navigation_app/services/backup/drive/google_drive_account.dart';
+import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
 import 'package:navigation_app/services/height_range_store.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/utils/height_utils.dart';
 import 'package:navigation_app/widgets/settings_dialog.dart';
+
+import 'backup/support/fake_sign_in_platform.dart';
 
 Widget _settingsDialog({
   List<HeightRange> heightRanges = const [],
@@ -19,6 +27,7 @@ Widget _settingsDialog({
   VoidCallback? onPeopleChanged,
   ValueChanged<String>? onResponse,
   ConfigFilePicker? configFilePicker,
+  BackupController? backupController,
 }) {
   return MaterialApp(
     theme: ThemeData(useMaterial3: false),
@@ -48,6 +57,7 @@ Widget _settingsDialog({
             onDeviceConfigSaved: (_, __) {},
             onOperatorsChanged: () {},
             configFilePicker: configFilePicker ?? _FakePicker(),
+            backupController: backupController,
           ),
         ),
         child: const Text('Open'),
@@ -278,5 +288,36 @@ void main() {
       expect(find.text('Import failed'), findsOneWidget);
       expect(find.text('Replace all'), findsNothing);
     });
+  });
+
+  testWidgets('signing in to Google Drive from Settings shows who backs up',
+      (tester) async {
+    final platform = FakeSignInPlatform()..pickedEmail = 'ops@example.com';
+    GoogleSignInPlatform.instance = platform;
+    final account = GoogleDriveAccount(
+        expectedAccount: 'ops@example.com', signIn: GoogleSignIn.instance);
+    final controller = BackupController.forService(
+      BackupService(
+        target: MockBackupTarget(),
+        targetIdentity: 'drive:ops@example.com',
+        deviceLabel: () async => 'Mac mini',
+        readBundleJson: () async => {'schemaVersion': 1},
+        localIsPristine: () async => true,
+      ),
+      driveAccount: account,
+    );
+    await account.restore();
+
+    await tester.pumpWidget(_settingsDialog(backupController: controller));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Google Drive'));
+    expect(find.textContaining('Not signed in'), findsOneWidget);
+
+    await tester.tap(find.text('Google Drive'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Backing up to ops@example.com. Tap to sign out.'),
+        findsOneWidget);
   });
 }

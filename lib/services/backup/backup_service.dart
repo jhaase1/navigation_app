@@ -27,6 +27,12 @@ class PullResult {
   const PullResult(this.outcome, {this.revision});
 }
 
+/// Retention ran. Carries nothing: its only job is to tell the status
+/// surface that a standing prune fault no longer applies.
+class PruneResult {
+  const PruneResult();
+}
+
 enum PushOutcome { noOp, uploaded, conflict, forked }
 
 class PushResult {
@@ -74,6 +80,11 @@ class BackupService {
     Duration(minutes: 5),
     Duration(minutes: 10),
   ];
+
+  /// Retention: a revision is removed only when it is BOTH outside the
+  /// newest [retentionKeepCount] AND older than [retentionKeepFor].
+  static const retentionKeepCount = 50;
+  static const retentionKeepFor = Duration(days: 90);
 
   final BackupTargetAbstract target;
   final String targetIdentity;
@@ -124,6 +135,14 @@ class BackupService {
     final p = await BackupPointer.load();
     return p.matchesTarget(targetIdentity) ? p : const BackupPointer();
   }
+
+  /// Applies the retention policy at the target.
+  Future<PruneResult> prune() => _single(() => _withStorageBoundary('prune',
+          () async {
+        await target.prune(
+            keepCount: retentionKeepCount, keepFor: retentionKeepFor);
+        return const PruneResult();
+      }));
 
   Future<PullResult> pull() =>
       _single(() => _withStorageBoundary('pull', _pull));
@@ -673,8 +692,10 @@ class BackupService {
   ) async {
     try {
       return await action();
-    } on AppFault {
-      rethrow;
+    } on AppFault catch (fault, stack) {
+      Error.throwWithStackTrace(
+          fault.withContext(operation: operation, targetIdentity: targetIdentity),
+          stack);
     } on StateError catch (error) {
       throw AppFault.backup(
         BackupFailureKind.storageWriteFailed,

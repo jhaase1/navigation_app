@@ -78,6 +78,21 @@ class AppFault implements Exception {
 
   static const deviceDisconnectedKind = 'deviceDisconnected';
 
+  /// This fault with [operation] and [targetIdentity] filled in where it has
+  /// none. A storage target knows nothing of pull or push; the engine does,
+  /// and the status surface files every condition under its operation.
+  AppFault withContext({String? operation, String? targetIdentity}) =>
+      this.operation != null && this.targetIdentity != null
+          ? this
+          : AppFault(
+              domain: domain,
+              kind: kind,
+              message: message,
+              operation: this.operation ?? operation,
+              targetIdentity: this.targetIdentity ?? targetIdentity,
+              cause: cause,
+            );
+
   static const _promptRetry = {'offline', 'rateLimited', 'transientServer'};
   static const _sweepOnly = {'unknown'};
   static const _needsHuman = {

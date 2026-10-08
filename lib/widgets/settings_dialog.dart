@@ -8,6 +8,7 @@ import '../services/config_bundle.dart';
 import '../services/config_file_picker.dart';
 import '../services/device_config_store.dart';
 import 'backup/device_name_dialog.dart';
+import 'backup/google_drive_tile.dart';
 import 'backup/revision_history_sheet.dart';
 import 'connections_dialog.dart';
 import 'height_range_manager_dialog.dart';
@@ -452,6 +453,11 @@ class SettingsDialog extends StatelessWidget {
                 subtitle: 'Replace all data from a previously exported file',
                 onTap: () => _importConfig(context),
               ),
+              if (backupController?.driveAccount != null)
+                GoogleDriveTile(
+                  controller: backupController!,
+                  account: backupController!.driveAccount!,
+                ),
               if (backupController != null)
                 _tile(
                   icon: Icons.history,
