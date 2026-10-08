@@ -79,14 +79,15 @@ class CommandQueue {
   Future<String> addCommand(Future<String> Function() command) async {
     final completer = Completer<String>();
     _queue.add(() async {
+      // The caller hears about a failure through [completer]. Rethrowing it
+      // here as well escaped the queue unhandled and left it marked busy,
+      // so nothing after a refused command was ever sent to the camera.
       try {
-        final result = await command();
-        completer.complete(result);
-        return result;
-      } catch (e) {
-        completer.completeError(e);
-        rethrow;
+        completer.complete(await command());
+      } catch (e, st) {
+        completer.completeError(e, st);
       }
+      return '';
     });
     _processQueue();
     return completer.future;
@@ -95,22 +96,24 @@ class CommandQueue {
   Future<void> _processQueue() async {
     if (_isProcessing || _queue.isEmpty) return;
     _isProcessing = true;
-
-    while (_queue.isNotEmpty) {
-      // Enforce delay between commands
-      final now = DateTime.now();
-      if (_lastCommandTime != null) {
-        final elapsed = now.difference(_lastCommandTime!);
-        if (elapsed < delay) {
-          await Future.delayed(delay - elapsed);
+    try {
+      while (_queue.isNotEmpty) {
+        // Enforce delay between commands
+        final now = DateTime.now();
+        if (_lastCommandTime != null) {
+          final elapsed = now.difference(_lastCommandTime!);
+          if (elapsed < delay) {
+            await Future.delayed(delay - elapsed);
+          }
         }
-      }
-      _lastCommandTime = DateTime.now();
+        _lastCommandTime = DateTime.now();
 
-      final commandFunc = _queue.removeFirst();
-      await commandFunc();
+        final commandFunc = _queue.removeFirst();
+        await commandFunc();
+      }
+    } finally {
+      _isProcessing = false;
     }
-    _isProcessing = false;
   }
 }
 
