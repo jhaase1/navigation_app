@@ -1,131 +1,199 @@
-# Steps to MVP: Backup Engine, Status Surface & Production Readiness
+# Steps to MVP
 
-This document outlines what is covered by the current plan ([`2026-08-21-backup-foundations-and-engine.md`](file:///Users/danielgreig/Desktop/navigation_app-backup-engine/docs/superpowers/plans/2026-08-21-backup-foundations-and-engine.md)), what remains in the pipeline from the [Backup & Status Spec](file:///Users/danielgreig/Desktop/navigation_app/docs/superpowers/specs/2026-08-21-drive-backup-and-status-surface-design.md), and the critical operational gaps that must be resolved before the app earns full MVP status for live Sunday services.
+What stands between this app and running a live Sunday service on it.
+Refreshed 2026-10-04. Status words mean exactly one thing:
+
+- **Merged** — on `main`.
+- **In PR** — written and tested, waiting for review. "Stacked on #N" means
+  the PR targets #N's branch and retargets to `main` once #N merges.
+- **Blocked** — needs something only a person or a Mac can provide.
+- **Open** — nobody has done it.
+
+Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surface-design.md`,
+`docs/superpowers/plans/`, and lane packets under `docs/superpowers/lanes/`.
 
 ---
 
-## 1. Current Plan Scope vs. Spec
+## 1. Backup and status surface (spec phases 0–5)
 
-The current implementation plan covers **Phases 0, 1, and 2** of the Backup & Status specification:
-
-- **Phase 0 — Platform & Auth Spike:** Proves build/dependency impact on macOS, iOS, and Linux.
-- **Phase 1 — Foundations:** Canonical JSON encoding, SHA-256 content hashing, `AppFault` taxonomy, revision metadata, `MockBackupTarget`, store mutation notifiers, `schemaVersion` validation, and atomic transactional restores via `RestoreJournal`.
-- **Phase 2 — The Engine:** Push with post-write fork detection, 7-branch pull protocol, retry backoff, single-flight serialization, `BackupScheduler`, and startup rollback/singleton guards running against `MockBackupTarget`.
-
-### What This Leaves on the Table:
-The engine logic is verified in memory against a mock, but does not yet connect to Google Drive, does not render UI status indicators, and does not capture hardware failures.
-
-### Plans written, plans still owed
-
-| Plan | Covers | State |
+| Phase | What | Status |
 |---|---|---|
-| `2026-08-21-backup-foundations-and-engine.md` | Phases 0-2 — engine against the mock | Written. |
-| `2026-08-21-status-surface.md` | **Phase 3, both lanes.** Lane 3a is Tasks 1-10, lane 3b is Tasks 11-18. | Written and reviewed — self-review, two cold cross-family reviewers (`gpt-5.6-sol`, `grok-4.6`), then a third round against the folded draft. Fifteen blockers fixed, two refuted with receipts. 3a merged as PR #19; **3b is planned, unstarted, and ready to execute.** |
-| Implementation Plan #3 | Phase 4 — real Google Drive target and Google/Apple auth | **Not written.** |
-| Implementation Plan #4 | Phase 5 + the Live Ops items in section 3 below | **Not written.** |
+| 0 | Platform and auth spike | **Merged** (`docs/superpowers/spikes/`) |
+| 1–2 | Foundations and engine against `MockBackupTarget` | **Merged** |
+| 3a | Status pill, log popover, lifecycle | **Merged** (PR #19) |
+| 3b | Conflict dialog, revision history, machine naming | **Merged** (PR #22) |
+| 4 | Google Drive target, Google sign-in, retention | **In PR #27**, code-complete against a fake Drive. **Blocked** on the items below. |
+| 5 | Switcher and camera faults on the pill | **In PR #34** (stacked on #31) |
 
-Writing a fresh plan for lane 3b would be re-doing finished work. The two
-genuinely missing plans are #3 and #4.
+### Phase 4 — what's left after PR #27 merges
+
+1. **Google Cloud setup (account owner):**
+   - Enable the Drive API.
+   - Set the OAuth consent screen to `drive.file` and **publish it to
+     "In production"**. Testing mode expires the grant every 7 days.
+   - Create iOS-type OAuth client IDs for the iOS and macOS bundle IDs.
+2. **Apple config (needs the client IDs and a Mac):**
+   - `GIDClientID` and the reversed-client-id `CFBundleURLTypes` in both
+     `Info.plist` files.
+   - `keychain-access-groups` = `$(AppIdentifierPrefix)com.google.GIDSignIn`
+     in both macOS entitlements.
+3. **Build** the Mac mini and iPad with
+   `--dart-define=BACKUP_GOOGLE_ACCOUNT=<shared account>`. Don't set it before
+   step 2: sign-in fails without the Apple config.
+4. **Hand test** — the 8 steps in `docs/superpowers/lanes/drive-target/plan.md`,
+   including leaving the Mac running for over an hour.
+5. **Decide retention.** Proposed: keep the newest 50, and keep anything
+   younger than 90 days.
+
 ---
 
-## 2. Remaining Spec Phases
+## 2. Operational landmines (from the August review)
 
-```mermaid
-flowchart TD
-    A["Current Plan: Engine & Mock (Phases 0–2)"] --> B["Phase 3: Status Surface & UI"]
-    B --> C["Phase 4: Google Drive & Auth"]
-    C --> D["Phase 5: Hardware Fault Integration"]
-    D --> E["Operational & Live Service Fixes"]
-    E --> F["Production MVP"]
+| # | Landmine | Status |
+|---|---|---|
+| 1 | Swallowed hardware responses (`onResponse: (_) {}`) | **In PR #23**. Failures styled as failures in **#33** (stacked on #23). |
+| 2 | Switcher disconnect left the UI reading Live | **In PR #23** (Offline badge). Auto-reconnect in **#29**, command path in **#30** (stacked). |
+| 3 | "No devices connected" lockout blocked offline prep | **In PR #23** |
+| 4 | No in-flight feedback on cues | **In PR #24** |
+| 5 | Sunday lineup lost on tab switch or restart | **In PR #25** — kept for 20 minutes past the screen going off, then cleared (see §4) |
+| 6 | Export/import path unreachable in the macOS sandbox | **In PR #26** |
+
+### Found since, also in PR
+
+| Problem | PR |
+|---|---|
+| A slow CUT was re-sent up to 3 more times, so the wrong shot could go to air | #30 |
+| One lost switcher reply made every later command report failure (a re-tap double-fires) | #30 |
+| One garbled switcher reply marked up to 3 waiting commands as done | #30 |
+| Demo → Live brought cameras back "connected" on their demo stand-ins | #31 |
+| A dropped switcher kept reconnecting after Demo, an IP change or a fresh Connect | #29 |
+| A camera's red pill fault stuck after reconnecting it by hand | #34 |
+| A lineup carried from one service into the next | #25 |
+| One refused preset froze that camera's queue: every later recall waited forever | #36 |
+| Letting go of the switcher mid-reconnect still logged a session in | #29 |
+| A Demo switch, IP change or second Connect made while the switcher was still dialling was overridden (real switcher live under a Demo badge, or an orphaned session) | #23 |
+| A switcher `ERR:n;` reply read as success | #30 |
+| A camera probe that timed out left its socket open | #31 |
+| A failed Connect cleared "Switcher offline" from the pill | #34 |
+| Re-picking the service let an in-flight cue fire twice | #24 |
+| Changing one reader on a lapsed lineup re-saved the stale ones | #25 |
+| An offline or hung Google restore left backups signed out or stalled until restart | #27 |
+| The Panel tab kept driving cameras that Settings had replaced | #37 |
+| A camera down in Live came back on its real service after switching to Demo; a camera Connect mid-dial was installed under the Demo badge | #31 |
+| A failed camera Connect cleared its pill fault; same-named cameras shared one fault | #34 |
+| Leaving the Service tab and coming back let an in-flight cue fire twice | #24 |
+| After a failed camera Connect or a mode switch, the Panel tab "recalled" presets on a Demo stand-in while the real camera was dead | #31 |
+| Switching Live/Demo left the badge reading Live and the Connect banner hidden | #23 |
+| #26's lock pinned test packages below main's (resolved on an older Flutter) | #26 |
+| A dropped switcher link could never be reconnected (closed response stream) | #29 |
+| A camera that stopped answering stayed "connected" for the rest of the service | #31 |
+| An unstamped Drive fault would never clear from the pill | #27 |
+| Fault log showed the newer of two same-tick entries second (flaky test on Windows) | #32 |
+| Single-instance OS-lock test could not run on Windows | #28 |
+
+---
+
+## 3. Merge order
+
+The stacks have to land bottom-up:
+
+```
+main ← #23 ← #29 ← #30
+          ← #31 ← #34
+          ← #33 ← #36
+main ← #24, #25, #26, #28, #32, #37   (independent)
+main ← #27                       (after #23 and #26 — see below)
 ```
 
-Phase 3: The Status Surface & UI
-
-**Lane 3a is DONE** — plan `docs/superpowers/plans/2026-08-21-status-surface.md`
-Tasks 1–10, merged via PR #19. **Lane 3b (Tasks 11–18) is planned in that same
-document and is in progress on `lane/backup-resolution`.**
-Struck items ship today; unstruck items do not exist yet.
-
-- ~~**AppBar Status Pill:** 5-state priority indicator (`red` non-conflict fault > `amber` conflict > `grey` not backed up > `amber` dirty pending > `green` backed up).~~ **DONE (3a).**
-- ~~**Error Log Popover:** Clickable popover displaying pinned active conditions, collapsible history via structured fingerprints `(domain, kind, operation, targetIdentity)`, dismiss controls (`x`), and relative time ladders.~~ **DONE (3a).**
-- **Conflict Resolution Dialog:** Non-modal interface showing machine identity, timestamp, and diff summary with three explicit operator actions: *Use Remote Copy*, *Keep My Copy as New Revision*, or *Decide Later* (with per-revision prompt suppression). — **NOT DONE (Lane 3b).** Conflicts and first-run adoption are *surfaced* on the pill and popover today, but there is no way to resolve them: `BackupService` has no public adopt or restore path yet. The "Deferred" marker also waits on 3b.
-- **Revision History Picker:** Visual list to preview and restore older snapshots from storage. — **NOT DONE (Lane 3b).**
-- **First-Run Device Naming:** Enforces explicit machine labeling; rejects invalid defaults (`localhost`, `iPad`, bare models, or duplicate names). — **NOT DONE (Lane 3b).**
-- ~~**Lifecycle Integration:** Attaches `BackupScheduler` to `WidgetsBindingObserver` to pull on foreground and flush on background.~~ **DONE (3a)**, plus app-start resume of pending work.
-- ~~**Production `localIsPristine`:** Comprehensive emptiness check across all 8 stores.~~ **DONE (3a).**
-
-> Note for John: nothing is backed up off-machine yet. Phase 3 ships the
-> *surface* — production has no backup target until Phase 4, so the pill
-> correctly reads "Not backed up". Lane 3a also does **not** fix the three
-> swallowed-hardware-response failures below; those are still live.
----
-
-### Phase 4: Google Drive Target & Auth
-- **`DriveBackupTarget`:** Real implementation of `BackupTargetAbstract` using Google Drive API v3 (`googleapis/drive/v3`).
-- **OAuth Authentication:** `google_sign_in` and auth token handling on macOS and iOS.
-- **Platform Entitlements & Configuration:** URL scheme callbacks (`CFBundleURLTypes`), macOS Keychain access groups (`$(AppIdentifierPrefix)com.google.GIDSignIn`), and Swift Package Manager linkage.
-- **Drive Folder Identity:** Single root folder lookup/creation, persisting folder ID, handling trashed/deleted folder conditions, and deterministic file ordering (`trashed = false`, `orderBy createdTime desc`).
-- **Automated Retention:** Executing `prune()` during periodic sweeps and pushes.
-
-### Phase 5: Hardware Fault Integration
-- Connect Roland V-160HD switcher socket disconnects, command timeouts, and protocol errors to `AppFault` (`FaultDomain.roland`).
-- Connect Panasonic PTZ camera HTTP errors, timeouts, and ER protocol errors to `AppFault` (`FaultDomain.camera`).
-- Surface device disconnections and hardware jams directly through the AppBar status pill.
-
----
-
-## 3. Operational Landmines & MVP Gaps
-
-The following architectural and operational issues in the existing codebase must be resolved before using the app during a live service:
-
-### 1. Swallowed Hardware Responses (`onResponse: (_) {}`)
-- **Location:** [`lib/widgets/multi_device_control_page.dart:325-560`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/multi_device_control_page.dart#L325-L560)
-- **Issue:** All device responses, errors, and timeouts from [`ServiceTab`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/service_tab.dart), [`OperatorPanel`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/operator_panel.dart), and [`PositionsTab`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/positions_tab.dart) are routed into empty closures.
-- **Impact:** If a camera fails to slew or the switcher drops a macro command during a service cue, the failure is swallowed silently. The cue advances, and the operator assumes the shot succeeded while the camera is pointed at the wrong location.
-- **Fix:** Route all execution errors into the central status/fault reporting pipeline and surface visual failure states directly on the cue step.
-
-### 2. Roland Switcher Socket Disconnect Desync
-- **Location:** [`lib/services/roland_service.dart:1707-1719`](file:///Users/danielgreig/Desktop/navigation_app/lib/services/roland_service.dart#L1707-L1719)
-- **Issue:** When the underlying TCP socket drops (`onError` or `onDone`), `RolandService` updates its internal state, but does not notify the UI's `_rolandConnected` `ValueNotifier`.
-- **Impact:** The UI continues to report **Live** while the switcher connection is completely dead.
-- **Fix:** Bind `_rolandConnected` directly to socket lifecycle events and reconnect attempts.
-
-### 3. Offline Service Prep Lockout
-- **Location:** [`lib/widgets/multi_device_control_page.dart:392-465`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/multi_device_control_page.dart#L392-L465)
-- **Issue:** If neither the Roland switcher nor any camera is connected, the app replaces the entire interface with a blocking "No devices connected" screen.
-- **Impact:** Operators cannot edit service steps, assign people to positions, or review cue lists at home or before the equipment rack is powered on without switching to Demo Mode (which replaces production data with mock fixtures).
-- **Fix:** Keep tabs accessible in an offline/disconnected state with clear connection indicators rather than a full-page modal lockout.
-
-### 4. Lack of In-Flight Feedback on Service Steps
-- **Location:** [`lib/widgets/service_tab.dart:116-237`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/service_tab.dart#L116-L237)
-- **Issue:** Firing a step sets `_currentStepIndex`, but provides no visual indication of command progress, hardware busy state, or success confirmation. PTZ camera preset recalls require 1–3 seconds of physical movement.
-- **Impact:** Operators cannot tell if the command is currently executing, leading to accidental double-triggers or hesitation during live production.
-- **Fix:** Add visual state indicators (e.g., executing spinner, completed checkmark, or failure badge) on the active cue item.
-
-### 5. Volatile Sunday Roster Assignments
-- **Location:** [`lib/widgets/service_tab.dart:60-63`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/service_tab.dart#L60-L63)
-- **Issue:** Participant-to-person assignments (`_participantAssignments`) are stored exclusively in ephemeral widget state.
-- **Impact:** Navigating away, switching operator profiles, or app background termination on iPad erases the day's volunteer lineup.
-- **Fix:** Persist active service participant assignments durably in `SharedPreferences`.
-
-### 6. macOS App Sandbox File Export Path
-- **Location:** [`lib/widgets/settings_dialog.dart:215-248`](file:///Users/danielgreig/Desktop/navigation_app/lib/widgets/settings_dialog.dart#L215-L248)
-- **Issue:** Manual export/import suggests `$HOME/Documents/config.json`, which inside the macOS App Sandbox resolves inside the sandboxed container (`~/Library/Containers/...`).
-- **Impact:** Non-technical operators cannot locate exported backup files via Finder.
-- **Fix:** Use native file picker dialogs (`file_picker` or platform channel) to allow secure, user-directed export and import.
+Conflicts to expect, all in the merge, none in the PRs themselves:
+- `service_tab.dart`: #24, #25 and #33. Keep #24's per-step cue key and
+  in-flight set, #25's lineup expiry listener and renew-before-assign, and
+  #33's `_fail` calls. #24's dropdown `onChanged` clears `_cueStates` and
+  bumps `_cueGeneration`; #25 replaces it with `onChanged: _selectService`.
+  Move that clear and bump into `_selectService` (and its restore paths),
+  or a late result stamps a check onto the newly picked service's cue.
+- `multi_device_control_page.dart`, the switcher link watcher: #29 and #34.
+  When both are in, #29's "link came back" path must also call
+  `clearDeviceFault` for the switcher, or the pill stays red after an
+  automatic reconnect. Start that fix from a failing test: connect live,
+  drop the link (pill reads "Switcher offline"), restore it, expect the
+  pill clear. Keep #34's `_releaseRoland(clearFault: false)` before a
+  Connect, so a Connect that fails leaves the pill red.
+- `multi_device_control_page.dart`: #27 adds the Google sign-in banner into
+  the offline layout that #23 replaces. Re-add the banner to #23's layout —
+  dropping it silently hides "sign in to resume backups". #27 also
+  re-indents the whole TabBarView and still carries `onResponse: (_) {}`
+  three times: taking its side of that block brings back landmine 1
+  (swallowed device responses). Take #23's side, or rebase #27 onto #23
+  first.
+- `multi_device_control_page.dart`: #25 × #31 both add to `initState` and
+  `dispose` — keep both `_lineupLease` and `_cameraHealth`. #33 × #29 meet
+  in the same file and its test (the `_showFailure` line below). #29 and #33
+  both edit `pinp_tab.dart`; it auto-merges, keep #29's `onError: (_) {}`.
+- `test/panasonic_service_test.dart` and the page test: #36 × #31 — take
+  both sides.
+- #27 and #26 both touch `pubspec.yaml`/`pubspec.lock`, the plugin
+  registrants and `settings_dialog_test.dart`: take both sides.
+- `_watchRolandLink`, #33 (and #36) × #34: #33 turns the "connection lost"
+  line into `_showFailure`; #34 keeps `_showResponse` and adds
+  `_backup.reportDeviceFault(...)`. Keep both: `_showFailure` *and*
+  `reportDeviceFault`, or the switcher fault never reaches the pill (the
+  page test "a lost switcher and a lost camera show on the status pill"
+  catches it).
+- Once #33 is in alongside #29 and #31, switch their "connection lost" and
+  "not responding" messages from `_showResponse` to `_showFailure`, or they
+  show in success grey.
 
 ---
 
-## 4. Prioritized Execution Checklist to MVP
+## 4. Still open
 
-| Priority | Area | Task | Deliverable |
-|---|---|---|---|
-| **P0** | Backup Engine | Execute plan `2026-08-21-backup-foundations-and-engine.md` | In-memory sync engine, atomic restores, canonical JSON |
-| ~~**P0**~~ | Status Surface | ~~Implement Phase 3 lane 3a (Pill, Popover, Log, Controller)~~ **DONE — PR #19** | ~~Visible sync health, clickable error log~~ |
-| **P0** | Status Surface | Implement Phase 3 lane 3b (Conflict UI, Revision Picker, Device Naming) | Resolvable conflicts, restore older revisions |
-| **P0** | Cloud Storage | Implement Phase 4 (Google Drive & OAuth) | Off-machine automated backups on Mac mini and iPad |
-| **P1** | Hardware Reliability | Implement Phase 5 (Device Faults into Status Pill) | Real-time Roland & PTZ connection health in AppBar |
-| **P1** | Core UX | Eliminate `onResponse: (_) {}` and fix disconnect desync | Error feedback on cue execution; truthful Live/Offline badge |
-| **P1** | Core UX | Remove "No devices connected" full-screen lockout | Enable offline service prep and roster management |
-| **P2** | Workflow | Add in-flight visual state & persist participant lineup | Feedback on cue movement; persistent Sunday lineup |
-| **P2** | Utility | Native file picker for manual export/import | Intuitive file exports outside the App Sandbox |
+**Needs the Mac and real hardware.** Code can't settle these.
+- **Screenshots** of every UI change, against the mock rig, looked at:
+  - Offline badge and banner
+  - cue spinner/check/error
+  - failure snackbar
+  - red device pill (including a long camera name on the iPad in portrait: the label
+    should shorten with an ellipsis, not overflow)
+  - Drive tile, sign-in banner and popover button
+- **`flutter test integration_test/`** on the merged result.
+- **Hand tests:**
+  - native export/import dialogs (#26) on the Mac mini and iPad. Export,
+    then import that same file: the test fake can't prove the file was
+    actually written
+  - the switcher's error reply. The app now treats `NACK`, `ERROR` and
+    `ERR:n;` as a refusal (#30). Send one bad command on the rig (for
+    example `PGM:INPUT99;`) and confirm the reply is one of those
+  - #26's lock file: run `flutter pub get` on the Mac and confirm it
+    leaves `pubspec.lock` unchanged
+  - auto-reconnect (#29) against a real V-160HD, by pulling the cable
+- **A dress rehearsal on the actual rig** — Mac mini, V-160HD, PTZ cameras —
+  running a full service's cues, with a pulled Ethernet cable, a powered-off
+  camera and an app restart mid-service. **This is the MVP gate.** Everything
+  above is proven only against mocks and fakes.
+
+**The lineup lifetime (#25).** A saved lineup lives 20 minutes past its last
+renewal. The app renews it every 5 minutes while it is on screen, and on
+coming back. On the iPad, locking the screen or leaving the app stops the
+renewals, so the lineup is gone 20 minutes later. A Mac window behind
+another app still counts as on screen, so running slides elsewhere is safe.
+**Gap:** Flutter cannot see the Mac's *display* sleeping, so a Mac mini left
+on with the app open keeps its lineup indefinitely. Closing that needs a
+small native hook (macOS screen-sleep notification), built and tested on
+the Mac.
+
+**Known limits, accepted for MVP unless the rehearsal says otherwise.**
+- **Cue "done" means the camera accepted the preset**, not that it has stopped
+  moving (#24). Tracking arrival needs a verified Panasonic status query.
+- **A command whose ACK is genuinely lost fails, and the app reconnects to
+  the switcher** (#30). It is never re-sent, to avoid running it twice. Any
+  other command waiting at that moment fails too, and the badge briefly
+  reads Offline. Replies carry no id, so after one goes missing nothing
+  later can be matched to its command; a fresh link is the only safe reset.
+- **A camera Connect that fails stops the automatic check on that camera**
+  (#31). Pressing Connect lets go of the camera first; if the Connect then
+  fails, a camera that powers back on later is not picked up by itself. The
+  pill stays red and the error shows, so press Connect again. Worth trying
+  in the rehearsal.
+- **Command failures stay as failure snackbars**, not standing pill conditions
+  (#34).
