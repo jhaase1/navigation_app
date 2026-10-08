@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/person.dart';
 import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/lineup_store.dart';
+import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/widgets/service_tab.dart';
+
+class _RecordingCamera extends MockPanasonicService {
+  final recalls = <int>[];
+
+  @override
+  Future<String> recallPreset(int preset) async {
+    recalls.add(preset);
+    return 'ok';
+  }
+}
 
 final _mass = Service(
   id: 's1',
@@ -27,13 +39,15 @@ final _bob = Person(id: 'p2', name: 'Bob');
 Widget _tab({
   List<Service>? services,
   List<Person>? people,
+  List<PanasonicCameraConfig> cameras = const [],
+  ValueChanged<String>? onFailure,
   Key? key,
 }) =>
     MaterialApp(
       home: Scaffold(
         body: ServiceTab(
           key: key,
-          cameras: const [],
+          cameras: cameras,
           people: people ?? [_alice, _bob],
           positions: [Position(id: 'pos1', name: 'Lectern')],
           services: services ?? [_mass],
@@ -41,6 +55,7 @@ Widget _tab({
           rolandService: null,
           rolandConnected: null,
           onResponse: (_) {},
+          onFailure: onFailure,
         ),
       ),
     );
@@ -183,6 +198,58 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await LineupStore.load('s1'), {'pt2': 'p2'});
+    expect(_castAlice, findsNothing);
+  });
+
+  testWidgets('a lapsed lineup still on screen does not fire its reader cue',
+      (tester) async {
+    // The Mac slept overnight on this tab. The renew timer pauses while it
+    // sleeps but the lease runs on the wall clock, so on waking Saturday's
+    // lineup is still on screen until the timer next runs. A reader cue
+    // tapped then must not aim the camera at Saturday's reader.
+    var clock = DateTime(2026, 10, 3, 17, 0);
+    LineupStore.now = () => clock;
+    addTearDown(() => LineupStore.now = DateTime.now);
+    final service = _RecordingCamera();
+    final camera = PanasonicCameraConfig(
+        name: 'Cam', ipAddress: '10.0.1.10', service: service)
+      ..isConnected.value = true;
+    addTearDown(camera.dispose);
+    final failed = <String>[];
+    final mass = Service(
+      id: 's1',
+      name: 'Mass',
+      participants: [Participant(id: 'pt1', name: 'Reader 1')],
+      steps: [
+        const ServiceStep(
+          id: 'st1',
+          type: StepType.ministry,
+          participantId: 'pt1',
+          positionId: 'pos1',
+          cameraIp: '10.0.1.10',
+        ),
+      ],
+    );
+    final alice = Person(id: 'p1', name: 'Alice', positionPresets: {
+      'pos1': {'10.0.1.10': 7},
+    });
+    await tester.pumpWidget(_tab(
+        services: [mass],
+        people: [alice],
+        cameras: [camera],
+        onFailure: failed.add));
+    await _assignAlice(tester);
+
+    await tester.tap(find.textContaining('Reader 1  ·'));
+    await tester.pumpAndSettle();
+    expect(service.recalls, [7], reason: 'the cue fires on a live lineup');
+
+    clock = clock.add(const Duration(hours: 15));
+    await tester.tap(find.textContaining('Reader 1  ·'));
+    await tester.pumpAndSettle();
+
+    expect(service.recalls, [7], reason: "Saturday's reader was recalled");
+    expect(failed, ['No one assigned to "Reader 1" for this service']);
     expect(_castAlice, findsNothing);
   });
 }
