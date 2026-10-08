@@ -66,31 +66,27 @@ enum GainMode { manual, agc }
 enum SceneFile { none, scene1, scene2, scene3, scene4, scene5 }
 
 /// Manages a queue for PTZ commands to enforce delays between executions.
+///
+/// A command that fails because the camera never answered
+/// ([NetworkException]) fails every command still waiting behind it. A dead
+/// camera takes several timeouts to give up on one command; sending the
+/// waiting ones afterwards would swing it to shots the operator asked for
+/// long ago. A refusal such as `ER3` proves the camera is there, so the
+/// queue carries on.
 class CommandQueue {
   final Duration delay;
-  final Queue<Future<String> Function()> _queue =
-      Queue<Future<String> Function()>();
+  final Queue<_QueuedCommand> _queue = Queue<_QueuedCommand>();
   bool _isProcessing = false;
   DateTime? _lastCommandTime;
 
   CommandQueue(this.delay);
 
   /// Adds a command to the queue and processes it.
-  Future<String> addCommand(Future<String> Function() command) async {
-    final completer = Completer<String>();
-    _queue.add(() async {
-      // The caller hears about a failure through [completer]. Rethrowing it
-      // here as well escaped the queue unhandled and left it marked busy,
-      // so nothing after a refused command was ever sent to the camera.
-      try {
-        completer.complete(await command());
-      } catch (e, st) {
-        completer.completeError(e, st);
-      }
-      return '';
-    });
+  Future<String> addCommand(Future<String> Function() command) {
+    final entry = _QueuedCommand(command);
+    _queue.add(entry);
     _processQueue();
-    return completer.future;
+    return entry.completer.future;
   }
 
   Future<void> _processQueue() async {
@@ -108,13 +104,37 @@ class CommandQueue {
         }
         _lastCommandTime = DateTime.now();
 
-        final commandFunc = _queue.removeFirst();
-        await commandFunc();
+        // The caller hears about a failure through its completer. Rethrowing
+        // it here as well escaped the queue unhandled and left it marked
+        // busy, so nothing after a refused command was ever sent.
+        final entry = _queue.removeFirst();
+        try {
+          entry.completer.complete(await entry.command());
+        } on NetworkException catch (e, st) {
+          entry.completer.completeError(e, st);
+          _failWaiting(NetworkException(
+              'Not sent: the camera stopped answering while this waited'));
+        } catch (e, st) {
+          entry.completer.completeError(e, st);
+        }
       }
     } finally {
       _isProcessing = false;
     }
   }
+
+  void _failWaiting(Object error) {
+    while (_queue.isNotEmpty) {
+      _queue.removeFirst().completer.completeError(error);
+    }
+  }
+}
+
+class _QueuedCommand {
+  final Future<String> Function() command;
+  final Completer<String> completer = Completer<String>();
+
+  _QueuedCommand(this.command);
 }
 
 /// Manages TCP-based event notifications for the camera.

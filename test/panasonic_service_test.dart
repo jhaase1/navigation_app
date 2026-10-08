@@ -271,6 +271,62 @@ void main() {
       expect(sent, ['#R03', '#R04']);
     });
   });
+
+  group('PanasonicService — a camera that stops answering', () {
+    // A dead camera takes ~16s to fail one command (three 5s timeouts plus
+    // backoff). Recalls queued behind it used to go out the moment it came
+    // back: a shot fired at 2s swung the camera at 22s, after the operator
+    // had moved on.
+    test('fails the recalls queued behind it instead of sending them late',
+        () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        requestTimeout: const Duration(milliseconds: 50),
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) {
+          sent.add(r.url.queryParameters['cmd']!);
+          // Gone for the first recall; back by the time it gives up.
+          if (sent.length == 1) return Completer<http.Response>().future;
+          return Future.value(http.Response('s01', 200));
+        }),
+      );
+
+      final first = service.recallPreset(3);
+      final queued = service.recallPreset(7);
+
+      await expectLater(first, throwsA(isA<NetworkException>()));
+      await expectLater(queued.timeout(const Duration(seconds: 2)),
+          throwsA(isA<NetworkException>()));
+      // The queue still works once the camera answers again.
+      await service.recallPreset(9).timeout(const Duration(seconds: 2));
+
+      expect(sent, ['#R03', '#R09']);
+    });
+
+    test('a refusal proves the camera is there: the queue keeps going',
+        () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) async {
+          sent.add(r.url.queryParameters['cmd']!);
+          return http.Response(sent.length == 1 ? 'ER3:R03' : 's07', 200);
+        }),
+      );
+
+      final refused = service.recallPreset(3);
+      final queued = service.recallPreset(7);
+
+      await expectLater(refused, throwsA(isA<CameraProtocolException>()));
+      expect(await queued.timeout(const Duration(seconds: 2)), 's07');
+      expect(sent, ['#R03', '#R07']);
+    });
+  });
+
   group('PanasonicService.probe', () {
     // The liveness check runs every few seconds. With the command path's
     // three retries and five-second timeouts, a dead camera took about 35s
