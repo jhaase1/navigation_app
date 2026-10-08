@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:navigation_app/utils/device_feedback.dart';
 
-Widget _host(String Function() message) => MaterialApp(
+Widget _host(String Function() message, {bool failed = false}) => MaterialApp(
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
-            onPressed: () => showDeviceResponse(context, message()),
+            onPressed: () =>
+                showDeviceResponse(context, message(), failed: failed),
             child: const Text('fire'),
           ),
         ),
@@ -41,5 +42,34 @@ void main() {
     await tester.pump();
 
     expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('a failure is marked as a failure', (tester) async {
+    await tester.pumpWidget(_host(() => 'Cam 1 not connected', failed: true));
+    await tester.tap(find.text('fire'));
+    await tester.pump();
+
+    expect(find.descendant(
+            of: find.byType(SnackBar), matching: find.byIcon(Icons.error)),
+        findsOneWidget);
+  });
+
+  testWidgets('a success is not marked as a failure', (tester) async {
+    await tester.pumpWidget(_host(() => 'Macro 3 executed'));
+    await tester.tap(find.text('fire'));
+    await tester.pump();
+
+    expect(find.text('Macro 3 executed'), findsOneWidget);
+    expect(find.byIcon(Icons.error), findsNothing);
+  });
+
+  testWidgets('a failure stays up longer than a success', (tester) async {
+    await tester.pumpWidget(_host(() => 'Cam 1 not connected', failed: true));
+    await tester.tap(find.text('fire'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+
+    expect(find.text('Cam 1 not connected'), findsOneWidget,
+        reason: 'a success is gone after 3 s; a failure must outlast a glance');
   });
 }

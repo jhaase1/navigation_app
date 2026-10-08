@@ -4,9 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 
 import 'package:navigation_app/models/operator_profile.dart';
+import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/operator_store.dart';
+import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
 // Connects using Demo Mode so tests never attempt a real network connection.
@@ -51,6 +53,14 @@ class _FakeRoland extends MockRolandService {
   Future<void> disconnect() async {
     released = true;
     _link.add(false);
+  }
+
+  /// When set, every macro is refused, the way a NACK reaches the page.
+  bool refuseMacros = false;
+
+  @override
+  Future<void> executeMacro(int macro) async {
+    if (refuseMacros) throw Exception('NACK');
   }
 }
 
@@ -467,5 +477,30 @@ void main() {
       expect(find.text('Live'), findsNothing);
       expect(find.text('No devices connected'), findsOneWidget);
     });
+  });
+
+  testWidgets('a cue the switcher refuses reaches the operator as a failure',
+      (tester) async {
+    // Each tab falls back to plain text when the page passes no failure
+    // handler, so a missed hookup here quietly turns failures grey again.
+    await ServiceStore.saveAll([
+      Service(id: 's1', name: 'Mass', steps: [
+        const ServiceStep(id: 'st1', type: StepType.macro, macroNumber: 3),
+      ]),
+    ]);
+    final roland = await _connectLive(tester);
+    roland.refuseMacros = true;
+
+    await tester.tap(find.byType(DropdownButton<String?>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mass').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Macro 3'));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.descendant(
+            of: find.byType(SnackBar), matching: find.byIcon(Icons.error)),
+        findsOneWidget);
   });
 }

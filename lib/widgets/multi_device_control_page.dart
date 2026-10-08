@@ -139,6 +139,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) showDeviceResponse(context, message);
   }
 
+  void _showFailure(String message) {
+    if (mounted) showDeviceResponse(context, message, failed: true);
+  }
+
   /// Keeps the Live badge truthful: follow the switcher's link both ways —
   /// down when it drops underneath us, up again when it reconnects on its own.
   void _watchRolandLink(RolandServiceAbstract service) {
@@ -147,8 +151,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       if (!mounted || !identical(_rolandService, service)) return;
       if (up == _rolandConnected.value) return;
       setState(() => _rolandConnected.value = up);
-      _showResponse(
-          up ? 'Roland reconnected' : 'Roland connection lost. Reconnecting…');
+      if (up) {
+        _showResponse('Roland reconnected');
+      } else {
+        _showFailure('Roland connection lost. Reconnecting…');
+      }
     });
   }
 
@@ -402,6 +409,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
             onResponse: _showResponse,
+            onFailure: _showFailure,
             positions: _positions,
             heightRanges: _heightRanges,
             onPositionsChanged: () async {
@@ -574,6 +582,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
                     onResponse: _showResponse,
+                    onFailure: _showFailure,
                   ),
                   OperatorPanel(
                     operator: _activeOperator,
@@ -582,6 +591,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
                     onResponse: _showResponse,
+                    onFailure: _showFailure,
                     onServicesChanged: _loadServices,
                   ),
                   PositionsTab(
@@ -590,6 +600,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     people: _people,
                     heightRanges: _heightRanges,
                     onResponse: _showResponse,
+                    onFailure: _showFailure,
                   ),
                 ],
               ),
