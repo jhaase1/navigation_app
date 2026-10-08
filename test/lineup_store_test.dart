@@ -17,8 +17,8 @@ void main() {
   test('a saved lineup loads back for the same service', () async {
     await LineupStore.save('mass', {'reader1': 'alice', 'reader2': 'bob'});
 
-    expect(await LineupStore.load('mass'),
-        {'reader1': 'alice', 'reader2': 'bob'});
+    expect(
+        await LineupStore.load('mass'), {'reader1': 'alice', 'reader2': 'bob'});
   });
 
   test('each service keeps its own lineup', () async {
@@ -139,6 +139,126 @@ void main() {
       expect(await LineupStore.load('mass'), isEmpty,
           reason: "last service's lineup does not ride along");
       expect(await LineupStore.load('vespers'), {'reader1': 'bob'});
+    });
+  });
+
+  group('the lineup belongs to the service day it was saved (4 AM to 4 AM)',
+      () {
+    // A Mac mini left on with the app open stays on screen all night, so
+    // the 20-minute lease alone would carry one day's readers into the
+    // next day's Mass.
+    test('4 AM clears it even inside its 20 minutes', () async {
+      clock = DateTime(2026, 10, 4, 3, 55);
+      await LineupStore.save('mass', {'reader1': 'alice'});
+      await LineupStore.saveSelectedServiceId('mass');
+
+      clock = DateTime(2026, 10, 4, 4, 10);
+
+      expect(await LineupStore.load('mass'), isEmpty);
+      expect(await LineupStore.loadSelectedServiceId(), isNull);
+    });
+
+    test('renewing across 4 AM does not carry it over', () async {
+      clock = DateTime(2026, 10, 4, 3, 50);
+      await LineupStore.save('mass', {'reader1': 'alice'});
+      clock = DateTime(2026, 10, 4, 3, 55);
+      expect(await LineupStore.renew(), isTrue);
+
+      clock = DateTime(2026, 10, 4, 4, 0);
+      expect(await LineupStore.renew(), isFalse);
+      expect(await LineupStore.load('mass'), isEmpty);
+    });
+
+    test('renewed all day, it is kept until 4 AM', () async {
+      clock = DateTime(2026, 10, 3, 9, 0);
+      await LineupStore.save('mass', {'reader1': 'alice'});
+      while (clock.isBefore(DateTime(2026, 10, 4, 3, 55))) {
+        clock = clock.add(const Duration(minutes: 5));
+        expect(await LineupStore.renew(), isTrue);
+      }
+
+      clock = DateTime(2026, 10, 4, 3, 59);
+      expect(await LineupStore.load('mass'), {'reader1': 'alice'});
+    });
+  });
+
+  test('a Mass that runs past midnight keeps its lineup', () async {
+    // Christmas Midnight Mass and a late Easter Vigil cross midnight: a
+    // midnight cutoff would empty the readers halfway through.
+    clock = DateTime(2026, 12, 24, 23, 30);
+    await LineupStore.save('midnight', {'reader1': 'alice'});
+    while (clock.isBefore(DateTime(2026, 12, 25, 1, 30))) {
+      clock = clock.add(const Duration(minutes: 5));
+      expect(await LineupStore.renew(), isTrue);
+    }
+
+    expect(await LineupStore.load('midnight'), {'reader1': 'alice'});
+  });
+
+  test('the stored bytes are pinned', () async {
+    await LineupStore.save('mass', {'reader1': 'alice', 'reader2': 'bob'});
+    await LineupStore.saveSelectedServiceId('mass');
+
+    final prefs = await SharedPreferences.getInstance();
+    expect({
+      for (final k in prefs.getKeys()) k: prefs.get(k)
+    }, {
+      'service_lineup_mass': '{"reader1":"alice","reader2":"bob"}',
+      'service_tab_selected_service': 'mass',
+      'lineup_lease_expires_at':
+          DateTime(2026, 10, 4, 9, 20).millisecondsSinceEpoch,
+    });
+  });
+
+  group('corrupt saved data loads as nothing and is cleared', () {
+    // A service whose saved lineup cannot be read must still open, or every
+    // pick of it raises an error and the cue list never comes up.
+    Future<void> storeRaw(Map<String, Object> values) async {
+      SharedPreferences.setMockInitialValues({
+        LineupStore.leaseKey:
+            clock.add(const Duration(minutes: 10)).millisecondsSinceEpoch,
+        ...values,
+      });
+    }
+
+    for (final (label, raw) in [
+      ('a role mapped to a non-string', '{"reader1": 42}'),
+      ('text that is not JSON', 'not json'),
+      ('JSON that is not an object', '["alice"]'),
+    ]) {
+      test(label, () async {
+        await storeRaw({'${LineupStore.keyPrefix}mass': raw});
+
+        expect(await LineupStore.load('mass'), isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.containsKey('${LineupStore.keyPrefix}mass'), isFalse);
+      });
+    }
+
+    test('a lineup stored as the wrong type', () async {
+      await storeRaw({'${LineupStore.keyPrefix}mass': 42});
+
+      expect(await LineupStore.load('mass'), isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('${LineupStore.keyPrefix}mass'), isFalse);
+    });
+
+    test('a selected service stored as the wrong type', () async {
+      await storeRaw({LineupStore.selectedServiceKey: 42});
+
+      expect(await LineupStore.loadSelectedServiceId(), isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(LineupStore.selectedServiceKey), isFalse);
+    });
+
+    test('an unreadable expiry counts as expired', () async {
+      SharedPreferences.setMockInitialValues({
+        LineupStore.leaseKey: 'tomorrow',
+        '${LineupStore.keyPrefix}mass': '{"reader1":"alice"}',
+      });
+
+      expect(await LineupStore.renew(), isFalse);
+      expect(await LineupStore.load('mass'), isEmpty);
     });
   });
 }

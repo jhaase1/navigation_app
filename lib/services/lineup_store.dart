@@ -17,7 +17,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// simply persisted would walk Saturday's readers into Sunday's Mass and aim
 /// their cues at the wrong people. Everything here lives [leaseLength] past
 /// its last save or [renew]; [LineupLease] renews it while the app is on
-/// screen.
+/// screen. It also never outlives the local day it was saved, since a Mac
+/// left on with the app open stays on screen and would renew it forever.
 class LineupStore {
   /// Prefix for per-service lineups: `service_lineup_<serviceId>` holds a
   /// JSON object of participantId → personId.
@@ -50,12 +51,36 @@ class LineupStore {
   // slip between the check and the change and, for instance, delete a lease
   // a save had just taken. Only writing to disk is awaited.
 
+  /// Where one service day ends and the next begins. Late enough that a
+  /// Mass crossing midnight (Christmas, the Easter Vigil) keeps its readers,
+  /// early enough that Saturday's lineup is gone before Sunday's first Mass.
+  static const dayStartsAt = Duration(hours: 4);
+
+  /// Whether a lease running until [until] (epoch milliseconds) still
+  /// holds. It lapses [leaseLength] after it was last taken, and at the
+  /// first [dayStartsAt] after that: the time it was taken is [until] less
+  /// [leaseLength], and it must fall in the current service day. Renewal is
+  /// the only way to extend it and needs a lease that still holds, so no
+  /// chain of renewals carries a lineup out of the day it was saved.
+  static bool _holds(int until) {
+    final at = now().toLocal();
+    if (at.millisecondsSinceEpoch > until) return false;
+    final taken = DateTime.fromMillisecondsSinceEpoch(until)
+        .subtract(leaseLength)
+        .subtract(dayStartsAt);
+    final today = at.subtract(dayStartsAt);
+    return taken.year == today.year &&
+        taken.month == today.month &&
+        taken.day == today.day;
+  }
+
   /// Deletes everything stored here if the lease has lapsed, or was never
   /// taken, and returns the pending writes; null if the lease still holds.
   static List<Future<bool>>? _expireIfDue(SharedPreferences prefs,
       {bool announce = false}) {
-    final until = prefs.getInt(leaseKey);
-    if (until != null && now().millisecondsSinceEpoch <= until) return null;
+    // An expiry that is not a number counts as no lease at all.
+    final until = prefs.get(leaseKey);
+    if (until is int && _holds(until)) return null;
     final stale = prefs
         .getKeys()
         .where((k) => k.startsWith(keyPrefix) || k == selectedServiceKey)
@@ -92,10 +117,31 @@ class LineupStore {
       await Future.wait(expired);
       return {};
     }
-    final raw = prefs.getString(_key(serviceId));
+    final raw = prefs.get(_key(serviceId));
     if (raw == null) return {};
-    final decoded = jsonDecode(raw) as Map<String, dynamic>;
-    return decoded.map((k, v) => MapEntry(k, v as String));
+    final lineup = _decode(raw);
+    if (lineup == null) {
+      // Unreadable: open the service with no one assigned rather than
+      // throwing on every pick of it, and drop the bad copy.
+      await prefs.remove(_key(serviceId));
+      return {};
+    }
+    return lineup;
+  }
+
+  /// participantId → personId from a stored lineup; null if it is not a
+  /// JSON object of strings.
+  static Map<String, String>? _decode(Object raw) {
+    if (raw is! String) return null;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+    if (decoded.values.any((v) => v is! String)) return null;
+    return Map<String, String>.from(decoded);
   }
 
   /// Replaces the lineup for [serviceId]. Unassigned (null) roles are
@@ -124,7 +170,10 @@ class LineupStore {
       await Future.wait(expired);
       return null;
     }
-    return prefs.getString(selectedServiceKey);
+    final id = prefs.get(selectedServiceKey);
+    if (id is String?) return id;
+    await prefs.remove(selectedServiceKey);
+    return null;
   }
 
   static Future<void> saveSelectedServiceId(String? serviceId) async {

@@ -176,10 +176,18 @@ class _ServiceTabState extends State<ServiceTab> {
     // Renew first. If the lineup lapsed — the screen woke before the renew
     // timer ran — that clears the stale copy shown here, so the save below
     // cannot hand yesterday's readers a fresh 20 minutes.
-    await LineupStore.renew();
+    await _renewLineup();
     if (!mounted || _selectedServiceId != serviceId) return;
     setState(() => _participantAssignments[participantId] = personId);
     await LineupStore.save(serviceId, Map.of(_participantAssignments));
+  }
+
+  /// Renews the stored lineup and, if it had lapsed, drops the copy shown
+  /// here. [LineupStore.expirations] only fires when renewal itself deleted
+  /// something, so a lapse another call already cleaned up is caught here.
+  Future<void> _renewLineup() async {
+    if (await LineupStore.renew()) return;
+    if (mounted) setState(_participantAssignments.clear);
   }
 
   String get _rolandKey => 'roland_${widget.rolandIpController?.text ?? ''}';
@@ -345,6 +353,12 @@ class _ServiceTabState extends State<ServiceTab> {
   }
 
   Future<bool> _fireMinistryStep(_FlatStep s) async {
+    // Renew first, as [_assign] does. A Mac that slept on this tab wakes
+    // with the lapsed lineup still on screen until the renew timer runs;
+    // firing from that copy would aim the camera at yesterday's reader.
+    final serviceId = _selectedServiceId;
+    await _renewLineup();
+    if (!mounted || _selectedServiceId != serviceId) return false;
     final service = _selectedService;
     final participant = s.participantId == null
         ? null
