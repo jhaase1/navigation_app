@@ -138,8 +138,18 @@ class GoogleDriveAccount implements DriveCredentials {
       }
       rethrow;
     }
-    if (!await _adopt(account)) return;
-    await account.authorizationClient.authorizeScopes(_scopes);
+    if (await _refusedAsWrong(account)) return;
+    try {
+      await account.authorizationClient.authorizeScopes(_scopes);
+    } catch (_) {
+      // Signed in to Google without Drive access backs nothing up, so it
+      // must not read as signed in. Back out to a state that is true.
+      _account = null;
+      _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
+      await _signIn.signOut();
+      rethrow;
+    }
+    _take(account);
   }
 
   Future<void> signOut() async {
@@ -150,21 +160,29 @@ class GoogleDriveAccount implements DriveCredentials {
     _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
   }
 
-  /// Takes [account] if it is the expected one. A wrong account is signed
-  /// straight back out before it is ever asked for Drive access.
+  /// Takes [account] if it is the expected one.
   Future<bool> _adopt(GoogleSignInAccount account) async {
+    if (await _refusedAsWrong(account)) return false;
+    _take(account);
+    return true;
+  }
+
+  /// A wrong account is signed straight back out before it is ever asked
+  /// for Drive access.
+  Future<bool> _refusedAsWrong(GoogleSignInAccount account) async {
     _unanswered = null;
-    if (!_isExpected(account.email)) {
-      await _signIn.signOut();
-      _account = null;
-      _status.value =
-          DriveAccountStatus(DriveAccountState.wrongAccount, account.email);
-      return false;
-    }
+    if (_isExpected(account.email)) return false;
+    await _signIn.signOut();
+    _account = null;
+    _status.value =
+        DriveAccountStatus(DriveAccountState.wrongAccount, account.email);
+    return true;
+  }
+
+  void _take(GoogleSignInAccount account) {
     _account = account;
     _status.value =
         DriveAccountStatus(DriveAccountState.signedIn, account.email);
-    return true;
   }
 
   @override

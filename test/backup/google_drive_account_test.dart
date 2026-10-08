@@ -128,6 +128,23 @@ void main() {
       expect(await a.headers(), isNull);
     });
 
+    test('refusing the Drive grant does not leave it saying signed in',
+        () async {
+      // The Settings tile reads "Backing up to …" for signedIn, while
+      // nothing could upload.
+      platform
+        ..pickedEmail = _expected
+        ..grantError = const GoogleSignInException(
+            code: GoogleSignInExceptionCode.canceled);
+      final a = account();
+
+      await expectLater(a.signIn(), throwsA(isA<GoogleSignInException>()));
+
+      expect(a.status.value.state, DriveAccountState.signedOut);
+      expect(platform.signedOut, isTrue);
+      expect(await a.headers(), isNull);
+    });
+
     test('cancelling the sheet leaves it signed out without an error',
         () async {
       platform.cancels = true;
