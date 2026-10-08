@@ -14,6 +14,10 @@ enum BackupFailureKind {
   unsupportedSchema,
   malformedRemote,
   targetMissing,
+
+  /// More than one backup folder at the target, so which one holds the real
+  /// history is a question for a person.
+  targetAmbiguous,
   deviceUnnamed,
   unknown,
 }
@@ -102,6 +106,7 @@ class AppFault implements Exception {
     'storageWriteFailed',
     'unsupportedSchema',
     'targetMissing',
+    'targetAmbiguous',
     'malformedRemote',
     'conflict',
     'adoptionChoice',
