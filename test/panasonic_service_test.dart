@@ -327,6 +327,45 @@ void main() {
     });
   });
 
+  group('PanasonicService — a busy camera (ER2)', () {
+    // Real replies carry the command: `ER2:R04`, never a bare `ER2`. The
+    // retry matched only the bare form, so a busy camera failed the recall
+    // outright instead of being asked again.
+    test('is asked again, and the recall goes through', () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 2,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) async {
+          sent.add(r.url.queryParameters['cmd']!);
+          return http.Response(sent.length == 1 ? 'ER2:R04' : 's04', 200);
+        }),
+      );
+
+      expect(await service.recallPreset(4), 's04');
+      expect(sent, ['#R04', '#R04']);
+    });
+
+    test('still busy after every retry is reported as busy', () async {
+      var requests = 0;
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 2,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((_) async {
+          requests++;
+          return http.Response('ER2:R04', 200);
+        }),
+      );
+
+      await expectLater(service.recallPreset(4),
+          throwsA(isA<CameraProtocolException>()
+              .having((e) => e.message, 'message', contains('ER2'))));
+      expect(requests, 2);
+    });
+  });
+
   group('PanasonicService.dispose', () {
     // A reconnect replaces the service for the same address. An old one
     // left running kept sending its queued recalls, racing the new one.

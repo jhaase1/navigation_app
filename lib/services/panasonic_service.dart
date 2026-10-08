@@ -492,8 +492,10 @@ class PanasonicService extends PanasonicServiceAbstract {
         if (cleanedResponse.startsWith('ER')) {
           log('Protocol error: $cleanedResponse',
               name: 'PanasonicService', level: 900);
-          // Special handling for ER2 (busy): retry with delay
-          if (cleanedResponse == 'ER2') {
+          // Special handling for ER2 (busy): retry with delay. The reply
+          // carries the command (`ER2:R04`), so match the prefix. Out of
+          // retries, it is reported as the busy it is.
+          if (cleanedResponse.startsWith('ER2') && attempt < maxRetries - 1) {
             await Future.delayed(const Duration(milliseconds: 500));
             continue;
           }
