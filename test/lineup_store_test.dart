@@ -180,4 +180,69 @@ void main() {
       expect(await LineupStore.load('mass'), {'reader1': 'alice'});
     });
   });
+
+  test('the stored bytes are pinned', () async {
+    await LineupStore.save('mass', {'reader1': 'alice', 'reader2': 'bob'});
+    await LineupStore.saveSelectedServiceId('mass');
+
+    final prefs = await SharedPreferences.getInstance();
+    expect({for (final k in prefs.getKeys()) k: prefs.get(k)}, {
+      'service_lineup_mass': '{"reader1":"alice","reader2":"bob"}',
+      'service_tab_selected_service': 'mass',
+      'lineup_lease_expires_at':
+          DateTime(2026, 10, 4, 9, 20).millisecondsSinceEpoch,
+    });
+  });
+
+  group('corrupt saved data loads as nothing and is cleared', () {
+    // A service whose saved lineup cannot be read must still open, or every
+    // pick of it raises an error and the cue list never comes up.
+    Future<void> storeRaw(Map<String, Object> values) async {
+      SharedPreferences.setMockInitialValues({
+        LineupStore.leaseKey:
+            clock.add(const Duration(minutes: 10)).millisecondsSinceEpoch,
+        ...values,
+      });
+    }
+
+    for (final (label, raw) in [
+      ('a role mapped to a non-string', '{"reader1": 42}'),
+      ('text that is not JSON', 'not json'),
+      ('JSON that is not an object', '["alice"]'),
+    ]) {
+      test(label, () async {
+        await storeRaw({'${LineupStore.keyPrefix}mass': raw});
+
+        expect(await LineupStore.load('mass'), isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.containsKey('${LineupStore.keyPrefix}mass'), isFalse);
+      });
+    }
+
+    test('a lineup stored as the wrong type', () async {
+      await storeRaw({'${LineupStore.keyPrefix}mass': 42});
+
+      expect(await LineupStore.load('mass'), isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('${LineupStore.keyPrefix}mass'), isFalse);
+    });
+
+    test('a selected service stored as the wrong type', () async {
+      await storeRaw({LineupStore.selectedServiceKey: 42});
+
+      expect(await LineupStore.loadSelectedServiceId(), isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(LineupStore.selectedServiceKey), isFalse);
+    });
+
+    test('an unreadable expiry counts as expired', () async {
+      SharedPreferences.setMockInitialValues({
+        LineupStore.leaseKey: 'tomorrow',
+        '${LineupStore.keyPrefix}mass': '{"reader1":"alice"}',
+      });
+
+      expect(await LineupStore.renew(), isFalse);
+      expect(await LineupStore.load('mass'), isEmpty);
+    });
+  });
 }

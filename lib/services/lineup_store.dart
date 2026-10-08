@@ -71,8 +71,9 @@ class LineupStore {
   /// taken, and returns the pending writes; null if the lease still holds.
   static List<Future<bool>>? _expireIfDue(SharedPreferences prefs,
       {bool announce = false}) {
-    final until = prefs.getInt(leaseKey);
-    if (until != null && _holds(until)) return null;
+    // An expiry that is not a number counts as no lease at all.
+    final until = prefs.get(leaseKey);
+    if (until is int && _holds(until)) return null;
     final stale = prefs
         .getKeys()
         .where((k) => k.startsWith(keyPrefix) || k == selectedServiceKey)
@@ -109,10 +110,31 @@ class LineupStore {
       await Future.wait(expired);
       return {};
     }
-    final raw = prefs.getString(_key(serviceId));
+    final raw = prefs.get(_key(serviceId));
     if (raw == null) return {};
-    final decoded = jsonDecode(raw) as Map<String, dynamic>;
-    return decoded.map((k, v) => MapEntry(k, v as String));
+    final lineup = _decode(raw);
+    if (lineup == null) {
+      // Unreadable: open the service with no one assigned rather than
+      // throwing on every pick of it, and drop the bad copy.
+      await prefs.remove(_key(serviceId));
+      return {};
+    }
+    return lineup;
+  }
+
+  /// participantId → personId from a stored lineup; null if it is not a
+  /// JSON object of strings.
+  static Map<String, String>? _decode(Object raw) {
+    if (raw is! String) return null;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+    if (decoded.values.any((v) => v is! String)) return null;
+    return Map<String, String>.from(decoded);
   }
 
   /// Replaces the lineup for [serviceId]. Unassigned (null) roles are
@@ -141,7 +163,10 @@ class LineupStore {
       await Future.wait(expired);
       return null;
     }
-    return prefs.getString(selectedServiceKey);
+    final id = prefs.get(selectedServiceKey);
+    if (id is String?) return id;
+    await prefs.remove(selectedServiceKey);
+    return null;
   }
 
   static Future<void> saveSelectedServiceId(String? serviceId) async {
