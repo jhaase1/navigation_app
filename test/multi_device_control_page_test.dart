@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 
@@ -11,6 +13,7 @@ import 'package:navigation_app/services/abstract/panasonic_service_abstract.dart
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/device_config_store.dart';
 import 'package:navigation_app/services/operator_store.dart';
+import 'package:navigation_app/services/panasonic_service.dart';
 import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
@@ -107,6 +110,12 @@ class _FakeCamera extends MockPanasonicService {
     probes++;
     if (!up) throw Exception('no answer');
   }
+
+  /// Set once the page lets go of this service.
+  bool disposed = false;
+
+  @override
+  Future<void> dispose() async => disposed = true;
 }
 
 /// Connects in Live Mode through an injected connector, so the page wires up
@@ -753,10 +762,100 @@ void main() {
 
       expect(real.map((c) => c.probes), everyElement(0),
           reason: 'a connect let go of mid-dial must not be installed');
+      expect(real.map((c) => c.disposed), everyElement(isTrue),
+          reason: 'nobody else will ever close it');
       await tester.pumpWidget(const SizedBox());
     });
   });
 
+  group('a camera let go of sends nothing more', () {
+    // Every Connect builds a new service for the camera's address. One that
+    // was let go of but left running kept sending its queued recalls once
+    // the camera answered again, swinging it to shots nobody wanted now.
+    late List<String> reached;
+    late bool cameraUp;
+
+    /// Connects one real camera service over a fake network, then leaves
+    /// two recalls stuck on it while the camera is not answering.
+    Future<void> stallRecalls(WidgetTester tester) async {
+      reached = [];
+      cameraUp = true;
+      await DeviceConfigStore.save('10.0.1.100',
+          const [CameraEntry(name: 'Camera 1', ip: '10.0.1.10')]);
+      late PanasonicService camera;
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => _FakeRoland(),
+          cameraConnector: (ip) async => camera = PanasonicService(
+            ipAddress: ip,
+            client: MockClient((r) {
+              if (!cameraUp) return Completer<http.Response>().future;
+              if (r.url.path.contains(PanasonicService.ptzEndpoint)) {
+                reached.add(r.url.queryParameters['cmd']!);
+              }
+              return Future.value(http.Response('s01', 200));
+            }),
+          ),
+          cameraHealthInterval: const Duration(hours: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+
+      cameraUp = false;
+      for (final preset in [3, 7]) {
+        unawaited(camera.recallPreset(preset).catchError((Object _) => ''));
+      }
+      await tester.pump();
+    }
+
+    Future<void> openConnections(WidgetTester tester) async {
+      await _openSettings(tester);
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+    }
+
+    /// Long enough for every retry the old service would have made.
+    Future<void> cameraComesBack(WidgetTester tester) async {
+      cameraUp = true;
+      await tester.pump(const Duration(seconds: 30));
+    }
+
+    testWidgets('by Disconnect', (tester) async {
+      await stallRecalls(tester);
+
+      await openConnections(tester);
+      await tester.tap(find.text('Disconnect').last);
+      await tester.pump();
+      await cameraComesBack(tester);
+
+      expect(reached, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('by Settings replacing the camera list', (tester) async {
+      await stallRecalls(tester);
+
+      await openConnections(tester);
+      await tester.tap(find.text('Save & Close'));
+      await tester.pump();
+      await cameraComesBack(tester);
+
+      expect(reached, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('by the page closing', (tester) async {
+      await stallRecalls(tester);
+
+      await tester.pumpWidget(const SizedBox());
+      await cameraComesBack(tester);
+
+      expect(reached, isEmpty);
+    });
+  });
   testWidgets('two cameras with the same name keep their own faults',
       (tester) async {
     await DeviceConfigStore.save('10.0.1.100', const [

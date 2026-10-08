@@ -327,6 +327,39 @@ void main() {
     });
   });
 
+  group('PanasonicService.dispose', () {
+    // A reconnect replaces the service for the same address. An old one
+    // left running kept sending its queued recalls, racing the new one.
+    test('fails what is still queued and sends nothing more', () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 2,
+        requestTimeout: const Duration(milliseconds: 200),
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) {
+          sent.add(r.url.queryParameters['cmd']!);
+          return Completer<http.Response>().future; // never answers
+        }),
+      );
+
+      final inFlight = expectLater(service.recallPreset(3), throwsA(anything));
+      final queued = expectLater(
+          service.recallPreset(7).timeout(const Duration(milliseconds: 100)),
+          throwsA(isA<CameraException>()));
+      await Future<void>.delayed(Duration.zero);
+      await service.dispose();
+
+      await queued;
+      await expectLater(service.recallPreset(9), throwsA(isA<CameraException>()));
+      await inFlight;
+      // Long enough for the in-flight recall's retry, had it made one.
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+
+      expect(sent, ['#R03']);
+    });
+  });
+
   group('PanasonicService.probe', () {
     // The liveness check runs every few seconds. With the command path's
     // three retries and five-second timeouts, a dead camera took about 35s

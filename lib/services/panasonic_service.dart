@@ -78,11 +78,13 @@ class CommandQueue {
   final Queue<_QueuedCommand> _queue = Queue<_QueuedCommand>();
   bool _isProcessing = false;
   DateTime? _lastCommandTime;
+  Object? _closedWith;
 
   CommandQueue(this.delay);
 
   /// Adds a command to the queue and processes it.
   Future<String> addCommand(Future<String> Function() command) {
+    if (_closedWith != null) return Future.error(_closedWith!);
     final entry = _QueuedCommand(command);
     _queue.add(entry);
     _processQueue();
@@ -121,6 +123,12 @@ class CommandQueue {
     } finally {
       _isProcessing = false;
     }
+  }
+
+  /// Fails everything still waiting, and everything added from now on.
+  void close(Object error) {
+    _closedWith = error;
+    _failWaiting(error);
   }
 
   void _failWaiting(Object error) {
@@ -380,6 +388,7 @@ class PanasonicService extends PanasonicServiceAbstract {
   final int maxRetries;
   final CommandQueue _ptzCommandQueue;
   final NotificationManager _notificationManager;
+  bool _disposed = false;
 
   PanasonicService({
     required this.ipAddress,
@@ -447,6 +456,9 @@ class PanasonicService extends PanasonicServiceAbstract {
 
   Future<String> _executeCommand(String endpoint, String command) async {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
+      // Checked before every attempt, retries included: a service let go of
+      // mid-retry would otherwise re-send to a camera someone else now owns.
+      if (_disposed) throw _closedError();
       try {
         final protocol = useHttps ? 'https' : 'http';
         final url =
@@ -1505,8 +1517,17 @@ class PanasonicService extends PanasonicServiceAbstract {
     return await _notificationManager.stopNotifications(port);
   }
 
-  /// Disposes the HTTP client and closes any open TCP connections.
+  CameraException _closedError() =>
+      CameraException('Not sent: the connection to $ipAddress was closed');
+
+  /// Fails every PTZ command still queued, stops any retry in progress,
+  /// and disposes the HTTP client and any open TCP connections. A service
+  /// replaced by a reconnect but left running kept sending its queued
+  /// recalls to the same camera, racing the new connection's.
+  @override
   Future<void> dispose() async {
+    _disposed = true;
+    _ptzCommandQueue.close(_closedError());
     _client.close();
     await _notificationManager.dispose();
   }
