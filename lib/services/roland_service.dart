@@ -1602,7 +1602,6 @@ class RolandService extends RolandServiceAbstract
   Stream<bool> get connectionChanges => _connectionController.stream;
   final Queue<Completer<void>> _ackCompleters = Queue<Completer<void>>();
   final Queue<String> _commandQueue = Queue<String>();
-  int _commandId = 0;
   bool _isProcessing = false;
   bool _isConnected = false;
   final StringBuffer _responseBuffer = StringBuffer();
@@ -1855,6 +1854,9 @@ class RolandService extends RolandServiceAbstract
   }
 
   void _failPending(Exception error) {
+    // Commands not yet written belong to the old link. Sending them after a
+    // reconnect would replay cues the operator has moved past.
+    _commandQueue.clear();
     while (_ackCompleters.isNotEmpty) {
       final c = _ackCompleters.removeFirst();
       if (!c.isCompleted) c.completeError(error);
@@ -1892,9 +1894,14 @@ class RolandService extends RolandServiceAbstract
     }());
   }
 
+  /// Sends [command] once and waits for the switcher's acknowledgement.
+  ///
+  /// Never re-sends. A missing ACK does not mean the command did not run —
+  /// it may only be slow — and re-sending CUT or AUTO swaps program and
+  /// preview a second time, putting the wrong shot on air while every retry
+  /// reports success.
   @override
-  Future<void> _sendCommand(String command, {int retryCount = 3}) async {
-    // Queues the command, sends it via socket, and waits for ACK using a Completer
+  Future<void> _sendCommand(String command) async {
     if (!_isConnected) throw ConnectionException('Not connected');
     // Rate limiting
     final now = DateTime.now();
@@ -1907,28 +1914,30 @@ class RolandService extends RolandServiceAbstract
     while (_pendingCount >= maxConcurrentCommands) {
       await Future.delayed(const Duration(milliseconds: 10));
     }
+    if (!_isConnected) throw ConnectionException('Not connected');
+
     _pendingCount++;
-    int currentId = ++_commandId;
-    dev.log('Queueing command ID $currentId: $command');
-    for (int attempt = 0; attempt <= retryCount; attempt++) {
-      try {
-        final completer = Completer<void>();
-        _ackCompleters.add(completer);
-        _commandQueue.add('$currentId:$command');
-        await _processQueue();
-        await completer.future.timeout(ackTimeout);
-        _pendingCount--;
-        dev.log('Command ID $currentId completed successfully');
-        return;
-      } catch (e) {
-        dev.log('Command ID $currentId attempt ${attempt + 1} failed: $e');
-        if (attempt == retryCount) {
-          _pendingCount--;
-          rethrow;
-        }
-        await Future.delayed(
-            commandRetryDelay * (attempt + 1)); // Exponential backoff
+    final link = _socket;
+    final completer = Completer<void>();
+    _ackCompleters.add(completer);
+    _commandQueue.add(command);
+    dev.log('Queueing command: $command');
+    try {
+      unawaited(_processQueue());
+      await completer.future.timeout(ackTimeout);
+      dev.log('Command completed: $command');
+    } on TimeoutException {
+      // Replies arrive in order and carry no id, so once one goes missing
+      // nothing after it can be matched to its command: drop the expired
+      // slot and every later ACK completes the command before its own,
+      // keep it and a reply that never comes shifts them all the same way.
+      // Start a clean link instead; auto-reconnect brings it back.
+      if (link != null && identical(_socket, link)) {
+        _linkLost('No reply from the switcher to $command');
       }
+      throw CommandException('No reply from the switcher to $command');
+    } finally {
+      _pendingCount--;
     }
   }
 
@@ -1936,17 +1945,25 @@ class RolandService extends RolandServiceAbstract
     // Processes the command queue sequentially to avoid overwhelming the device
     if (_isProcessing || !_isConnected) return;
     _isProcessing = true;
-    while (_commandQueue.isNotEmpty && _isConnected) {
-      String entry = _commandQueue.removeFirst();
-      List<String> parts = entry.split(':');
-      String id = parts[0];
-      String cmd = parts.sublist(1).join(':');
-      dev.log('Sending command ID $id: $cmd');
-      _socket!.write('$cmd\r\n'); // Add CR+LF terminator
-      await _socket!.flush().timeout(const Duration(seconds: 5));
-      await Future.delayed(Duration.zero); // Yield control to prevent blocking
+    try {
+      while (_commandQueue.isNotEmpty && _isConnected) {
+        final socket = _socket;
+        if (socket == null) break;
+        final cmd = _commandQueue.removeFirst();
+        dev.log('Sending command: $cmd');
+        socket.write('$cmd\r\n'); // Add CR+LF terminator
+        await socket.flush().timeout(const Duration(seconds: 5));
+        await Future.delayed(Duration.zero); // Yield control to prevent blocking
+      }
+    } catch (e) {
+      // A failed write means the link is going; the socket's own handlers
+      // report that and fail whatever is waiting.
+      dev.log('Command write failed: $e');
+    } finally {
+      // Without this a single failed write left the flag set, and nothing
+      // was ever sent again — not even after a reconnect.
+      _isProcessing = false;
     }
-    _isProcessing = false;
   }
 
   void _handleResponse(String data) {
@@ -1964,24 +1981,13 @@ class RolandService extends RolandServiceAbstract
     while ((endIndex = buffer.indexOf('\n')) != -1) {
       String response = buffer.substring(0, endIndex).trim();
       buffer = buffer.substring(endIndex + 1);
-      int retryCount = 0;
-      const int maxRetries = 3;
-      bool parsed = false;
-      while (retryCount < maxRetries && !parsed) {
-        try {
-          _processCompleteResponse(response);
-          parsed = true;
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= maxRetries) {
-            dev.log(
-                'Failed to parse response after $maxRetries attempts: $response. Error: $e');
-            _responseController.addError(e);
-          } else {
-            dev.log(
-                'Parsing failed with error: $e for response: $response, attempt $retryCount');
-          }
-        }
+      // Once only. Parsing the same text again cannot succeed, and every
+      // attempt used to complete another waiting command first.
+      try {
+        _processCompleteResponse(response);
+      } catch (e) {
+        dev.log('Failed to parse response: $response. Error: $e');
+        _responseController.addError(e);
       }
     }
     _responseBuffer.clear();
@@ -1990,12 +1996,17 @@ class RolandService extends RolandServiceAbstract
 
   void _processCompleteResponse(String response) {
     dev.log('Received response: $response');
+    // A refusal. `ERR:n;` is listed for Roland's LAN protocol but unconfirmed
+    // on the V-160HD; it carries a colon like a query answer, so without
+    // this it would complete a refused command as done.
+    final refused = response.contains('NACK') ||
+        response.contains('ERROR') ||
+        response.startsWith('ERR:');
     // Check for ACK completion: either explicit ACK, or query responses without ACK
     bool shouldCompleteAck = response.endsWith(';ACK;') ||
         response == 'ACK;' ||
         (response.contains(':') &&
-            !response.contains('NACK') &&
-            !response.contains('ERROR') &&
+            !refused &&
             !_autoTransmitPrefixes
                 .any((prefix) => response.startsWith('$prefix:')));
     if (shouldCompleteAck) {
@@ -2015,7 +2026,7 @@ class RolandService extends RolandServiceAbstract
       if (parsed != null) {
         _responseController.add(parsed);
       }
-    } else if (response.contains('NACK') || response.contains('ERROR')) {
+    } else if (refused) {
       // Handle errors
       if (_ackCompleters.isNotEmpty) {
         _ackCompleters
