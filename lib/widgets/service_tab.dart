@@ -6,6 +6,7 @@ import '../models/person.dart';
 import '../models/position.dart';
 import '../models/service.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/lineup_store.dart';
 import '../services/preset_name_store.dart';
 import '../utils/label_utils.dart';
 import '../utils/preset_resolver.dart';
@@ -94,8 +95,13 @@ class _ServiceTabState extends State<ServiceTab> {
 
   String _inFlightKey(String cueKey) => '$_selectedServiceId/$cueKey';
 
-  // participantId → personId, set at run time for this service
+  // participantId → personId, set at run time for this service and kept in
+  // LineupStore so the day's lineup outlives this widget
   final Map<String, String?> _participantAssignments = {};
+
+  // A remembered service whose id has not yet appeared in widget.services
+  // (the page loads services asynchronously).
+  String? _pendingServiceId;
 
   Map<int, String> _rolandNames = {};
   Map<String, Map<int, String>> _cameraNames = {};
@@ -110,12 +116,70 @@ class _ServiceTabState extends State<ServiceTab> {
     _lastCameraIps = _cameraIps;
     _loadNames();
     _inFlightChanges.addListener(_onInFlightChanged);
+    _restoreSelection();
+    LineupStore.expirations.addListener(_onLineupExpired);
   }
 
   @override
   void dispose() {
     _inFlightChanges.removeListener(_onInFlightChanged);
+    LineupStore.expirations.removeListener(_onLineupExpired);
     super.dispose();
+  }
+
+  /// The stored lineup lapsed while this tab sat on screen with the screen
+  /// off. Drop the copy shown here too, or it would outlive the one deleted.
+  void _onLineupExpired() {
+    if (!mounted) return;
+    setState(_participantAssignments.clear);
+  }
+
+  Future<void> _restoreSelection() async {
+    final id = await LineupStore.loadSelectedServiceId();
+    if (id == null || !mounted || _selectedServiceId != null) return;
+    if (widget.services.any((s) => s.id == id)) {
+      _selectService(id);
+    } else {
+      _pendingServiceId = id;
+    }
+  }
+
+  void _selectService(String? id) {
+    _pendingServiceId = null;
+    setState(() {
+      _selectedServiceId = id;
+      _currentStepIndex = null;
+      // A command still out for the old service must not stamp its outcome
+      // onto a cue in this one.
+      _cueStates.clear();
+      _cueGeneration++;
+      _participantAssignments.clear();
+    });
+    LineupStore.saveSelectedServiceId(id);
+    if (id != null) _loadLineup(id);
+  }
+
+  Future<void> _loadLineup(String serviceId) async {
+    final saved = await LineupStore.load(serviceId);
+    if (!mounted || _selectedServiceId != serviceId) return;
+    // Anything the operator picked while this was loading wins.
+    setState(() {
+      for (final e in saved.entries) {
+        _participantAssignments.putIfAbsent(e.key, () => e.value);
+      }
+    });
+  }
+
+  Future<void> _assign(String participantId, String? personId) async {
+    final serviceId = _selectedServiceId;
+    if (serviceId == null) return;
+    // Renew first. If the lineup lapsed — the screen woke before the renew
+    // timer ran — that clears the stale copy shown here, so the save below
+    // cannot hand yesterday's readers a fresh 20 minutes.
+    await LineupStore.renew();
+    if (!mounted || _selectedServiceId != serviceId) return;
+    setState(() => _participantAssignments[participantId] = personId);
+    await LineupStore.save(serviceId, Map.of(_participantAssignments));
   }
 
   String get _rolandKey => 'roland_${widget.rolandIpController?.text ?? ''}';
@@ -218,6 +282,13 @@ class _ServiceTabState extends State<ServiceTab> {
       _cueStates.clear();
       _cueGeneration++;
       _participantAssignments.clear();
+    }
+    final pending = _pendingServiceId;
+    if (pending != null && widget.services.any((s) => s.id == pending)) {
+      // Deferred past this frame: setState is not allowed mid-update.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pendingServiceId == pending) _selectService(pending);
+      });
     }
 
     // The parent loads the Roland IP and camera list asynchronously and can
@@ -505,13 +576,7 @@ class _ServiceTabState extends State<ServiceTab> {
                     child: Text(s.name),
                   ))
               .toList(),
-          onChanged: (id) => setState(() {
-            _selectedServiceId = id;
-            _currentStepIndex = null;
-            _cueStates.clear();
-            _cueGeneration++;
-            _participantAssignments.clear();
-          }),
+          onChanged: _selectService,
         ),
       ),
     );
@@ -559,7 +624,13 @@ class _ServiceTabState extends State<ServiceTab> {
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String?>(
-                            value: _participantAssignments[p.id],
+                            // A remembered person may since have been
+                            // deleted; a value with no matching item would
+                            // throw.
+                            value: widget.people.any((person) =>
+                                    person.id == _participantAssignments[p.id])
+                                ? _participantAssignments[p.id]
+                                : null,
                             isDense: true,
                             isExpanded: true,
                             hint: const Text('— unassigned —',
@@ -577,9 +648,7 @@ class _ServiceTabState extends State<ServiceTab> {
                                     child: Text(person.name),
                                   )),
                             ],
-                            onChanged: (personId) => setState(
-                                () => _participantAssignments[p.id] =
-                                    personId),
+                            onChanged: (personId) => _assign(p.id, personId),
                           ),
                         ),
                       ),
