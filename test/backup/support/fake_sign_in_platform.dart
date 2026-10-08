@@ -22,6 +22,10 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   /// Whether the operator cancels the interactive sheet.
   bool cancels = false;
 
+  /// Thrown by the interactive sheet, the way the native side fails when
+  /// it is not configured.
+  Object? authenticateError;
+
   /// Whether drive.file has been granted (without prompting).
   bool granted = false;
 
@@ -65,6 +69,7 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   @override
   Future<AuthenticationResults> authenticate(
       AuthenticateParameters params) async {
+    if (authenticateError != null) throw authenticateError!;
     if (cancels || pickedEmail == null) {
       throw const GoogleSignInException(
           code: GoogleSignInExceptionCode.canceled);

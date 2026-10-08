@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../services/backup/backup_controller.dart';
@@ -18,10 +19,17 @@ Future<void> signInToGoogleDrive(
   final messenger = ScaffoldMessenger.maybeOf(context);
   try {
     await account.signIn();
-  } on GoogleSignInException catch (e) {
-    messenger?.showSnackBar(SnackBar(
-        content:
-            Text('Google sign-in failed: ${e.description ?? e.code.name}')));
+  } catch (e) {
+    // Every failure, not only the SDK's own: the native side reports some
+    // as a bare PlatformException, and an unshown one is a dead button.
+    final reason = switch (e) {
+      GoogleSignInException(:final description, :final code) =>
+        description ?? code.name,
+      PlatformException(:final message, :final code) => message ?? code,
+      _ => '$e',
+    };
+    messenger?.showSnackBar(
+        SnackBar(content: Text('Google sign-in failed: $reason')));
     return;
   }
   if (account.status.value.state == DriveAccountState.signedIn) {

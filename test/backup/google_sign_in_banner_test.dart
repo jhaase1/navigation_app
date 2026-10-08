@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:navigation_app/services/backup/backup_controller.dart';
 import 'package:navigation_app/widgets/backup/google_sign_in_banner.dart';
@@ -31,6 +32,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Backups are off'), findsNothing);
+    await controller.dispose();
+  });
+
+  testWidgets('a sign-in that fails outside the SDK still says why',
+      (tester) async {
+    final controller = await show(
+        tester,
+        FakeSignInPlatform()
+          ..authenticateError = PlatformException(
+              code: 'google_sign_in',
+              message: 'No active configuration. Make sure GIDClientID is set '
+                  'in Info.plist.'));
+
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No active configuration'), findsOneWidget);
     await controller.dispose();
   });
 
