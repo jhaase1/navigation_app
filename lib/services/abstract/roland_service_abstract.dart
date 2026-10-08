@@ -1,5 +1,9 @@
 /// Abstract base class for Roland service implementations
 abstract class RolandServiceAbstract {
+  /// Emits `true`/`false` whenever the underlying link actually comes up or
+  /// goes down. Implementations without a real link never emit.
+  Stream<bool> get connectionChanges => const Stream<bool>.empty();
+
   /// Performs a cut transition
   Future<void> cut();
 

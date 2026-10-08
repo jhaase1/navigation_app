@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
+
 import 'package:navigation_app/models/operator_profile.dart';
+import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/widgets/multi_device_control_page.dart';
 
@@ -24,6 +28,68 @@ Future<void> _connect(WidgetTester tester) async {
   await tester.tap(find.text('Connect All'));
   await tester.pump(const Duration(milliseconds: 600));
   await tester.pumpAndSettle();
+}
+
+/// A switcher whose link can be dropped from the test, and which announces
+/// its own deliberate disconnect the way [RolandService] does.
+class _FakeRoland extends MockRolandService {
+  final _link = StreamController<bool>.broadcast();
+
+  @override
+  Stream<bool> get connectionChanges => _link.stream;
+
+  void drop() => _link.add(false);
+
+  /// Set once the page lets go of this session.
+  bool released = false;
+
+  @override
+  Future<void> disconnect() async {
+    released = true;
+    _link.add(false);
+  }
+}
+
+/// A connector whose connects finish only when the test says so.
+class _SlowConnector {
+  final pending = <Completer<RolandServiceAbstract>>[];
+  final sessions = <_FakeRoland>[];
+
+  Future<RolandServiceAbstract> call(String host) {
+    final c = Completer<RolandServiceAbstract>();
+    pending.add(c);
+    return c.future;
+  }
+
+  void finishAll() {
+    for (final c in pending) {
+      final r = _FakeRoland();
+      sessions.add(r);
+      c.complete(r);
+    }
+  }
+}
+
+/// Fixed pumps: a connect still in flight spins forever, so nothing settles.
+Future<void> _openSettings(WidgetTester tester) async {
+  await tester.tap(find.descendant(
+      of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+  await tester.pump(const Duration(seconds: 1));
+}
+
+/// Connects in Live Mode through an injected connector, so the page wires up
+/// the link watcher exactly as it would for real hardware.
+Future<_FakeRoland> _connectLive(WidgetTester tester) async {
+  final roland = _FakeRoland();
+  await tester.pumpWidget(MaterialApp(
+    home: MultiDeviceControlPage(
+      rolandConnector: (_) async => roland,
+    ),
+  ));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Connect All'));
+  await tester.pumpAndSettle();
+  return roland;
 }
 
 void main() {
@@ -61,6 +127,35 @@ void main() {
       await _connect(tester);
 
       expect(find.text('Demo'), findsOneWidget);
+    });
+  });
+
+  group('MultiDeviceControlPage — offline prep', () {
+    testWidgets('keeps the tabs usable while no device is connected',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Service'), findsOneWidget);
+      expect(find.text('Panel'), findsOneWidget);
+      expect(find.text('Positions'), findsOneWidget);
+      expect(find.text('No devices connected'), findsOneWidget);
+      expect(find.text('Connect All'), findsOneWidget);
+    });
+
+    testWidgets('offers the operator switcher while offline', (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Switch operator'), findsOneWidget);
+    });
+
+    testWidgets('drops the offline banner once connected', (tester) async {
+      await _connect(tester);
+
+      expect(find.text('No devices connected'), findsNothing);
     });
   });
 
@@ -169,6 +264,143 @@ void main() {
 
       expect(find.textContaining('Active:'), findsNothing);
       expect(find.text('Tap to switch operator'), findsNothing);
+    });
+  });
+
+  group('MultiDeviceControlPage — Roland link', () {
+    testWidgets('the AppBar reads Live while the switcher is up',
+        (tester) async {
+      await _connectLive(tester);
+
+      expect(find.text('Live'), findsOneWidget);
+      expect(find.text('Offline'), findsNothing);
+    });
+
+    testWidgets('the AppBar reads Offline before anything connects',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: MultiDeviceControlPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Offline'), findsOneWidget);
+      expect(find.text('Live'), findsNothing);
+    });
+
+    testWidgets('a dropped link flips to Offline and brings the banner back',
+        (tester) async {
+      final roland = await _connectLive(tester);
+
+      roland.drop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Offline'), findsOneWidget);
+      expect(find.text('No devices connected'), findsOneWidget);
+      expect(find.text('Roland connection lost'), findsOneWidget);
+    });
+
+    testWidgets('a deliberate disconnect does not claim the link was lost',
+        (tester) async {
+      await _connectLive(tester);
+
+      await tester.tap(find.descendant(
+          of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Disconnect').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Roland connection lost'), findsNothing);
+    });
+
+    testWidgets('a connect that finishes after the page is gone is let go',
+        (tester) async {
+      final roland = _FakeRoland();
+      var released = false;
+      roland.connectionChanges.listen((up) => released = !up);
+      final pending = Completer<RolandServiceAbstract>();
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(rolandConnector: (_) => pending.future),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await tester.pumpWidget(const SizedBox());
+      pending.complete(roland);
+      await tester.pumpAndSettle();
+
+      expect(released, isTrue,
+          reason: 'nobody is left to own the switcher session');
+    });
+
+    testWidgets('switching to Demo while the switcher is still connecting '
+        'does not install it', (tester) async {
+      final connector = _SlowConnector();
+      await tester.pumpWidget(MaterialApp(
+          home: MultiDeviceControlPage(rolandConnector: connector.call)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await _openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      connector.finishAll();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      // Installed, it would take rehearsal cuts to air under a Demo badge.
+      expect(connector.sessions.single.released, isTrue);
+      expect(find.text('Live'), findsNothing);
+    });
+
+    testWidgets('a second Connect while the first is dialling leaves one session',
+        (tester) async {
+      final connector = _SlowConnector();
+      await tester.pumpWidget(MaterialApp(
+          home: MultiDeviceControlPage(rolandConnector: connector.call)));
+      await tester.pumpAndSettle();
+
+      await _openSettings(tester);
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect').first);
+      await tester.pump();
+      await tester.tap(find.text('Save & Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      connector.finishAll();
+      await tester.pumpAndSettle();
+
+      expect(connector.sessions, hasLength(2));
+      expect(connector.sessions.where((r) => !r.released), hasLength(1),
+          reason: 'an orphaned session holds a telnet slot nobody can free');
+      expect(find.text('Live'), findsOneWidget);
+    });
+
+    testWidgets('switching Live to Demo updates the badge and banner at once',
+        (tester) async {
+      // Every device is let go of on the switch; a badge still reading Live
+      // would be the lie the Offline badge exists to prevent.
+      await _connectLive(tester);
+      expect(find.text('Live'), findsOneWidget);
+
+      await _openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Live'), findsNothing);
+      expect(find.text('No devices connected'), findsOneWidget);
     });
   });
 }

@@ -19,6 +19,7 @@ import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
+import '../utils/device_feedback.dart';
 import 'backup/backup_status_pill.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
@@ -27,12 +28,17 @@ import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
-  const MultiDeviceControlPage({super.key, this.backupController});
+  const MultiDeviceControlPage(
+      {super.key, this.backupController, this.rolandConnector});
 
   /// Injected by tests. Production passes nothing and gets
   /// [BackupController.forEnvironment], which is disabled unless
   /// `--dart-define=BACKUP_MOCK=true`.
   final BackupController? backupController;
+
+  /// Injected by tests. Opens a live switcher link for the given host;
+  /// production passes nothing and gets a real [RolandService].
+  final Future<RolandServiceAbstract> Function(String host)? rolandConnector;
 
   @override
   State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();
@@ -49,6 +55,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   final ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
   final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
   final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
+  StreamSubscription<bool>? _rolandLinkSub;
 
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
@@ -119,11 +126,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
     setState(() {
       _rolandIpController.text = rolandIp;
-      if (_rolandConnected.value) {
-        _rolandService.disconnect();
-        _rolandConnected.value = false;
-        _rolandService = MockRolandService();
-      }
+      _releaseRoland();
       _panasonicCameras
         ..clear()
         ..addAll(entries
@@ -132,8 +135,50 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     DeviceConfigStore.save(rolandIp, entries);
   }
 
+  void _showResponse(String message) {
+    if (mounted) showDeviceResponse(context, message);
+  }
+
+  /// Keeps the Live badge truthful: when the switcher's link drops underneath
+  /// us, flip the shared flag instead of waiting for the next failed command.
+  void _watchRolandLink(RolandServiceAbstract service) {
+    _rolandLinkSub?.cancel();
+    _rolandLinkSub = service.connectionChanges.listen((up) {
+      if (!up && mounted && identical(_rolandService, service)) {
+        setState(() => _rolandConnected.value = false);
+        _showResponse('Roland connection lost');
+      }
+    });
+  }
+
+  static Future<RolandServiceAbstract> _openRoland(String host) async {
+    final service = RolandService(host: host);
+    await service.connect();
+    return service;
+  }
+
+  /// Bumped by every Connect and every let-go. A connect still dialling when
+  /// it changes is stale: whatever it returns is hung up, never installed —
+  /// otherwise a Demo switch, an IP change or a second Connect made while it
+  /// dialled would be overridden when it finished, or leave an orphan.
+  int _rolandConnectGeneration = 0;
+
+  /// Deliberately lets go of the switcher, including one still connecting.
+  /// The link watcher is cancelled first so our own disconnect is not
+  /// reported as a lost connection. Safe to call when nothing is connected.
+  void _releaseRoland() {
+    _rolandConnectGeneration++;
+    _rolandConnecting.value = false;
+    _rolandLinkSub?.cancel();
+    _rolandLinkSub = null;
+    _rolandService.disconnect();
+    _rolandConnected.value = false;
+    _rolandService = MockRolandService();
+  }
+
   @override
   void dispose() {
+    _rolandLinkSub?.cancel();
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {
@@ -174,22 +219,24 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   Future<void> _connectRoland() async {
     if (_rolandConnected.value) {
-      await _rolandService.disconnect();
       setState(() {
-        _rolandConnected.value = false;
-        _rolandService = MockRolandService();
+        _releaseRoland();
         _rolandConnectionError.value = '';
       });
       return;
     }
 
     setState(() {
+      _releaseRoland();
       _rolandConnecting.value = true;
       _rolandConnectionError.value = '';
     });
+    final generation = _rolandConnectGeneration;
+    bool stale() => !mounted || generation != _rolandConnectGeneration;
 
     if (_mockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (stale()) return;
       setState(() {
         _rolandService = MockRolandService();
         _rolandConnected.value = true;
@@ -199,16 +246,24 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       return;
     }
 
-    final service = RolandService(host: _rolandIpController.text);
     try {
-      await service.connect();
+      final service = await (widget.rolandConnector ?? _openRoland)(
+          _rolandIpController.text);
+      if (stale() || _mockMode) {
+        // Let go of, or superseded, while dialling: nobody else will ever
+        // close this session.
+        await service.disconnect();
+        return;
+      }
       setState(() {
         _rolandService = service;
+        _watchRolandLink(service);
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
       });
     } catch (e) {
+      if (stale()) return;
       setState(() {
         _rolandConnecting.value = false;
         _rolandConnectionError.value = e.toString();
@@ -316,11 +371,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onMockModeChanged: (value) {
               setDialogState(() {
                 _mockMode = value;
-                if (_rolandConnected.value) {
-                  _rolandService.disconnect();
-                  _rolandConnected.value = false;
-                  _rolandService = MockRolandService();
-                }
+                _releaseRoland();
                 for (final camera in _panasonicCameras) {
                   if (camera.isConnected.value) {
                     camera.isConnected.value = false;
@@ -328,6 +379,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                   }
                 }
               });
+              // Every device was just let go of. The badge and the offline
+              // banner live on the page, not the dialog: without this they
+              // kept reading Live until something else rebuilt the page.
+              setState(() {});
             },
             rolandService: _rolandService,
             rolandIpController: _rolandIpController,
@@ -337,7 +392,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onConnectRoland: _connectRoland,
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
-            onResponse: (_) {},
+            onResponse: _showResponse,
             positions: _positions,
             heightRanges: _heightRanges,
             onPositionsChanged: () async {
@@ -377,26 +432,40 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     );
   }
 
-  // ── Operator selector ────────────────────────────────────────────────────
-
-  Widget _buildOperatorSelector({bool compact = false}) {
-    if (_operators.length <= 1 && _operators.first.isDefault) {
-      return const SizedBox.shrink();
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: _operators.map((op) {
-        final selected = op.id == _activeOperator.id;
-        return ChoiceChip(
-          label: Text(op.name,
-              style: TextStyle(
-                  fontSize: compact ? 12 : 14,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
-          selected: selected,
-          onSelected: (_) => _setActiveOperator(op),
-        );
-      }).toList(),
+  /// Shown above the tabs while nothing is connected, so service prep, rosters
+  /// and cue review stay available at home or before the rack is powered on.
+  Widget _buildOfflineBanner() {
+    final modeColor =
+        _mockMode ? Colors.orange.shade800 : Colors.blue.shade800;
+    return Material(
+      color: Colors.grey.shade200,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            const Icon(Icons.link_off, color: Colors.grey),
+            const Text('No devices connected',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(_mockMode ? 'Demo Mode' : 'Live Mode',
+                style: TextStyle(fontWeight: FontWeight.w600, color: modeColor)),
+            FilledButton.icon(
+              onPressed: _connectingAll ? null : _connectAll,
+              icon: _connectingAll
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.power_settings_new),
+              label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -406,79 +475,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   Widget build(BuildContext context) {
     final isConnected = _rolandConnected.value ||
         _panasonicCameras.any((c) => c.isConnected.value);
-
-    if (!isConnected) {
-      return Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: BackupStatusPill(controller: _backup),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.person_add),
-              tooltip: 'Manage People',
-              onPressed: () => _openPeopleManager(context),
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () => _showSettingsDialog(context),
-            ),
-          ],
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.devices, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
-              const Text(
-                'No devices connected',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color:
-                      _mockMode ? Colors.orange.shade100 : Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _mockMode ? 'Demo Mode' : 'Live Mode',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: _mockMode
-                        ? Colors.orange.shade800
-                        : Colors.blue.shade800,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildOperatorSelector(),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _connectingAll ? null : _connectAll,
-                icon: _connectingAll
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.power_settings_new),
-                label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () => _showSettingsDialog(context),
-                icon: const Icon(Icons.settings),
-                label: const Text('Settings'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -502,19 +498,27 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _mockMode
-                            ? Colors.orange.shade100
-                            : Colors.blue.shade100,
+                        color: !isConnected
+                            ? Colors.grey.shade300
+                            : _mockMode
+                                ? Colors.orange.shade100
+                                : Colors.blue.shade100,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        _mockMode ? 'Demo' : 'Live',
+                        !isConnected
+                            ? 'Offline'
+                            : _mockMode
+                                ? 'Demo'
+                                : 'Live',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: _mockMode
-                              ? Colors.orange.shade800
-                              : Colors.blue.shade800,
+                          color: !isConnected
+                              ? Colors.grey.shade800
+                              : _mockMode
+                                  ? Colors.orange.shade800
+                                  : Colors.blue.shade800,
                         ),
                       ),
                     ),
@@ -540,6 +544,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         length: 3,
         child: Column(
           children: [
+            if (!isConnected) _buildOfflineBanner(),
             const TabBar(
               tabs: [
                 Tab(text: 'Service'),
@@ -559,7 +564,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandService: _rolandService,
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
-                    onResponse: (_) {},
+                    onResponse: _showResponse,
                   ),
                   OperatorPanel(
                     operator: _activeOperator,
@@ -567,7 +572,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandConnected: _rolandConnected,
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
-                    onResponse: (_) {},
+                    onResponse: _showResponse,
                     onServicesChanged: _loadServices,
                   ),
                   PositionsTab(
@@ -575,7 +580,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     positions: _positions,
                     people: _people,
                     heightRanges: _heightRanges,
-                    onResponse: (_) {},
+                    onResponse: _showResponse,
                   ),
                 ],
               ),
