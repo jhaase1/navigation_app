@@ -1,7 +1,8 @@
 # Steps to MVP
 
 What stands between this app and running a live Sunday service on it.
-Refreshed 2026-10-04. Status words mean exactly one thing:
+Refreshed 2026-10-08, after #23–#37 landed together. Status words mean exactly
+one thing:
 
 - **Merged** — on `main`.
 - **In PR** — written and tested, waiting for review. "Stacked on #N" means
@@ -22,10 +23,10 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | 1–2 | Foundations and engine against `MockBackupTarget` | **Merged** |
 | 3a | Status pill, log popover, lifecycle | **Merged** (PR #19) |
 | 3b | Conflict dialog, revision history, machine naming | **Merged** (PR #22) |
-| 4 | Google Drive target, Google sign-in, retention | **In PR #27**, code-complete against a fake Drive. **Blocked** on the items below. |
-| 5 | Switcher and camera faults on the pill | **In PR #34** (stacked on #31) |
+| 4 | Google Drive target, Google sign-in, retention | **Merged** (#27), code-complete against a fake Drive and inert until built with `BACKUP_GOOGLE_ACCOUNT`. **Blocked** on the items below. |
+| 5 | Switcher and camera faults on the pill | **Merged** (#34) |
 
-### Phase 4 — what's left after PR #27 merges
+### Phase 4 — what's left
 
 1. **Google Cloud setup (account owner):**
    - Enable the Drive API.
@@ -41,7 +42,12 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
    `--dart-define=BACKUP_GOOGLE_ACCOUNT=<shared account>`. Don't set it before
    step 2: sign-in fails without the Apple config.
 4. **Hand test** — the 8 steps in `docs/superpowers/lanes/drive-target/plan.md`,
-   including leaving the Mac running for over an hour.
+   including leaving the Mac running for over an hour. **Add a ninth:** back
+   up from the Mac, then list from the iPad. The scope is `drive.file`, and
+   the iOS and macOS builds use separate OAuth client IDs; whether one
+   client can see the other's files is unverified (the fake Drive shows
+   everything to everyone). If it can't, the scope or client setup has to
+   change before two machines can share backups.
 5. **Decide retention.** Proposed: keep the newest 50, and keep anything
    younger than 90 days.
 
@@ -51,14 +57,14 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 
 | # | Landmine | Status |
 |---|---|---|
-| 1 | Swallowed hardware responses (`onResponse: (_) {}`) | **In PR #23**. Failures styled as failures in **#33** (stacked on #23). |
-| 2 | Switcher disconnect left the UI reading Live | **In PR #23** (Offline badge). Auto-reconnect in **#29**, command path in **#30** (stacked). |
-| 3 | "No devices connected" lockout blocked offline prep | **In PR #23** |
-| 4 | No in-flight feedback on cues | **In PR #24** |
-| 5 | Sunday lineup lost on tab switch or restart | **In PR #25** — kept for 20 minutes past the screen going off, then cleared (see §4) |
-| 6 | Export/import path unreachable in the macOS sandbox | **In PR #26** |
+| 1 | Swallowed hardware responses (`onResponse: (_) {}`) | **Merged** (#23). Failures styled as failures (#33), and a success no longer wipes one off the screen. |
+| 2 | Switcher disconnect left the UI reading Live | **Merged** (#23, #29, #30). The badge now follows the switcher alone. Still open for an idle half-open link — see §4. |
+| 3 | "No devices connected" lockout blocked offline prep | **Merged** (#23) |
+| 4 | No in-flight feedback on cues | **Merged** (#24) |
+| 5 | Sunday lineup lost on tab switch or restart | **Merged** (#25) — kept 20 minutes past the screen going off, and never past 4 AM (see §4) |
+| 6 | Export/import path unreachable in the macOS sandbox | **Merged** (#26) |
 
-### Found since, also in PR
+### Found since, all merged
 
 | Problem | PR |
 |---|---|
@@ -68,7 +74,7 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | Demo → Live brought cameras back "connected" on their demo stand-ins | #31 |
 | A dropped switcher kept reconnecting after Demo, an IP change or a fresh Connect | #29 |
 | A camera's red pill fault stuck after reconnecting it by hand | #34 |
-| A lineup carried from one service into the next | #25 |
+| A lineup carried from one service into the next | #25, plus the 4 AM cutoff |
 | One refused preset froze that camera's queue: every later recall waited forever | #36 |
 | Letting go of the switcher mid-reconnect still logged a session in | #29 |
 | A Demo switch, IP change or second Connect made while the switcher was still dialling was overridden (real switcher live under a Demo badge, or an orphaned session) | #23 |
@@ -93,58 +99,32 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 
 ---
 
-## 3. Merge order
+## 3. How it landed
 
-The stacks have to land bottom-up:
+On 2026-10-08, #28, #32 and #37 merged directly. The rest were merged in
+stack order (#23, #29, #30, #33, #36, #31, #34, #24, #25, #26, #27, #35) on
+one integration branch, conflicts resolved as this section used to describe,
+then fixed for what two independent reviews (Claude Opus 5.5 and Grok 4.7)
+found. Every fix started from a failing test:
 
-```
-main ← #23 ← #29 ← #30
-          ← #31 ← #34
-          ← #33 ← #36
-main ← #24, #25, #26, #28, #32, #37   (independent)
-main ← #27                       (after #23 and #26 — see below)
-```
-
-Conflicts to expect, all in the merge, none in the PRs themselves:
-- `service_tab.dart`: #24, #25 and #33. Keep #24's per-step cue key and
-  in-flight set, #25's lineup expiry listener and renew-before-assign, and
-  #33's `_fail` calls. #24's dropdown `onChanged` clears `_cueStates` and
-  bumps `_cueGeneration`; #25 replaces it with `onChanged: _selectService`.
-  Move that clear and bump into `_selectService` (and its restore paths),
-  or a late result stamps a check onto the newly picked service's cue.
-- `multi_device_control_page.dart`, the switcher link watcher: #29 and #34.
-  When both are in, #29's "link came back" path must also call
-  `clearDeviceFault` for the switcher, or the pill stays red after an
-  automatic reconnect. Start that fix from a failing test: connect live,
-  drop the link (pill reads "Switcher offline"), restore it, expect the
-  pill clear. Keep #34's `_releaseRoland(clearFault: false)` before a
-  Connect, so a Connect that fails leaves the pill red.
-- `multi_device_control_page.dart`: #27 adds the Google sign-in banner into
-  the offline layout that #23 replaces. Re-add the banner to #23's layout —
-  dropping it silently hides "sign in to resume backups". #27 also
-  re-indents the whole TabBarView and still carries `onResponse: (_) {}`
-  three times: taking its side of that block brings back landmine 1
-  (swallowed device responses). Take #23's side, or rebase #27 onto #23
-  first.
-- `multi_device_control_page.dart`: #25 × #31 both add to `initState` and
-  `dispose` — keep both `_lineupLease` and `_cameraHealth`. #33 × #29 meet
-  in the same file and its test (the `_showFailure` line below). #29 and #33
-  both edit `pinp_tab.dart`; it auto-merges, keep #29's `onError: (_) {}`.
-- `test/panasonic_service_test.dart` and the page test: #36 × #31 — take
-  both sides.
-- #27 and #26 both touch `pubspec.yaml`/`pubspec.lock`, the plugin
-  registrants and `settings_dialog_test.dart`: take both sides.
-- `_watchRolandLink`, #33 (and #36) × #34: #33 turns the "connection lost"
-  line into `_showFailure`; #34 keeps `_showResponse` and adds
-  `_backup.reportDeviceFault(...)`. Keep both: `_showFailure` *and*
-  `reportDeviceFault`, or the switcher fault never reaches the pill (the
-  page test "a lost switcher and a lost camera show on the status pill"
-  catches it).
-- Once #33 is in alongside #29 and #31, switch their "connection lost" and
-  "not responding" messages from `_showResponse` to `_showFailure`, or they
-  show in success grey.
-
----
+| Review finding | Fix |
+|---|---|
+| #29 + #34: the pill stayed "Switcher offline" after an automatic reconnect | Reconnect clears the fault |
+| #33: the next cue's success wiped a red failure off the screen | A failure is only replaced by a newer failed command, or by its own link coming back |
+| #30: "Roland reconnected" was the last word after a cue whose reply was lost, inviting a second CUT | Link messages never hide a failed cue, and a lost reply now says the command may have run |
+| #23: the badge read Live with a dead switcher while any camera was up | The badge follows the switcher alone |
+| #36: recalls queued behind a dead camera fired ~20 s late, after it came back | They fail instead |
+| #36/#31: a released camera service kept sending stale recalls | Released services are disposed |
+| Camera "busy" (`ER2:R04`) was never retried | Matched by prefix |
+| #25: a lapsed lineup still fired its reader cue after the Mac woke | Firing renews first; a lapsed lineup fails with "No one assigned" |
+| #25: a Mac mini with its display asleep kept the lineup forever | A lineup never outlives 4 AM (late enough for Midnight Mass) |
+| #25: a corrupt saved lineup threw on every pick | Loads as empty and is cleared |
+| #27: two marked Drive folders split backups; a fresh install read the empty one | Backups pause with "Duplicate backup folders" until merged by hand |
+| #27: a Google sign-in SDK error stuck on the pill until restart | Mapped to faults that clear; every fault names its operation |
+| #27: offline at launch read as "sign in again" | Reads as offline |
+| #27: a refused Drive grant left Settings saying "Backing up" | Signed in only after the grant |
+| #36: unused import; #26: lock drifted on `pub get` | Fixed |
+| #23 broke `integration_test/` (Settings moved to the AppBar) | Helpers updated |
 
 ## 4. Still open
 
@@ -177,10 +157,29 @@ renewal. The app renews it every 5 minutes while it is on screen, and on
 coming back. On the iPad, locking the screen or leaving the app stops the
 renewals, so the lineup is gone 20 minutes later. A Mac window behind
 another app still counts as on screen, so running slides elsewhere is safe.
-**Gap:** Flutter cannot see the Mac's *display* sleeping, so a Mac mini left
-on with the app open keeps its lineup indefinitely. Closing that needs a
-small native hook (macOS screen-sleep notification), built and tested on
-the Mac.
+A Mac mini left on with its display asleep keeps renewing, so a lineup also
+never outlives the 4 AM after it was saved: a Mass crossing midnight keeps
+its readers, and Saturday's are gone before Sunday's first Mass.
+
+**Follow-ups from the 2026-10-08 review, not fixed:**
+- **Idle switcher heartbeat.** With no traffic and no FIN/RST (power loss, a
+  cable pulled at the far end) the link reads Live until the next cue waits
+  out the 5 s ACK timeout. Needs a periodic query or TCP keepalive, tested
+  on the real V-160HD — a wrong reply format would drop the link every time.
+- **Dead-camera failures arrive late.** Queued recalls now fail instead of
+  firing late, but the first failure takes ~16.5 s (5 s timeout × 3 tries
+  plus backoff). Shorter recall timeouts are a retry-policy call.
+- **The pill shows one fault at a time**, the newest. With the switcher and a
+  camera both down it names only one, and once Drive is live a device fault
+  hides "Sign in", "Review" and "Name this machine" until the device is back.
+- **A Drive status-refresh fault** (`operation: 'status'`) is never cleared
+  once raised — the same stuck-until-restart shape the scheduler had.
+- **Offline Drive restore** leaves Settings reading "Checking Google
+  sign-in…" for as long as the machine is offline.
+- A Service tab rebuilt while a cue was out stops the spinner but never
+  shows that cue's result.
+- `docs/superpowers/lanes/drive-target/plan.md` decision 7 still describes
+  "oldest folder wins"; the code now pauses on two folders.
 
 **Known limits, accepted for MVP unless the rehearsal says otherwise.**
 - **Cue "done" means the camera accepted the preset**, not that it has stopped

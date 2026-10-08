@@ -21,9 +21,12 @@ comes out the same sitting.
 ## Stack
 
 - **Flutter 3.47.0 stable**, Dart SDK `>=3.0.0 <4.0.0`. Verified 2026-08-21.
-- Runtime deps are deliberately thin: `http`, `shared_preferences`, `logging`,
-  `cupertino_icons`. Dev: `flutter_test`, `integration_test`, `mocktail`,
-  `flutter_lints`, `flutter_launcher_icons`.
+- Runtime deps are deliberately thin: `http` (`^1.5.0` — `AbortableRequest`),
+  `shared_preferences`, `logging`, `crypto`, `cupertino_icons`, plus three
+  added 2026-10-08 on Daniel's go-ahead to merge it all: `file_picker` (native export/import,
+  #26), `google_sign_in` and `googleapis` (Drive backup, #27). Dev adds
+  `flutter_test`, `integration_test`, `mocktail`, `flutter_lints`,
+  `flutter_launcher_icons` and the platform-interface fakes.
 - **macOS and iOS build with Swift Package Manager. CocoaPods was dropped**
   (`5608d36`) after the Flutter 3.47 migration. Don't re-add a Podfile.
 - macOS needs the `network.client` entitlement in both `DebugProfile` and
@@ -95,23 +98,32 @@ halve image coordinates before feeding them back to the script.
 
 ## Known silent failures
 
-These are the reason the test policy draws Class 1 where it does. All three are
-live as of 2026-08-21.
+These are the reason the test policy draws Class 1 where it does. Found
+2026-08-21; status as of the 2026-10-08 integration of #23–#37, each line
+backed by a test that failed first.
 
-1. **A dropped switcher socket still reads Live.** Every device response is
-   routed into an empty closure —
-   `lib/widgets/multi_device_control_page.dart:325`, `:540`, `:548`, `:555`.
-   A failed preset recall is visually identical to a successful one.
-2. **Permanent ACK desync.** After a malformed response the command queue never
-   recovers.
-3. **A wedged camera reports nothing at all.**
+1. **A dead switcher reading Live.** Fixed for a link that errors or closes:
+   every device response reaches the operator (#23), failures are red and
+   not wiped by the next success (#33), the badge follows the switcher alone,
+   the link reconnects itself (#29) and the pill says "Switcher offline"
+   until it does (#34). **Still live for an idle half-open link**: no
+   heartbeat or TCP keepalive, so a switcher that loses power with no FIN/RST
+   reads Live until the next cue waits out the 5 s ACK timeout. Proven by a
+   review repro; the fix is a protocol change that needs the real V-160HD.
+2. **Permanent ACK desync.** Fixed (#30): each command is sent once, a lost
+   ACK resets the link instead of letting the next ACK complete the wrong
+   command, and one garbled reply completes one waiter.
+3. **A wedged camera.** The queue can no longer wedge (#36); a refused
+   command fails its caller and the next one goes out. An unreachable camera
+   is noticed by the liveness probe (#31) — the probe bypasses the queue, so
+   it never detected a queue wedge; #36 is the fix for that. Commands queued
+   behind a camera that never answers now fail instead of firing late, and a
+   released camera service is disposed so it sends nothing more.
 
-Lane 3a now ships the backup status surface: the always-clickable AppBar pill,
-its popover, the bounded persisted log, and `BackupController` with its
-serialized event fold. Production still has no real backup target until Phase
-4. Conflict and adoption conditions are surfaced but cannot be resolved until
-Lane 3b. The surface does not yet absorb the three device failures above: the
-dropped socket, ACK desync, and wedged-camera bugs are still live.
+The backup status surface (pill, popover, log, `BackupController`) carries
+device faults since #34. Google Drive (#27) is compiled in but inert unless
+built with `--dart-define=BACKUP_GOOGLE_ACCOUNT=...`, and must not be until
+the Apple config in `steps-to-mvp.md` lands.
 
 ## Agent setup
 
