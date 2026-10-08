@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../services/backup/app_fault.dart';
 import '../../services/backup/backup_controller.dart';
 import '../../services/backup/backup_log.dart';
 import '../../services/backup/backup_status.dart';
 import '../../services/backup/relative_time.dart';
 import 'conflict_dialog.dart';
 import 'device_name_dialog.dart';
+import 'google_drive_tile.dart';
 
 const double _popoverWidth = 400;
 
@@ -171,7 +173,24 @@ class _BackupLogPanel extends StatelessWidget {
                     : 'Review',
               ),
             )
-          else if (controller.canRetry)
+          else if (status.activeCondition?.kind == 'authExpired' &&
+              controller.driveAccount != null)
+            // Waiting cannot fix a missing sign-in, so Retry would be a
+            // button that does nothing.
+            TextButton(
+              onPressed: () {
+                // Started before closing: it reads this context's messenger
+                // synchronously, and closing unmounts the popover.
+                unawaited(signInToGoogleDrive(
+                    context, controller, controller.driveAccount!));
+                onClose();
+              },
+              child: const Text('Sign in to Google'),
+            )
+          else if (controller.canRetry &&
+              (status.activeCondition?.domain ?? FaultDomain.backup) ==
+                  FaultDomain.backup)
+            // Retry re-runs the backup; it cannot bring a camera back.
             TextButton(
               onPressed: () => controller.retryNow(),
               child: const Text('Retry now'),

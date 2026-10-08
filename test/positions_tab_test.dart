@@ -281,4 +281,29 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Alice'), findsOneWidget);
     });
   });
+
+  testWidgets('a shot that cannot be taken is reported as a failure',
+      (tester) async {
+    final cam = PanasonicCameraConfig(name: 'Cam', ipAddress: '10.0.1.10');
+    addTearDown(cam.dispose);
+    final alice = Person(id: 'p1', name: 'Alice', positionPresets: {
+      'pos1': {'10.0.1.10': 4}
+    });
+    final ok = <String>[];
+    final failed = <String>[];
+
+    await tester.pumpWidget(_wrap(PositionsTab(
+      cameras: [cam],
+      positions: [Position(id: 'pos1', name: 'Lectern')],
+      people: [alice],
+      heightRanges: const [],
+      onResponse: ok.add,
+      onFailure: failed.add,
+    )));
+    await tester.tap(find.widgetWithText(FilledButton, 'Alice'));
+    await tester.pumpAndSettle();
+
+    expect(failed, ['Cam not connected']);
+    expect(ok, isEmpty);
+  });
 }

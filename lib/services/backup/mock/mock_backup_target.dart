@@ -17,6 +17,7 @@ class MockBackupTarget implements BackupTargetAbstract {
 
   AppFault? _nextFailure;
   AppFault? _nextPutFailure;
+  AppFault? _nextPruneFailure;
   Duration? _nextDelay;
   Map<String, String?>? _pendingConcurrentWrite;
   Future<void> Function()? _beforeNextFetch;
@@ -33,6 +34,11 @@ class MockBackupTarget implements BackupTargetAbstract {
   /// survive identically. Only a failure that lands on the upload itself, with
   /// the body already in hand, separates them.
   void failNextPutWith(AppFault fault) => _nextPutFailure = fault;
+
+  /// The next [prune] throws [fault], once; everything else keeps working.
+  /// Retention runs after pull and push in a sweep, so a failure aimed at
+  /// "the next call" would land on the pull instead.
+  void failNextPruneWith(AppFault fault) => _nextPruneFailure = fault;
 
   /// The next call to any method takes [d] before returning, once.
   void delayNextBy(Duration d) => _nextDelay = d;
@@ -172,6 +178,11 @@ class MockBackupTarget implements BackupTargetAbstract {
     required Duration keepFor,
   }) async {
     await _gate();
+    final pruneFailure = _nextPruneFailure;
+    if (pruneFailure != null) {
+      _nextPruneFailure = null;
+      throw pruneFailure;
+    }
     if (keepCount < 0) {
       throw AppFault.backup(
           BackupFailureKind.unknown, 'keepCount must not be negative');

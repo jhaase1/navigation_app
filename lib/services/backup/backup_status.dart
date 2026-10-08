@@ -78,6 +78,7 @@ class BackupStatus {
     'unsupportedSchema': 'App update needed',
     'malformedRemote': 'Backup unreadable',
     'targetMissing': 'Backup missing',
+    'targetAmbiguous': 'Duplicate backup folders',
     'deviceUnnamed': 'Name this machine',
     'unknown': 'Backup failing',
   };
@@ -85,7 +86,13 @@ class BackupStatus {
   String label(DateTime now) {
     switch (state) {
       case BackupPillState.failing:
-        return failureLabels[activeCondition!.kind] ?? 'Backup failing';
+        final condition = activeCondition!;
+        return switch (condition.domain) {
+          FaultDomain.roland => 'Switcher offline',
+          FaultDomain.camera => '${condition.targetIdentity ?? 'Camera'} offline',
+          FaultDomain.backup =>
+            failureLabels[condition.kind] ?? 'Backup failing',
+        };
       case BackupPillState.needsReview:
         return activeCondition!.kind == adoptionKind
             ? 'Choose a copy'

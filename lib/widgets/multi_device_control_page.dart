@@ -9,7 +9,10 @@ import '../models/position.dart';
 import '../models/service.dart';
 import '../services/roland_service.dart';
 import '../services/panasonic_service.dart';
+import '../services/abstract/panasonic_service_abstract.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/camera_health_monitor.dart';
+import '../services/backup/app_fault.dart';
 import '../services/backup/backup_controller.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
@@ -17,9 +20,12 @@ import '../services/device_config_store.dart';
 import '../services/height_range_store.dart';
 import '../services/operator_store.dart';
 import '../services/people_store.dart';
+import '../services/lineup_lease.dart';
 import '../services/position_store.dart';
 import '../services/service_store.dart';
+import '../utils/device_feedback.dart';
 import 'backup/backup_status_pill.dart';
+import 'backup/google_sign_in_banner.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
 import 'service_tab.dart';
@@ -27,12 +33,29 @@ import 'positions_tab.dart';
 import 'settings_dialog.dart';
 
 class MultiDeviceControlPage extends StatefulWidget {
-  const MultiDeviceControlPage({super.key, this.backupController});
+  const MultiDeviceControlPage({
+    super.key,
+    this.backupController,
+    this.rolandConnector,
+    this.cameraConnector,
+    this.cameraHealthInterval = const Duration(seconds: 5),
+  });
 
   /// Injected by tests. Production passes nothing and gets
   /// [BackupController.forEnvironment], which is disabled unless
   /// `--dart-define=BACKUP_MOCK=true`.
   final BackupController? backupController;
+
+  /// Injected by tests. Opens a live switcher link for the given host;
+  /// production passes nothing and gets a real [RolandService].
+  final Future<RolandServiceAbstract> Function(String host)? rolandConnector;
+
+  /// Injected by tests. Reaches a live camera at the given address;
+  /// production passes nothing and gets a real [PanasonicService].
+  final Future<PanasonicServiceAbstract> Function(String ip)? cameraConnector;
+
+  /// How often connected cameras are asked whether they are still there.
+  final Duration cameraHealthInterval;
 
   @override
   State<MultiDeviceControlPage> createState() => _MultiDeviceControlPageState();
@@ -49,6 +72,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   final ValueNotifier<bool> _rolandConnected = ValueNotifier(false);
   final ValueNotifier<bool> _rolandConnecting = ValueNotifier(false);
   final ValueNotifier<String> _rolandConnectionError = ValueNotifier('');
+  StreamSubscription<bool>? _rolandLinkSub;
+  late final CameraHealthMonitor _cameraHealth;
+
+  /// How the switcher is named in device faults.
+  static const _switcherName = 'Roland';
 
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
@@ -63,6 +91,10 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Service> _services = [];
   List<HeightRange> _heightRanges = [];
   late final BackupController _backup;
+  final _lineupLease = LineupLease();
+
+  // One key for both layouts, so "Not now" survives connecting a device.
+  final _signInBannerKey = GlobalKey();
 
   @override
   void initState() {
@@ -71,6 +103,29 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     // foreground and flush on background are its business, not this widget's.
     _backup = widget.backupController ?? BackupController.forEnvironment();
     unawaited(_backup.start());
+    _cameraHealth = CameraHealthMonitor(
+      cameras: () => _panasonicCameras,
+      interval: widget.cameraHealthInterval,
+      onChange: (camera, up) {
+        if (!mounted) return;
+        setState(() {});
+        if (up) {
+          _showLink('camera:${_cameraFaultId(camera)}', '${camera.name} is back',
+              lost: false);
+          _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
+        } else {
+          _showLink(
+              'camera:${_cameraFaultId(camera)}', '${camera.name} not responding',
+              lost: true);
+          _backup.reportDeviceFault(AppFault.device(
+              FaultDomain.camera,
+              _cameraFaultId(camera),
+              '${camera.name} is not answering. Shots on it will fail until '
+              'it comes back.'));
+        }
+      },
+    )..start();
+    _lineupLease.start();
     _loadDeviceConfig();
     _loadOperators();
     _loadPositions();
@@ -113,17 +168,17 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
     for (final c in _panasonicCameras) {
+      // Renamed or removed, nothing would ever clear it again.
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(c));
+      // A connect still dialling for a replaced camera is now stale.
+      _cameraConnectGeneration.remove(c);
       c.isConnected.value = false;
-      c.service = null;
+      _closeCameraService(c);
       c.dispose();
     }
     setState(() {
       _rolandIpController.text = rolandIp;
-      if (_rolandConnected.value) {
-        _rolandService.disconnect();
-        _rolandConnected.value = false;
-        _rolandService = MockRolandService();
-      }
+      _releaseRoland();
       _panasonicCameras
         ..clear()
         ..addAll(entries
@@ -132,11 +187,92 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     DeviceConfigStore.save(rolandIp, entries);
   }
 
+  void _showResponse(String message) {
+    if (mounted) showDeviceResponse(context, message);
+  }
+
+  void _showFailure(String message) {
+    if (mounted) showDeviceResponse(context, message, failed: true);
+  }
+
+  /// A device's connection dropping or returning. Never hides a failed cue,
+  /// and a return only replaces the same device's "lost" message.
+  void _showLink(String link, String message, {required bool lost}) {
+    if (mounted) {
+      showDeviceResponse(context, message, failed: lost, link: link);
+    }
+  }
+
+  /// Keeps the Live badge truthful: follow the switcher's link both ways —
+  /// down when it drops underneath us, up again when it reconnects on its own.
+  void _watchRolandLink(RolandServiceAbstract service) {
+    _rolandLinkSub?.cancel();
+    _rolandLinkSub = service.connectionChanges.listen((up) {
+      if (!mounted || !identical(_rolandService, service)) return;
+      if (up == _rolandConnected.value) return;
+      setState(() => _rolandConnected.value = up);
+      if (up) {
+        _showLink('roland', 'Roland reconnected', lost: false);
+        _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
+      } else {
+        _showLink('roland', 'Roland connection lost. Reconnecting…',
+            lost: true);
+        _backup.reportDeviceFault(AppFault.device(FaultDomain.roland,
+            _switcherName, 'The switcher is not connected. Macros will fail.'));
+      }
+    });
+  }
+
+  static Future<PanasonicServiceAbstract> _openCamera(String ip) async {
+    final service = PanasonicService(ipAddress: ip);
+    await service.probe();
+    return service;
+  }
+
+  static Future<RolandServiceAbstract> _openRoland(String host) async {
+    final service = RolandService(host: host);
+    await service.connect();
+    // A switcher that reboots or loses its cable mid-service comes back
+    // without anyone touching Settings.
+    service.setAutoReconnect(true);
+    return service;
+  }
+
+  /// Bumped by every Connect and every let-go. A connect still dialling when
+  /// it changes is stale: whatever it returns is hung up, never installed —
+  /// otherwise a Demo switch, an IP change or a second Connect made while it
+  /// dialled would be overridden when it finished, or leave an orphan.
+  int _rolandConnectGeneration = 0;
+
+  /// Deliberately lets go of the switcher, including one still connecting.
+  /// The link watcher is cancelled first so our own disconnect is not
+  /// reported as a lost connection. Safe to call when nothing is connected.
+  ///
+  /// Called whether or not the link is up: a session whose link dropped is
+  /// still trying to reconnect, and only this stops it.
+  void _releaseRoland({bool clearFault = true}) {
+    _rolandConnectGeneration++;
+    _rolandConnecting.value = false;
+    // Let go on purpose: nothing is wrong, so nothing stays on the pill.
+    // Not when about to connect again — if that fails, the switcher is
+    // still unreachable and the pill must keep saying so.
+    if (clearFault) _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
+    _rolandLinkSub?.cancel();
+    _rolandLinkSub = null;
+    _rolandService.disconnect();
+    _rolandConnected.value = false;
+    _rolandService = MockRolandService();
+  }
+
   @override
   void dispose() {
+    _cameraHealth.stop();
+    _rolandLinkSub?.cancel();
+    _lineupLease.dispose();
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {
+      _closeCameraService(camera);
       camera.ipController.dispose();
     }
     unawaited(_backup.dispose());
@@ -174,22 +310,26 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   Future<void> _connectRoland() async {
     if (_rolandConnected.value) {
-      await _rolandService.disconnect();
       setState(() {
-        _rolandConnected.value = false;
-        _rolandService = MockRolandService();
+        _releaseRoland();
         _rolandConnectionError.value = '';
       });
       return;
     }
 
     setState(() {
+      // A session that dropped is still reconnecting on its own: end it
+      // before opening another, or two would fight over the switcher.
+      _releaseRoland(clearFault: false);
       _rolandConnecting.value = true;
       _rolandConnectionError.value = '';
     });
+    final generation = _rolandConnectGeneration;
+    bool stale() => !mounted || generation != _rolandConnectGeneration;
 
     if (_mockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (stale()) return;
       setState(() {
         _rolandService = MockRolandService();
         _rolandConnected.value = true;
@@ -199,21 +339,66 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       return;
     }
 
-    final service = RolandService(host: _rolandIpController.text);
     try {
-      await service.connect();
+      final service = await (widget.rolandConnector ?? _openRoland)(
+          _rolandIpController.text);
+      if (stale() || _mockMode) {
+        // Let go of, or superseded, while dialling: nobody else will ever
+        // close this session.
+        await service.disconnect();
+        return;
+      }
       setState(() {
         _rolandService = service;
+        _watchRolandLink(service);
+        _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
       });
     } catch (e) {
+      if (stale()) return;
       setState(() {
         _rolandConnecting.value = false;
         _rolandConnectionError.value = e.toString();
       });
     }
+  }
+
+  /// Names a camera in device faults. The address keeps two cameras that
+  /// share a name apart: one coming back must not clear the other's fault.
+  static String _cameraFaultId(PanasonicCameraConfig camera) =>
+      '${camera.name} (${camera.ipController.text})';
+
+  /// Per camera, bumped by every Connect and every let-go — the camera
+  /// counterpart of [_rolandConnectGeneration]. A camera connect still
+  /// dialling when it changes is discarded, never installed.
+  final Map<PanasonicCameraConfig, int> _cameraConnectGeneration = {};
+
+  /// Ends [camera]'s service. Every Connect builds a new one for the same
+  /// address; an old one left running kept sending its queued recalls,
+  /// racing the new connection's.
+  static void _closeCameraService(PanasonicCameraConfig camera) {
+    unawaited(camera.service?.dispose());
+    camera.service = null;
+  }
+
+  /// Lets go of [camera] whether or not it reads connected. A camera the
+  /// monitor had marked down still holds its real service and is still
+  /// watched; skipping it let the monitor bring it back, live, in Demo.
+  void _releaseCamera(PanasonicCameraConfig camera, {bool clearFault = true}) {
+    _cameraConnectGeneration[camera] =
+        (_cameraConnectGeneration[camera] ?? 0) + 1;
+    if (clearFault) {
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
+    }
+    _cameraHealth.forget(camera);
+    camera.isConnecting.value = false;
+    camera.isConnected.value = false;
+    // No service at all, not a Demo stand-in: anything that forgets to check
+    // the connected flag then fails as not connected instead of "recalling"
+    // presets on a fake while the real camera sits dead.
+    _closeCameraService(camera);
   }
 
   Future<void> _connectPanasonic(int cameraIndex) async {
@@ -222,20 +407,26 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
     if (camera.isConnected.value) {
       setState(() {
-        camera.isConnected.value = false;
-        camera.service = MockPanasonicService();
+        _releaseCamera(camera);
         camera.connectionError.value = '';
       });
       return;
     }
 
     setState(() {
+      // Not a deliberate let-go: if this Connect fails the camera is still
+      // unreachable, and the pill must keep saying so.
+      _releaseCamera(camera, clearFault: false);
       camera.isConnecting.value = true;
       camera.connectionError.value = '';
     });
+    final generation = _cameraConnectGeneration[camera];
+    bool stale() =>
+        !mounted || generation != _cameraConnectGeneration[camera];
 
     if (_mockMode) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (stale()) return;
       setState(() {
         camera.service = MockPanasonicService();
         camera.isConnected.value = true;
@@ -246,8 +437,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
 
     try {
-      final service = PanasonicService(ipAddress: camera.ipController.text);
-      await service.getCameraInfo();
+      final service = await (widget.cameraConnector ?? _openCamera)(
+          camera.ipController.text);
+      if (stale() || _mockMode) {
+        // Let go of, or superseded, while dialling: nobody else will ever
+        // close this service.
+        unawaited(service.dispose());
+        return;
+      }
+      // Already "connected" again, so the monitor will never report it back.
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
@@ -255,6 +454,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         camera.connectionError.value = '';
       });
     } catch (e) {
+      if (stale()) return;
       setState(() {
         camera.isConnecting.value = false;
         camera.connectionError.value =
@@ -316,18 +516,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onMockModeChanged: (value) {
               setDialogState(() {
                 _mockMode = value;
-                if (_rolandConnected.value) {
-                  _rolandService.disconnect();
-                  _rolandConnected.value = false;
-                  _rolandService = MockRolandService();
-                }
+                _releaseRoland();
                 for (final camera in _panasonicCameras) {
-                  if (camera.isConnected.value) {
-                    camera.isConnected.value = false;
-                    camera.service = MockPanasonicService();
-                  }
+                  // A changed mode is a fresh start for every camera.
+                  _releaseCamera(camera);
                 }
               });
+              // Every device was just let go of. The badge and the offline
+              // banner live on the page, not the dialog: without this they
+              // kept reading Live until something else rebuilt the page.
+              setState(() {});
             },
             rolandService: _rolandService,
             rolandIpController: _rolandIpController,
@@ -337,7 +535,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
             onConnectRoland: _connectRoland,
             panasonicCameras: _panasonicCameras,
             onConnectPanasonic: _connectPanasonic,
-            onResponse: (_) {},
+            onResponse: _showResponse,
+            onFailure: _showFailure,
             positions: _positions,
             heightRanges: _heightRanges,
             onPositionsChanged: () async {
@@ -377,26 +576,40 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     );
   }
 
-  // ── Operator selector ────────────────────────────────────────────────────
-
-  Widget _buildOperatorSelector({bool compact = false}) {
-    if (_operators.length <= 1 && _operators.first.isDefault) {
-      return const SizedBox.shrink();
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 4,
-      children: _operators.map((op) {
-        final selected = op.id == _activeOperator.id;
-        return ChoiceChip(
-          label: Text(op.name,
-              style: TextStyle(
-                  fontSize: compact ? 12 : 14,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
-          selected: selected,
-          onSelected: (_) => _setActiveOperator(op),
-        );
-      }).toList(),
+  /// Shown above the tabs while nothing is connected, so service prep, rosters
+  /// and cue review stay available at home or before the rack is powered on.
+  Widget _buildOfflineBanner() {
+    final modeColor =
+        _mockMode ? Colors.orange.shade800 : Colors.blue.shade800;
+    return Material(
+      color: Colors.grey.shade200,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            const Icon(Icons.link_off, color: Colors.grey),
+            const Text('No devices connected',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(_mockMode ? 'Demo Mode' : 'Live Mode',
+                style: TextStyle(fontWeight: FontWeight.w600, color: modeColor)),
+            FilledButton.icon(
+              onPressed: _connectingAll ? null : _connectAll,
+              icon: _connectingAll
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.power_settings_new),
+              label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -406,79 +619,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   Widget build(BuildContext context) {
     final isConnected = _rolandConnected.value ||
         _panasonicCameras.any((c) => c.isConnected.value);
-
-    if (!isConnected) {
-      return Scaffold(
-        appBar: AppBar(
-          centerTitle: false,
-          title: BackupStatusPill(controller: _backup),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.person_add),
-              tooltip: 'Manage People',
-              onPressed: () => _openPeopleManager(context),
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () => _showSettingsDialog(context),
-            ),
-          ],
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.devices, size: 64, color: Colors.grey),
-              const SizedBox(height: 16),
-              const Text(
-                'No devices connected',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color:
-                      _mockMode ? Colors.orange.shade100 : Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _mockMode ? 'Demo Mode' : 'Live Mode',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: _mockMode
-                        ? Colors.orange.shade800
-                        : Colors.blue.shade800,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildOperatorSelector(),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _connectingAll ? null : _connectAll,
-                icon: _connectingAll
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.power_settings_new),
-                label: Text(_connectingAll ? 'Connecting…' : 'Connect All'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () => _showSettingsDialog(context),
-                icon: const Icon(Icons.settings),
-                label: const Text('Settings'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    // The badge answers "will a macro go out?", so it follows the switcher
+    // alone; a camera that is still up keeps the banner away, not the badge.
+    final switcherUp = _rolandConnected.value;
 
     return Scaffold(
       appBar: AppBar(
@@ -502,19 +645,27 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _mockMode
-                            ? Colors.orange.shade100
-                            : Colors.blue.shade100,
+                        color: !switcherUp
+                            ? Colors.grey.shade300
+                            : _mockMode
+                                ? Colors.orange.shade100
+                                : Colors.blue.shade100,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        _mockMode ? 'Demo' : 'Live',
+                        !switcherUp
+                            ? 'Offline'
+                            : _mockMode
+                                ? 'Demo'
+                                : 'Live',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: _mockMode
-                              ? Colors.orange.shade800
-                              : Colors.blue.shade800,
+                          color: !switcherUp
+                              ? Colors.grey.shade800
+                              : _mockMode
+                                  ? Colors.orange.shade800
+                                  : Colors.blue.shade800,
                         ),
                       ),
                     ),
@@ -536,52 +687,63 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           ),
         ],
       ),
-      body: DefaultTabController(
-        length: 3,
-        child: Column(
-          children: [
-            const TabBar(
-              tabs: [
-                Tab(text: 'Service'),
-                Tab(text: 'Panel'),
-                Tab(text: 'Positions'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
+      body: Column(
+        children: [
+          GoogleSignInBanner(key: _signInBannerKey, controller: _backup),
+          Expanded(
+            child: DefaultTabController(
+              length: 3,
+              child: Column(
                 children: [
-                  ServiceTab(
-                    cameras: _panasonicCameras,
-                    people: _people,
-                    positions: _positions,
-                    services: _services,
-                    heightRanges: _heightRanges,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    onResponse: (_) {},
+                  if (!isConnected) _buildOfflineBanner(),
+                  const TabBar(
+                    tabs: [
+                      Tab(text: 'Service'),
+                      Tab(text: 'Panel'),
+                      Tab(text: 'Positions'),
+                    ],
                   ),
-                  OperatorPanel(
-                    operator: _activeOperator,
-                    rolandService: _rolandService,
-                    rolandConnected: _rolandConnected,
-                    rolandIpController: _rolandIpController,
-                    cameras: _panasonicCameras,
-                    onResponse: (_) {},
-                    onServicesChanged: _loadServices,
-                  ),
-                  PositionsTab(
-                    cameras: _panasonicCameras,
-                    positions: _positions,
-                    people: _people,
-                    heightRanges: _heightRanges,
-                    onResponse: (_) {},
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        ServiceTab(
+                          cameras: _panasonicCameras,
+                          people: _people,
+                          positions: _positions,
+                          services: _services,
+                          heightRanges: _heightRanges,
+                          rolandService: _rolandService,
+                          rolandConnected: _rolandConnected,
+                          rolandIpController: _rolandIpController,
+                          onResponse: _showResponse,
+                          onFailure: _showFailure,
+                        ),
+                        OperatorPanel(
+                          operator: _activeOperator,
+                          rolandService: _rolandService,
+                          rolandConnected: _rolandConnected,
+                          rolandIpController: _rolandIpController,
+                          cameras: _panasonicCameras,
+                          onResponse: _showResponse,
+                          onFailure: _showFailure,
+                          onServicesChanged: _loadServices,
+                        ),
+                        PositionsTab(
+                          cameras: _panasonicCameras,
+                          positions: _positions,
+                          people: _people,
+                          heightRanges: _heightRanges,
+                          onResponse: _showResponse,
+                          onFailure: _showFailure,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

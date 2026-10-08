@@ -1,8 +1,4 @@
 /// Which subsystem a fault came from.
-///
-/// Only [backup] is produced today. [roland] and [camera] exist because the
-/// fault log is persisted, and widening a stored entry's shape later means
-/// migrating saved data. Phase 5 fills them in.
 enum FaultDomain { backup, roland, camera }
 
 enum BackupFailureKind {
@@ -18,6 +14,10 @@ enum BackupFailureKind {
   unsupportedSchema,
   malformedRemote,
   targetMissing,
+
+  /// More than one backup folder at the target, so which one holds the real
+  /// history is a question for a person.
+  targetAmbiguous,
   deviceUnnamed,
   unknown,
 }
@@ -66,6 +66,37 @@ class AppFault implements Exception {
         cause: cause,
       );
 
+  /// A device the app was driving has dropped off: the switcher's link went
+  /// down, or a camera stopped answering. [device] names it, and is what
+  /// keeps two cameras' faults apart.
+  factory AppFault.device(FaultDomain domain, String device, String message) {
+    assert(domain != FaultDomain.backup);
+    return AppFault(
+      domain: domain,
+      kind: deviceDisconnectedKind,
+      message: message,
+      operation: 'link',
+      targetIdentity: device,
+    );
+  }
+
+  static const deviceDisconnectedKind = 'deviceDisconnected';
+
+  /// This fault with [operation] and [targetIdentity] filled in where it has
+  /// none. A storage target knows nothing of pull or push; the engine does,
+  /// and the status surface files every condition under its operation.
+  AppFault withContext({String? operation, String? targetIdentity}) =>
+      this.operation != null && this.targetIdentity != null
+          ? this
+          : AppFault(
+              domain: domain,
+              kind: kind,
+              message: message,
+              operation: this.operation ?? operation,
+              targetIdentity: this.targetIdentity ?? targetIdentity,
+              cause: cause,
+            );
+
   static const _promptRetry = {'offline', 'rateLimited', 'transientServer'};
   static const _sweepOnly = {'unknown'};
   static const _needsHuman = {
@@ -75,10 +106,12 @@ class AppFault implements Exception {
     'storageWriteFailed',
     'unsupportedSchema',
     'targetMissing',
+    'targetAmbiguous',
     'malformedRemote',
     'conflict',
     'adoptionChoice',
     'deviceUnnamed',
+    deviceDisconnectedKind,
   };
 
   /// Retryable, but only on the slow periodic sweep. A tight backoff loop

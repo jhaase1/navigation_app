@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,10 +13,14 @@ import 'backup_revision.dart';
 import 'backup_scheduler.dart';
 import 'backup_service.dart';
 import 'backup_status.dart';
+import 'backup_target_selection.dart';
 import 'bundle_diff.dart';
 import 'canonical_json.dart';
 import 'config_mutation_notifier.dart';
 import 'device_label.dart';
+import 'drive/authorized_drive_client.dart';
+import 'drive/drive_backup_target.dart';
+import 'drive/google_drive_account.dart';
 import 'mock/mock_backup_target.dart';
 import 'relative_time.dart';
 
@@ -45,8 +50,26 @@ class BackupController with WidgetsBindingObserver {
   /// divergence is still real.
   static const String suppressedKey = 'backup_conflict_suppressed';
 
+  /// The shared Google account backups go to, from
+  /// `--dart-define=BACKUP_GOOGLE_ACCOUNT=...`. Kept out of source because
+  /// the repository is public. Empty means Drive backup is off.
+  static const String googleAccount =
+      String.fromEnvironment('BACKUP_GOOGLE_ACCOUNT');
+
   factory BackupController.forEnvironment() {
-    if (!useMockTarget) return BackupController.disabled();
+    switch (selectBackupTarget(
+      useMock: useMockTarget,
+      googleAccount: googleAccount,
+      platform: defaultTargetPlatform,
+      isWeb: kIsWeb,
+    )) {
+      case BackupTargetKind.disabled:
+        return BackupController.disabled();
+      case BackupTargetKind.drive:
+        return _forDrive(googleAccount);
+      case BackupTargetKind.mock:
+        break;
+    }
 
     final target = MockBackupTarget();
     final service = BackupService(
@@ -61,6 +84,22 @@ class BackupController with WidgetsBindingObserver {
       service,
       stageScenario: () => _stage(mockScenario, target, service),
     );
+  }
+
+  static BackupController _forDrive(String googleAccount) {
+    final account = GoogleDriveAccount(expectedAccount: googleAccount);
+    final target = DriveBackupTarget(
+      client: AuthorizedDriveClient(account),
+      account: googleAccount,
+    );
+    final service = BackupService(
+      target: target,
+      targetIdentity: 'drive:${googleAccount.trim().toLowerCase()}',
+      deviceLabel: DeviceLabel.require,
+      readBundleJson: () async => (await ConfigBundle.fromStores()).toJson(),
+      localIsPristine: ConfigBundle.localIsPristine,
+    );
+    return BackupController.forService(service, driveAccount: account);
   }
 
   /// Runs before the first pull, and is awaited.
@@ -110,6 +149,10 @@ class BackupController with WidgetsBindingObserver {
   static const String _conflictKey = 'conflict';
 
   final BackupService? service;
+
+  /// The Google sign-in behind a Drive target; null for every other target.
+  /// Settings reads it to show who backups go to and to sign in or out.
+  final GoogleDriveAccount? driveAccount;
   final BackupScheduler? _scheduler;
   final BackupLog log;
   final DateTime Function() _now;
@@ -155,6 +198,7 @@ class BackupController with WidgetsBindingObserver {
     required this.log,
     required DateTime Function() now,
     Future<void> Function()? stageScenario,
+    this.driveAccount,
   })  : _scheduler = scheduler,
         _now = now,
         _stageScenario = stageScenario;
@@ -176,6 +220,7 @@ class BackupController with WidgetsBindingObserver {
     BackupLog? log,
     DateTime Function()? now,
     Future<void> Function()? stageScenario,
+    GoogleDriveAccount? driveAccount,
   }) =>
       BackupController._(
         service: service,
@@ -183,6 +228,7 @@ class BackupController with WidgetsBindingObserver {
         log: log ?? BackupLog(now: now),
         now: now ?? DateTime.now,
         stageScenario: stageScenario,
+        driveAccount: driveAccount,
       );
 
   bool get canRetry => _scheduler != null;
@@ -191,6 +237,9 @@ class BackupController with WidgetsBindingObserver {
 
   Future<void> _start() async {
     if (_disposed) return;
+    // Settle "checking" promptly, so the sign-in banner and the Settings
+    // tile say something true even before the first pull gets that far.
+    unawaited(driveAccount?.restore());
     WidgetsBinding.instance.addObserver(this);
     await log.load();
     deferredRevisionId =
@@ -254,6 +303,8 @@ class BackupController with WidgetsBindingObserver {
       await _onPull(event);
     } else if (event is PushResult) {
       await _onPush(event);
+    } else if (event is PruneResult) {
+      _conditions.remove('prune');
     }
     _applyConditions();
     await _refreshFacts();
@@ -348,11 +399,33 @@ class BackupController with WidgetsBindingObserver {
   void _raise(AppFault fault) {
     final key = BackupStatus.isQuestion(fault.kind)
         ? _conflictKey
-        : (fault.operation ?? 'unknown');
+        : fault.domain != FaultDomain.backup
+            ? _deviceKey(fault.domain, fault.targetIdentity ?? '')
+            : (fault.operation ?? 'unknown');
     // Remove before insert so insertion order tracks recency.
     _conditions.remove(key);
     _conditions[key] = fault;
   }
+
+  static String _deviceKey(FaultDomain domain, String device) =>
+      'device:${domain.name}:$device';
+
+  /// Puts a device that has dropped off on the pill and in the log. The pill
+  /// is the one surface for every failure in the app, not only backup's.
+  /// Stays until [clearDeviceFault] — no backup success clears it.
+  Future<void> reportDeviceFault(AppFault fault) => _enqueue(() async {
+        await log.recordFault(fault);
+        _raise(fault);
+        _applyConditions();
+      });
+
+  /// The device is back, or the operator disconnected it on purpose.
+  Future<void> clearDeviceFault(FaultDomain domain, String device) =>
+      _enqueue(() async {
+        if (_conditions.remove(_deviceKey(domain, device)) != null) {
+          _applyConditions();
+        }
+      });
 
   void _clearQuestion() {
     _conditions.remove(_conflictKey);

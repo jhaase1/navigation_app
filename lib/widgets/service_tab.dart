@@ -6,6 +6,7 @@ import '../models/person.dart';
 import '../models/position.dart';
 import '../models/service.dart';
 import '../services/abstract/roland_service_abstract.dart';
+import '../services/lineup_store.dart';
 import '../services/preset_name_store.dart';
 import '../utils/label_utils.dart';
 import '../utils/preset_resolver.dart';
@@ -40,6 +41,9 @@ class ServiceTab extends StatefulWidget {
   final ValueNotifier<bool>? rolandConnected;
   final TextEditingController? rolandIpController;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
 
   const ServiceTab({
     super.key,
@@ -51,6 +55,7 @@ class ServiceTab extends StatefulWidget {
     required this.rolandService,
     required this.rolandConnected,
     required this.onResponse,
+    this.onFailure,
     this.rolandIpController,
   });
 
@@ -59,11 +64,44 @@ class ServiceTab extends StatefulWidget {
 }
 
 class _ServiceTabState extends State<ServiceTab> {
+
+  void _fail(String message) =>
+      (widget.onFailure ?? widget.onResponse)(message);
   String? _selectedServiceId;
   int? _currentStepIndex;
 
-  // participantId → personId, set at run time for this service
+  // cue key (see [_cueKey]) → outcome of its most recent firing. Keyed by
+  // step, not list position: a step recorded above a fired cue would
+  // otherwise move its check onto a cue that never ran.
+  final Map<String, _CueState> _cueStates = {};
+  // Bumped whenever the cue list is swapped out, so a command that finishes
+  // afterwards cannot stamp its outcome onto a different service's cue.
+  int _cueGeneration = 0;
+
+  // "serviceId/cueKey" for every cue whose command is still out. Unlike
+  // [_cueStates] it survives a service switch or re-pick, and — being
+  // static — the tab being rebuilt when the operator flips to Panel and
+  // back. Losing it let a second tap send the same command again, and a
+  // toggle macro flips back.
+  static final Set<String> _inFlight = {};
+
+  // Bumped when [_inFlight] changes, so a tab rebuilt while a cue was out
+  // stops its spinner when the command the old tab sent finishes.
+  static final ValueNotifier<int> _inFlightChanges = ValueNotifier(0);
+
+  void _onInFlightChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String _inFlightKey(String cueKey) => '$_selectedServiceId/$cueKey';
+
+  // participantId → personId, set at run time for this service and kept in
+  // LineupStore so the day's lineup outlives this widget
   final Map<String, String?> _participantAssignments = {};
+
+  // A remembered service whose id has not yet appeared in widget.services
+  // (the page loads services asynchronously).
+  String? _pendingServiceId;
 
   Map<int, String> _rolandNames = {};
   Map<String, Map<int, String>> _cameraNames = {};
@@ -77,6 +115,79 @@ class _ServiceTabState extends State<ServiceTab> {
     _lastRolandKey = _rolandKey;
     _lastCameraIps = _cameraIps;
     _loadNames();
+    _inFlightChanges.addListener(_onInFlightChanged);
+    _restoreSelection();
+    LineupStore.expirations.addListener(_onLineupExpired);
+  }
+
+  @override
+  void dispose() {
+    _inFlightChanges.removeListener(_onInFlightChanged);
+    LineupStore.expirations.removeListener(_onLineupExpired);
+    super.dispose();
+  }
+
+  /// The stored lineup lapsed while this tab sat on screen with the screen
+  /// off. Drop the copy shown here too, or it would outlive the one deleted.
+  void _onLineupExpired() {
+    if (!mounted) return;
+    setState(_participantAssignments.clear);
+  }
+
+  Future<void> _restoreSelection() async {
+    final id = await LineupStore.loadSelectedServiceId();
+    if (id == null || !mounted || _selectedServiceId != null) return;
+    if (widget.services.any((s) => s.id == id)) {
+      _selectService(id);
+    } else {
+      _pendingServiceId = id;
+    }
+  }
+
+  void _selectService(String? id) {
+    _pendingServiceId = null;
+    setState(() {
+      _selectedServiceId = id;
+      _currentStepIndex = null;
+      // A command still out for the old service must not stamp its outcome
+      // onto a cue in this one.
+      _cueStates.clear();
+      _cueGeneration++;
+      _participantAssignments.clear();
+    });
+    LineupStore.saveSelectedServiceId(id);
+    if (id != null) _loadLineup(id);
+  }
+
+  Future<void> _loadLineup(String serviceId) async {
+    final saved = await LineupStore.load(serviceId);
+    if (!mounted || _selectedServiceId != serviceId) return;
+    // Anything the operator picked while this was loading wins.
+    setState(() {
+      for (final e in saved.entries) {
+        _participantAssignments.putIfAbsent(e.key, () => e.value);
+      }
+    });
+  }
+
+  Future<void> _assign(String participantId, String? personId) async {
+    final serviceId = _selectedServiceId;
+    if (serviceId == null) return;
+    // Renew first. If the lineup lapsed — the screen woke before the renew
+    // timer ran — that clears the stale copy shown here, so the save below
+    // cannot hand yesterday's readers a fresh 20 minutes.
+    await _renewLineup();
+    if (!mounted || _selectedServiceId != serviceId) return;
+    setState(() => _participantAssignments[participantId] = personId);
+    await LineupStore.save(serviceId, Map.of(_participantAssignments));
+  }
+
+  /// Renews the stored lineup and, if it had lapsed, drops the copy shown
+  /// here. [LineupStore.expirations] only fires when renewal itself deleted
+  /// something, so a lapse another call already cleaned up is caught here.
+  Future<void> _renewLineup() async {
+    if (await LineupStore.renew()) return;
+    if (mounted) setState(_participantAssignments.clear);
   }
 
   String get _rolandKey => 'roland_${widget.rolandIpController?.text ?? ''}';
@@ -151,6 +262,17 @@ class _ServiceTabState extends State<ServiceTab> {
     return result;
   }
 
+  /// Identifies the cue at [index]: its step id, plus which occurrence of
+  /// that step it is, since a block used twice repeats the same steps.
+  static String _cueKey(List<_FlatStep> flat, int index) {
+    final id = flat[index].id;
+    var occurrence = 0;
+    for (var i = 0; i < index; i++) {
+      if (flat[i].id == id) occurrence++;
+    }
+    return '$id#$occurrence';
+  }
+
   Set<String> get _referencedParticipantIds {
     return _flatSteps
         .where((s) => s.type == StepType.ministry && s.participantId != null)
@@ -165,7 +287,16 @@ class _ServiceTabState extends State<ServiceTab> {
         !widget.services.any((s) => s.id == _selectedServiceId)) {
       _selectedServiceId = null;
       _currentStepIndex = null;
+      _cueStates.clear();
+      _cueGeneration++;
       _participantAssignments.clear();
+    }
+    final pending = _pendingServiceId;
+    if (pending != null && widget.services.any((s) => s.id == pending)) {
+      // Deferred past this frame: setState is not allowed mid-update.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pendingServiceId == pending) _selectService(pending);
+      });
     }
 
     // The parent loads the Roland IP and camera list asynchronously and can
@@ -184,22 +315,50 @@ class _ServiceTabState extends State<ServiceTab> {
   Future<void> _fireStep(int index) async {
     final flat = _flatSteps;
     if (index < 0 || index >= flat.length) return;
-    setState(() => _currentStepIndex = index);
+    // A second tap on a cue still in flight would send the command twice.
+    final key = _cueKey(flat, index);
+    final flightKey = _inFlightKey(key);
+    if (_inFlight.contains(flightKey)) {
+      setState(() => _currentStepIndex = index);
+      return;
+    }
+    final generation = _cueGeneration;
+    _inFlight.add(flightKey);
+    setState(() {
+      _currentStepIndex = index;
+      _cueStates[key] = _CueState.executing;
+    });
     final s = flat[index];
 
-    switch (s.type) {
-      case StepType.ministry:
-        await _fireMinistryStep(s);
-      case StepType.macro:
-        await _fireMacroStep(s);
-      case StepType.shot:
-        await _fireShotStep(s);
-      case StepType.block:
-        break; // already flattened; should never appear
+    final bool ok;
+    try {
+      ok = switch (s.type) {
+        StepType.ministry => await _fireMinistryStep(s),
+        StepType.macro => await _fireMacroStep(s),
+        StepType.shot => await _fireShotStep(s),
+        StepType.block => true, // already flattened; should never appear
+      };
+    } finally {
+      _inFlight.remove(flightKey);
+      _inFlightChanges.value++;
     }
+    if (!mounted) return;
+    if (generation != _cueGeneration) {
+      // Stops the spinner shown if the operator switched back meanwhile.
+      setState(() {});
+      return;
+    }
+    setState(() =>
+        _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
   }
 
-  Future<void> _fireMinistryStep(_FlatStep s) async {
+  Future<bool> _fireMinistryStep(_FlatStep s) async {
+    // Renew first, as [_assign] does. A Mac that slept on this tab wakes
+    // with the lapsed lineup still on screen until the renew timer runs;
+    // firing from that copy would aim the camera at yesterday's reader.
+    final serviceId = _selectedServiceId;
+    await _renewLineup();
+    if (!mounted || _selectedServiceId != serviceId) return false;
     final service = _selectedService;
     final participant = s.participantId == null
         ? null
@@ -207,34 +366,34 @@ class _ServiceTabState extends State<ServiceTab> {
             .where((p) => p.id == s.participantId)
             .firstOrNull;
     if (participant == null) {
-      widget.onResponse('Missing participant data');
-      return;
+      _fail('Missing participant data');
+      return false;
     }
     final personId = _participantAssignments[participant.id];
     if (personId == null) {
-      widget.onResponse(
+      _fail(
           'No one assigned to "${participant.name}" for this service');
-      return;
+      return false;
     }
     final person = widget.people.where((p) => p.id == personId).firstOrNull;
     final position = s.positionId == null
         ? null
         : widget.positions.where((p) => p.id == s.positionId).firstOrNull;
     if (person == null || position == null) {
-      widget.onResponse('Missing person or position data');
-      return;
+      _fail('Missing person or position data');
+      return false;
     }
     if (s.cameraIp == null) {
-      widget.onResponse(
+      _fail(
           '${participant.name} · ${position.name} has no camera set');
-      return;
+      return false;
     }
     final camera = widget.cameras
         .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
-      widget.onResponse('Camera not found (${s.cameraIp})');
-      return;
+      _fail('Camera not found (${s.cameraIp})');
+      return false;
     }
     final presetIndex = resolvePreset(
       person: person,
@@ -243,63 +402,69 @@ class _ServiceTabState extends State<ServiceTab> {
       heightRanges: widget.heightRanges,
     );
     if (presetIndex == null) {
-      widget.onResponse(
+      _fail(
           '${person.name} has no preset for ${camera.name} at "${position.name}"');
-      return;
+      return false;
     }
     if (!camera.isConnected.value || camera.service == null) {
-      widget.onResponse('${camera.name} not connected');
-      return;
+      _fail('${camera.name} not connected');
+      return false;
     }
     try {
       final response = await camera.service!.recallPreset(presetIndex);
       widget.onResponse(
           '${participant.name} (${person.name}) · ${position.name} → ${camera.name}: $response');
+      return true;
     } catch (e) {
-      widget.onResponse('Error: $e');
+      _fail('Error: $e');
+      return false;
     }
   }
 
-  Future<void> _fireMacroStep(_FlatStep s) async {
+  Future<bool> _fireMacroStep(_FlatStep s) async {
     if (s.macroNumber == null) {
-      widget.onResponse('Macro number not set');
-      return;
+      _fail('Macro number not set');
+      return false;
     }
     final connected = widget.rolandConnected?.value ?? false;
     if (!connected || widget.rolandService == null) {
-      widget.onResponse('Roland not connected');
-      return;
+      _fail('Roland not connected');
+      return false;
     }
     try {
       await widget.rolandService!.executeMacro(s.macroNumber!);
       widget.onResponse('${_macroLabel(s.macroNumber!)} executed');
+      return true;
     } catch (e) {
-      widget.onResponse('Macro error: $e');
+      _fail('Macro error: $e');
+      return false;
     }
   }
 
-  Future<void> _fireShotStep(_FlatStep s) async {
+  Future<bool> _fireShotStep(_FlatStep s) async {
     if (s.cameraIp == null || s.cameraPresetIndex == null) {
-      widget.onResponse('Camera or preset not set');
-      return;
+      _fail('Camera or preset not set');
+      return false;
     }
     final camera = widget.cameras
         .where((c) => c.ipController.text == s.cameraIp)
         .firstOrNull;
     if (camera == null) {
-      widget.onResponse('Camera not found (${s.cameraIp})');
-      return;
+      _fail('Camera not found (${s.cameraIp})');
+      return false;
     }
     if (!camera.isConnected.value || camera.service == null) {
-      widget.onResponse('${camera.name} not connected');
-      return;
+      _fail('${camera.name} not connected');
+      return false;
     }
     try {
       final response = await camera.service!.recallPreset(s.cameraPresetIndex!);
       widget.onResponse(
           '${camera.name} → ${_presetLabel(s.cameraIp!, s.cameraPresetIndex!)}: $response');
+      return true;
     } catch (e) {
-      widget.onResponse('Error: $e');
+      _fail('Error: $e');
+      return false;
     }
   }
 
@@ -361,7 +526,8 @@ class _ServiceTabState extends State<ServiceTab> {
                   : ListView.builder(
                       padding: const EdgeInsets.all(8),
                       itemCount: flat.length,
-                      itemBuilder: (context, i) => _buildStepTile(flat[i], i),
+                      itemBuilder: (context, i) =>
+                          _buildStepTile(flat[i], i, _cueKey(flat, i)),
                     ),
         ),
 
@@ -424,11 +590,7 @@ class _ServiceTabState extends State<ServiceTab> {
                     child: Text(s.name),
                   ))
               .toList(),
-          onChanged: (id) => setState(() {
-            _selectedServiceId = id;
-            _currentStepIndex = null;
-            _participantAssignments.clear();
-          }),
+          onChanged: _selectService,
         ),
       ),
     );
@@ -476,7 +638,13 @@ class _ServiceTabState extends State<ServiceTab> {
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String?>(
-                            value: _participantAssignments[p.id],
+                            // A remembered person may since have been
+                            // deleted; a value with no matching item would
+                            // throw.
+                            value: widget.people.any((person) =>
+                                    person.id == _participantAssignments[p.id])
+                                ? _participantAssignments[p.id]
+                                : null,
                             isDense: true,
                             isExpanded: true,
                             hint: const Text('— unassigned —',
@@ -494,9 +662,7 @@ class _ServiceTabState extends State<ServiceTab> {
                                     child: Text(person.name),
                                   )),
                             ],
-                            onChanged: (personId) => setState(
-                                () => _participantAssignments[p.id] =
-                                    personId),
+                            onChanged: (personId) => _assign(p.id, personId),
                           ),
                         ),
                       ),
@@ -509,7 +675,7 @@ class _ServiceTabState extends State<ServiceTab> {
     );
   }
 
-  Widget _buildStepTile(_FlatStep s, int index) {
+  Widget _buildStepTile(_FlatStep s, int index, String cueKey) {
     final isCurrent = _currentStepIndex == index;
     final service = _selectedService;
 
@@ -590,12 +756,22 @@ class _ServiceTabState extends State<ServiceTab> {
           ? Theme.of(context).colorScheme.primaryContainer
           : null,
       child: ListTile(
-        leading: isCurrent
-            ? Icon(Icons.play_arrow,
-                color: Theme.of(context).colorScheme.primary)
-            : Icon(typeIcon,
-                size: 18,
-                color: isCurrent ? null : Colors.grey.shade500),
+        leading: switch (_inFlight.contains(_inFlightKey(cueKey))
+            ? _CueState.executing
+            : _cueStates[cueKey]) {
+          _CueState.executing => const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          _CueState.succeeded =>
+            const Icon(Icons.check_circle, color: Colors.green),
+          _CueState.failed => const Icon(Icons.error, color: Colors.red),
+          null => isCurrent
+              ? Icon(Icons.play_arrow,
+                  color: Theme.of(context).colorScheme.primary)
+              : Icon(typeIcon, size: 18, color: Colors.grey.shade500),
+        },
         title: Text(title,
             style: TextStyle(
                 fontWeight:
@@ -609,3 +785,7 @@ class _ServiceTabState extends State<ServiceTab> {
     );
   }
 }
+
+/// Where a fired cue stands, shown on its tile so the operator can tell a
+/// slow camera from a dead one.
+enum _CueState { executing, succeeded, failed }

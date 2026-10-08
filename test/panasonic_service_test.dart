@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -244,4 +246,218 @@ void main() {
       expect(result[79], false); // Before range 2
     });
   });
+
+  group('PanasonicService — a refused PTZ command', () {
+    // PTZ commands share one queue per camera. A failure used to escape the
+    // queue unhandled and leave it marked busy, so every later recall to
+    // that camera waited forever: the camera froze on its last shot.
+    test('does not stop the next recall reaching the camera', () async {
+      final sent = <String>[];
+      var refuse = true;
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) async {
+          sent.add(r.url.queryParameters['cmd']!);
+          return http.Response(refuse ? 'ER3:R04' : 's05', 200);
+        }),
+      );
+
+      await expectLater(service.recallPreset(3), throwsA(anything));
+      refuse = false;
+      await service.recallPreset(4).timeout(const Duration(seconds: 2));
+
+      expect(sent, ['#R03', '#R04']);
+    });
+  });
+
+  group('PanasonicService — a camera that stops answering', () {
+    // A dead camera takes ~16s to fail one command (three 5s timeouts plus
+    // backoff). Recalls queued behind it used to go out the moment it came
+    // back: a shot fired at 2s swung the camera at 22s, after the operator
+    // had moved on.
+    test('fails the recalls queued behind it instead of sending them late',
+        () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        requestTimeout: const Duration(milliseconds: 50),
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) {
+          sent.add(r.url.queryParameters['cmd']!);
+          // Gone for the first recall; back by the time it gives up.
+          if (sent.length == 1) return Completer<http.Response>().future;
+          return Future.value(http.Response('s01', 200));
+        }),
+      );
+
+      final first = service.recallPreset(3);
+      final queued = service.recallPreset(7);
+
+      await expectLater(first, throwsA(isA<NetworkException>()));
+      await expectLater(queued.timeout(const Duration(seconds: 2)),
+          throwsA(isA<NetworkException>()));
+      // The queue still works once the camera answers again.
+      await service.recallPreset(9).timeout(const Duration(seconds: 2));
+
+      expect(sent, ['#R03', '#R09']);
+    });
+
+    test('a refusal proves the camera is there: the queue keeps going',
+        () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 1,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) async {
+          sent.add(r.url.queryParameters['cmd']!);
+          return http.Response(sent.length == 1 ? 'ER3:R03' : 's07', 200);
+        }),
+      );
+
+      final refused = service.recallPreset(3);
+      final queued = service.recallPreset(7);
+
+      await expectLater(refused, throwsA(isA<CameraProtocolException>()));
+      expect(await queued.timeout(const Duration(seconds: 2)), 's07');
+      expect(sent, ['#R03', '#R07']);
+    });
+  });
+
+  group('PanasonicService — a busy camera (ER2)', () {
+    // Real replies carry the command: `ER2:R04`, never a bare `ER2`. The
+    // retry matched only the bare form, so a busy camera failed the recall
+    // outright instead of being asked again.
+    test('is asked again, and the recall goes through', () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 2,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) async {
+          sent.add(r.url.queryParameters['cmd']!);
+          return http.Response(sent.length == 1 ? 'ER2:R04' : 's04', 200);
+        }),
+      );
+
+      expect(await service.recallPreset(4), 's04');
+      expect(sent, ['#R04', '#R04']);
+    });
+
+    test('still busy after every retry is reported as busy', () async {
+      var requests = 0;
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 2,
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((_) async {
+          requests++;
+          return http.Response('ER2:R04', 200);
+        }),
+      );
+
+      await expectLater(service.recallPreset(4),
+          throwsA(isA<CameraProtocolException>()
+              .having((e) => e.message, 'message', contains('ER2'))));
+      expect(requests, 2);
+    });
+  });
+
+  group('PanasonicService.dispose', () {
+    // A reconnect replaces the service for the same address. An old one
+    // left running kept sending its queued recalls, racing the new one.
+    test('fails what is still queued and sends nothing more', () async {
+      final sent = <String>[];
+      final service = PanasonicService(
+        ipAddress: '10.0.1.10',
+        maxRetries: 2,
+        requestTimeout: const Duration(milliseconds: 200),
+        ptzCommandDelay: Duration.zero,
+        client: MockClient((r) {
+          sent.add(r.url.queryParameters['cmd']!);
+          return Completer<http.Response>().future; // never answers
+        }),
+      );
+
+      final inFlight = expectLater(service.recallPreset(3), throwsA(anything));
+      final queued = expectLater(
+          service.recallPreset(7).timeout(const Duration(milliseconds: 100)),
+          throwsA(isA<CameraException>()));
+      await Future<void>.delayed(Duration.zero);
+      await service.dispose();
+
+      await queued;
+      await expectLater(service.recallPreset(9), throwsA(isA<CameraException>()));
+      await inFlight;
+      // Long enough for the in-flight recall's retry, had it made one.
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+
+      expect(sent, ['#R03']);
+    });
+  });
+
+  group('PanasonicService.probe', () {
+    // The liveness check runs every few seconds. With the command path's
+    // three retries and five-second timeouts, a dead camera took about 35s
+    // to be noticed.
+    test('asks once, without retrying', () async {
+      var requests = 0;
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: MockClient((r) async {
+            requests++;
+            throw http.ClientException('Connection refused', r.url);
+          }));
+
+      await expectLater(service.probe(), throwsA(anything));
+      expect(requests, 1);
+    });
+
+    test('gives up after its own short timeout', () async {
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          probeTimeout: const Duration(milliseconds: 50),
+          client: MockClient((_) => Completer<http.Response>().future));
+
+      await expectLater(service.probe(), throwsA(isA<TimeoutException>()));
+    });
+
+    test('a probe that times out cancels its request', () async {
+      // A wedged camera takes the connection and never answers. A timeout
+      // that only stops waiting left that socket hanging — one more every
+      // 5 seconds, all service. Cancelling closes it.
+      final client = _AbortRecordingClient();
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: client,
+          probeTimeout: const Duration(milliseconds: 50));
+
+      await expectLater(service.probe(), throwsA(anything));
+
+      expect(client.aborted, 1);
+    });
+
+    test('a busy camera has still answered', () async {
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: MockClient((_) async => http.Response('ER2:QID', 200)));
+
+      await service.probe();
+    });
+  });
+}
+
+/// Never answers, and records requests the caller cancels.
+class _AbortRecordingClient extends http.BaseClient {
+  int aborted = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    final trigger = request is http.Abortable ? request.abortTrigger : null;
+    trigger?.then((_) => aborted++);
+    return Completer<http.StreamedResponse>().future;
+  }
 }

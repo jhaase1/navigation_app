@@ -5,8 +5,10 @@ import '../models/position.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/backup/backup_controller.dart';
 import '../services/config_bundle.dart';
+import '../services/config_file_picker.dart';
 import '../services/device_config_store.dart';
 import 'backup/device_name_dialog.dart';
+import 'backup/google_drive_tile.dart';
 import 'backup/revision_history_sheet.dart';
 import 'connections_dialog.dart';
 import 'height_range_manager_dialog.dart';
@@ -29,6 +31,9 @@ class SettingsDialog extends StatelessWidget {
   final List<PanasonicCameraConfig> panasonicCameras;
   final Function(int) onConnectPanasonic;
   final ValueChanged<String> onResponse;
+  /// Where failures go. Falls back to [onResponse] when not given, so a
+  /// caller that only wants text still gets every message.
+  final ValueChanged<String>? onFailure;
   final List<Position> positions;
   final List<HeightRange> heightRanges;
   final VoidCallback onPositionsChanged;
@@ -45,6 +50,9 @@ class SettingsDialog extends StatelessWidget {
   /// rather than dead when there is nothing to open.
   final BackupController? backupController;
 
+  /// Native save/open dialogs for export and import; injected by tests.
+  final ConfigFilePicker configFilePicker;
+
   const SettingsDialog({
     super.key,
     required this.mockMode,
@@ -58,6 +66,7 @@ class SettingsDialog extends StatelessWidget {
     required this.panasonicCameras,
     required this.onConnectPanasonic,
     required this.onResponse,
+    this.onFailure,
     required this.positions,
     required this.heightRanges,
     required this.onPositionsChanged,
@@ -68,6 +77,7 @@ class SettingsDialog extends StatelessWidget {
     required this.onDeviceConfigSaved,
     required this.onOperatorsChanged,
     this.backupController,
+    this.configFilePicker = const NativeConfigFilePicker(),
   });
 
   // ── Operator ─────────────────────────────────────────────────────────────
@@ -116,6 +126,7 @@ class SettingsDialog extends StatelessWidget {
             rolandIpController: rolandIpController,
             cameras: panasonicCameras,
             onResponse: onResponse,
+            onFailure: onFailure,
           ),
         ),
         actions: [
@@ -138,6 +149,7 @@ class SettingsDialog extends StatelessWidget {
           child: PinPTab(
             rolandConnected: rolandConnected,
             onRolandResponse: onResponse,
+            onFailure: onFailure,
             rolandService: rolandService,
           ),
         ),
@@ -198,11 +210,11 @@ class SettingsDialog extends StatelessWidget {
   // ── Import / Export ───────────────────────────────────────────────────────
 
   Future<void> _exportConfig(BuildContext context) async {
-    final path = ConfigBundle.suggestedExportPath();
     try {
       final bundle = await ConfigBundle.fromStores();
-      await ConfigBundle.writeToPath(path, bundle);
-      if (!context.mounted) return;
+      final path = await configFilePicker.save(
+          ConfigBundle.suggestedExportFileName(), bundle.toPrettyJson());
+      if (path == null || !context.mounted) return;
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
@@ -235,39 +247,11 @@ class SettingsDialog extends StatelessWidget {
   }
 
   Future<void> _importConfig(BuildContext context) async {
-    final pathCtrl = TextEditingController();
-
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Import Configuration'),
-        content: TextField(
-          controller: pathCtrl,
-          decoration: InputDecoration(
-            labelText: 'File path',
-            hintText: ConfigBundle.suggestedExportPath(),
-            border: const OutlineInputBorder(),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Load')),
-        ],
-      ),
-    );
-
-    final path = pathCtrl.text.trim();
-    pathCtrl.dispose();
-    if (proceed != true || path.isEmpty || !context.mounted) return;
-
     ConfigBundle bundle;
     try {
-      bundle = await ConfigBundle.readFromPath(path);
+      final contents = await configFilePicker.open();
+      if (contents == null) return;
+      bundle = ConfigBundle.parse(contents);
     } catch (e) {
       if (!context.mounted) return;
       await showDialog<void>(
@@ -469,6 +453,11 @@ class SettingsDialog extends StatelessWidget {
                 subtitle: 'Replace all data from a previously exported file',
                 onTap: () => _importConfig(context),
               ),
+              if (backupController?.driveAccount != null)
+                GoogleDriveTile(
+                  controller: backupController!,
+                  account: backupController!.driveAccount!,
+                ),
               if (backupController != null)
                 _tile(
                   icon: Icons.history,
