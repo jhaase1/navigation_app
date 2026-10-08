@@ -218,7 +218,10 @@ Future<void> _pumpUntil(
 }
 
 Future<void> _enableDemoMode(WidgetTester tester) async {
-  await tester.tap(find.widgetWithText(OutlinedButton, 'Settings'));
+  // Settings lives in the AppBar since #23 replaced the "No devices
+  // connected" screen with a banner over the tabs.
+  await tester.tap(find.descendant(
+      of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
   await _pumpUntil(tester, () => find.byType(Switch).evaluate().isNotEmpty);
 
   await tester.tap(find.byType(Switch).first);

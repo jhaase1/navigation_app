@@ -70,7 +70,11 @@ void main() {
             app.main();
             await _pumpUntil(tester, () => _has('No devices connected'));
 
-            await tester.tap(find.widgetWithText(OutlinedButton, 'Settings'));
+            // Settings lives in the AppBar since #23 replaced the "No
+            // devices connected" screen with a banner over the tabs.
+            await tester.tap(find.descendant(
+                of: find.byType(AppBar),
+                matching: find.byIcon(Icons.settings)));
             await _pumpUntil(tester, () => _has('Manage Operators'));
             await _settle(tester);
 
