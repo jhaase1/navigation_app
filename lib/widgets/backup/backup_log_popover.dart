@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../services/backup/app_fault.dart';
 import '../../services/backup/backup_controller.dart';
 import '../../services/backup/backup_log.dart';
 import '../../services/backup/backup_status.dart';
@@ -171,7 +172,10 @@ class _BackupLogPanel extends StatelessWidget {
                     : 'Review',
               ),
             )
-          else if (controller.canRetry)
+          else if (controller.canRetry &&
+              (status.activeCondition?.domain ?? FaultDomain.backup) ==
+                  FaultDomain.backup)
+            // Retry re-runs the backup; it cannot bring a camera back.
             TextButton(
               onPressed: () => controller.retryNow(),
               child: const Text('Retry now'),

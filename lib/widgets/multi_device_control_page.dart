@@ -12,6 +12,7 @@ import '../services/panasonic_service.dart';
 import '../services/abstract/panasonic_service_abstract.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/camera_health_monitor.dart';
+import '../services/backup/app_fault.dart';
 import '../services/backup/backup_controller.dart';
 import '../services/mock/mock_roland_service.dart';
 import '../services/mock/mock_panasonic_service.dart';
@@ -72,6 +73,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   StreamSubscription<bool>? _rolandLinkSub;
   late final CameraHealthMonitor _cameraHealth;
 
+  /// How the switcher is named in device faults.
+  static const _switcherName = 'Roland';
+
   // Panasonic
   final List<PanasonicCameraConfig> _panasonicCameras = [];
 
@@ -101,8 +105,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         setState(() {});
         if (up) {
           _showResponse('${camera.name} is back');
+          _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
         } else {
           _showFailure('${camera.name} not responding');
+          _backup.reportDeviceFault(AppFault.device(
+              FaultDomain.camera,
+              _cameraFaultId(camera),
+              '${camera.name} is not answering. Shots on it will fail until '
+              'it comes back.'));
         }
       },
     )..start();
@@ -148,6 +158,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
     for (final c in _panasonicCameras) {
+      // Renamed or removed, nothing would ever clear it again.
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(c));
       // A connect still dialling for a replaced camera is now stale.
       _cameraConnectGeneration.remove(c);
       c.isConnected.value = false;
@@ -183,8 +195,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       setState(() => _rolandConnected.value = up);
       if (up) {
         _showResponse('Roland reconnected');
+        _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
       } else {
         _showFailure('Roland connection lost. Reconnecting…');
+        _backup.reportDeviceFault(AppFault.device(FaultDomain.roland,
+            _switcherName, 'The switcher is not connected. Macros will fail.'));
       }
     });
   }
@@ -216,9 +231,13 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   ///
   /// Called whether or not the link is up: a session whose link dropped is
   /// still trying to reconnect, and only this stops it.
-  void _releaseRoland() {
+  void _releaseRoland({bool clearFault = true}) {
     _rolandConnectGeneration++;
     _rolandConnecting.value = false;
+    // Let go on purpose: nothing is wrong, so nothing stays on the pill.
+    // Not when about to connect again — if that fails, the switcher is
+    // still unreachable and the pill must keep saying so.
+    if (clearFault) _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
     _rolandLinkSub?.cancel();
     _rolandLinkSub = null;
     _rolandService.disconnect();
@@ -280,7 +299,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     setState(() {
       // A session that dropped is still reconnecting on its own: end it
       // before opening another, or two would fight over the switcher.
-      _releaseRoland();
+      _releaseRoland(clearFault: false);
       _rolandConnecting.value = true;
       _rolandConnectionError.value = '';
     });
@@ -311,6 +330,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       setState(() {
         _rolandService = service;
         _watchRolandLink(service);
+        _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
         _rolandConnected.value = true;
         _rolandConnecting.value = false;
         _rolandConnectionError.value = '';
@@ -324,6 +344,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
   }
 
+  /// Names a camera in device faults. The address keeps two cameras that
+  /// share a name apart: one coming back must not clear the other's fault.
+  static String _cameraFaultId(PanasonicCameraConfig camera) =>
+      '${camera.name} (${camera.ipController.text})';
+
   /// Per camera, bumped by every Connect and every let-go — the camera
   /// counterpart of [_rolandConnectGeneration]. A camera connect still
   /// dialling when it changes is discarded, never installed.
@@ -332,9 +357,12 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   /// Lets go of [camera] whether or not it reads connected. A camera the
   /// monitor had marked down still holds its real service and is still
   /// watched; skipping it let the monitor bring it back, live, in Demo.
-  void _releaseCamera(PanasonicCameraConfig camera) {
+  void _releaseCamera(PanasonicCameraConfig camera, {bool clearFault = true}) {
     _cameraConnectGeneration[camera] =
         (_cameraConnectGeneration[camera] ?? 0) + 1;
+    if (clearFault) {
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
+    }
     _cameraHealth.forget(camera);
     camera.isConnecting.value = false;
     camera.isConnected.value = false;
@@ -357,7 +385,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     }
 
     setState(() {
-      _releaseCamera(camera);
+      // Not a deliberate let-go: if this Connect fails the camera is still
+      // unreachable, and the pill must keep saying so.
+      _releaseCamera(camera, clearFault: false);
       camera.isConnecting.value = true;
       camera.connectionError.value = '';
     });
@@ -381,6 +411,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       final service = await (widget.cameraConnector ?? _openCamera)(
           camera.ipController.text);
       if (stale() || _mockMode) return;
+      // Already "connected" again, so the monitor will never report it back.
+      _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
       setState(() {
         camera.service = service;
         camera.isConnected.value = true;
@@ -452,6 +484,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                 _mockMode = value;
                 _releaseRoland();
                 for (final camera in _panasonicCameras) {
+                  // A changed mode is a fresh start for every camera.
                   _releaseCamera(camera);
                 }
               });

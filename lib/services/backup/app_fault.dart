@@ -1,8 +1,4 @@
 /// Which subsystem a fault came from.
-///
-/// Only [backup] is produced today. [roland] and [camera] exist because the
-/// fault log is persisted, and widening a stored entry's shape later means
-/// migrating saved data. Phase 5 fills them in.
 enum FaultDomain { backup, roland, camera }
 
 enum BackupFailureKind {
@@ -66,6 +62,22 @@ class AppFault implements Exception {
         cause: cause,
       );
 
+  /// A device the app was driving has dropped off: the switcher's link went
+  /// down, or a camera stopped answering. [device] names it, and is what
+  /// keeps two cameras' faults apart.
+  factory AppFault.device(FaultDomain domain, String device, String message) {
+    assert(domain != FaultDomain.backup);
+    return AppFault(
+      domain: domain,
+      kind: deviceDisconnectedKind,
+      message: message,
+      operation: 'link',
+      targetIdentity: device,
+    );
+  }
+
+  static const deviceDisconnectedKind = 'deviceDisconnected';
+
   static const _promptRetry = {'offline', 'rateLimited', 'transientServer'};
   static const _sweepOnly = {'unknown'};
   static const _needsHuman = {
@@ -79,6 +91,7 @@ class AppFault implements Exception {
     'conflict',
     'adoptionChoice',
     'deviceUnnamed',
+    deviceDisconnectedKind,
   };
 
   /// Retryable, but only on the slow periodic sweep. A tight backoff loop

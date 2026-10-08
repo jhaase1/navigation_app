@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:navigation_app/services/backup/app_fault.dart';
 import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/backup_status.dart';
+import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
 import 'package:navigation_app/widgets/backup/backup_log_popover.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -146,6 +148,39 @@ void main() {
     expect(find.text('Sign in again.'), findsOneWidget);
     expect(find.byTooltip('Mark as read'), findsNothing);
 
+    await controller.dispose();
+  });
+
+  testWidgets('a device fault offers no backup retry', (tester) async {
+    final controller = BackupController.forService(BackupService(
+      target: MockBackupTarget(),
+      targetIdentity: 'mock:test',
+      deviceLabel: () async => 'Mac mini',
+      readBundleJson: () async => {'schemaVersion': 1},
+      localIsPristine: () async => true,
+    ));
+    await controller.reportDeviceFault(AppFault.device(
+        FaultDomain.camera, 'Camera 2', 'Camera 2 is not answering.'));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showBackupLogPopover(context, controller),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Camera 2 is not answering.'), findsOneWidget);
+    expect(find.text('Retry now'), findsNothing,
+        reason: 'retrying the backup cannot bring a camera back');
     await controller.dispose();
   });
 }

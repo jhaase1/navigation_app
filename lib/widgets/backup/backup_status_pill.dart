@@ -86,12 +86,18 @@ class _BackupStatusPillState extends State<BackupStatusPill> {
                   children: [
                     Icon(_icon(status.state), size: 14, color: swatch.shade800),
                     const SizedBox(width: 6),
-                    Text(
-                      status.label(DateTime.now()),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: swatch.shade800,
+                    // A camera fault names the camera and its address, which
+                    // can outrun a narrow AppBar: shorten it, don't overflow.
+                    Flexible(
+                      child: Text(
+                        status.label(DateTime.now()),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: swatch.shade800,
+                        ),
                       ),
                     ),
                   ],
