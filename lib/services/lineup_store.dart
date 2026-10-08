@@ -51,20 +51,27 @@ class LineupStore {
   // slip between the check and the change and, for instance, delete a lease
   // a save had just taken. Only writing to disk is awaited.
 
+  /// Where one service day ends and the next begins. Late enough that a
+  /// Mass crossing midnight (Christmas, the Easter Vigil) keeps its readers,
+  /// early enough that Saturday's lineup is gone before Sunday's first Mass.
+  static const dayStartsAt = Duration(hours: 4);
+
   /// Whether a lease running until [until] (epoch milliseconds) still
   /// holds. It lapses [leaseLength] after it was last taken, and at the
-  /// first local midnight after that: the time it was taken is [until] less
-  /// [leaseLength], and it must be today. Renewal is the only way to extend
-  /// it and needs a lease that still holds, so no chain of renewals carries
-  /// a lineup out of the day it was saved.
+  /// first [dayStartsAt] after that: the time it was taken is [until] less
+  /// [leaseLength], and it must fall in the current service day. Renewal is
+  /// the only way to extend it and needs a lease that still holds, so no
+  /// chain of renewals carries a lineup out of the day it was saved.
   static bool _holds(int until) {
     final at = now().toLocal();
     if (at.millisecondsSinceEpoch > until) return false;
     final taken = DateTime.fromMillisecondsSinceEpoch(until)
-        .subtract(leaseLength);
-    return taken.year == at.year &&
-        taken.month == at.month &&
-        taken.day == at.day;
+        .subtract(leaseLength)
+        .subtract(dayStartsAt);
+    final today = at.subtract(dayStartsAt);
+    return taken.year == today.year &&
+        taken.month == today.month &&
+        taken.day == today.day;
   }
 
   /// Deletes everything stored here if the lease has lapsed, or was never

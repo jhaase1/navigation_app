@@ -17,8 +17,8 @@ void main() {
   test('a saved lineup loads back for the same service', () async {
     await LineupStore.save('mass', {'reader1': 'alice', 'reader2': 'bob'});
 
-    expect(await LineupStore.load('mass'),
-        {'reader1': 'alice', 'reader2': 'bob'});
+    expect(
+        await LineupStore.load('mass'), {'reader1': 'alice', 'reader2': 'bob'});
   });
 
   test('each service keeps its own lineup', () async {
@@ -142,43 +142,57 @@ void main() {
     });
   });
 
-  group('the lineup belongs to the local day it was saved', () {
+  group('the lineup belongs to the service day it was saved (4 AM to 4 AM)',
+      () {
     // A Mac mini left on with the app open stays on screen all night, so
     // the 20-minute lease alone would carry one day's readers into the
     // next day's Mass.
-    test('a new day clears it even inside its 20 minutes', () async {
-      clock = DateTime(2026, 10, 3, 23, 55);
+    test('4 AM clears it even inside its 20 minutes', () async {
+      clock = DateTime(2026, 10, 4, 3, 55);
       await LineupStore.save('mass', {'reader1': 'alice'});
       await LineupStore.saveSelectedServiceId('mass');
 
-      clock = DateTime(2026, 10, 4, 0, 10);
+      clock = DateTime(2026, 10, 4, 4, 10);
 
       expect(await LineupStore.load('mass'), isEmpty);
       expect(await LineupStore.loadSelectedServiceId(), isNull);
     });
 
-    test('renewing across midnight does not carry it over', () async {
-      clock = DateTime(2026, 10, 3, 23, 50);
+    test('renewing across 4 AM does not carry it over', () async {
+      clock = DateTime(2026, 10, 4, 3, 50);
       await LineupStore.save('mass', {'reader1': 'alice'});
-      clock = DateTime(2026, 10, 3, 23, 55);
+      clock = DateTime(2026, 10, 4, 3, 55);
       expect(await LineupStore.renew(), isTrue);
 
-      clock = DateTime(2026, 10, 4, 0, 0);
+      clock = DateTime(2026, 10, 4, 4, 0);
       expect(await LineupStore.renew(), isFalse);
       expect(await LineupStore.load('mass'), isEmpty);
     });
 
-    test('renewed all day, it is kept until midnight', () async {
+    test('renewed all day, it is kept until 4 AM', () async {
       clock = DateTime(2026, 10, 3, 9, 0);
       await LineupStore.save('mass', {'reader1': 'alice'});
-      while (clock.isBefore(DateTime(2026, 10, 3, 23, 55))) {
+      while (clock.isBefore(DateTime(2026, 10, 4, 3, 55))) {
         clock = clock.add(const Duration(minutes: 5));
         expect(await LineupStore.renew(), isTrue);
       }
 
-      clock = DateTime(2026, 10, 3, 23, 59);
+      clock = DateTime(2026, 10, 4, 3, 59);
       expect(await LineupStore.load('mass'), {'reader1': 'alice'});
     });
+  });
+
+  test('a Mass that runs past midnight keeps its lineup', () async {
+    // Christmas Midnight Mass and a late Easter Vigil cross midnight: a
+    // midnight cutoff would empty the readers halfway through.
+    clock = DateTime(2026, 12, 24, 23, 30);
+    await LineupStore.save('midnight', {'reader1': 'alice'});
+    while (clock.isBefore(DateTime(2026, 12, 25, 1, 30))) {
+      clock = clock.add(const Duration(minutes: 5));
+      expect(await LineupStore.renew(), isTrue);
+    }
+
+    expect(await LineupStore.load('midnight'), {'reader1': 'alice'});
   });
 
   test('the stored bytes are pinned', () async {
@@ -186,7 +200,9 @@ void main() {
     await LineupStore.saveSelectedServiceId('mass');
 
     final prefs = await SharedPreferences.getInstance();
-    expect({for (final k in prefs.getKeys()) k: prefs.get(k)}, {
+    expect({
+      for (final k in prefs.getKeys()) k: prefs.get(k)
+    }, {
       'service_lineup_mass': '{"reader1":"alice","reader2":"bob"}',
       'service_tab_selected_service': 'mass',
       'lineup_lease_expires_at':

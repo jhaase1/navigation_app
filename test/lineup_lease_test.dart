@@ -119,12 +119,12 @@ void main() {
     lease.dispose();
   });
 
-  testWidgets('a Mac left on overnight still drops the lineup at midnight',
+  testWidgets('a Mac left on overnight still drops the lineup at 4 AM',
       (tester) async {
     // A Mac mini with its display asleep reports the app as resumed all
     // night, so renewals never stop. The new day must clear the lineup
     // anyway, or one Mass's readers carry into the next.
-    start = DateTime(2026, 10, 3, 23, 0);
+    start = DateTime(2026, 10, 4, 3, 0);
     setLifecycle(tester, AppLifecycleState.resumed);
     final lease = LineupLease()..start();
     await LineupStore.save('mass', {'reader1': 'alice'});
