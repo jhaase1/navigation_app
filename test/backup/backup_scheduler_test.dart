@@ -258,5 +258,33 @@ void main() {
           reason: 'a fault nothing can see is a silent failure');
       await s.stop();
     });
+
+    test('an error that is not an AppFault still names its operation',
+        () async {
+      // Filed without one, it would sit on the pill under a key no later
+      // success ever clears: red until the app restarts.
+      await target.put('{"schemaVersion":1}',
+          contentHash: 'h', parentRevisionId: null, deviceLabel: 'iPad');
+      service = BackupService(
+        target: target,
+        targetIdentity: 'folder-A',
+        deviceLabel: () async => 'Mac mini',
+        readBundleJson: () async =>
+            throw const FormatException('preset names are not JSON'),
+        localIsPristine: () async => false,
+      );
+      final s = scheduler();
+      final seen = <Object>[];
+      final sub = s.events.listen(seen.add);
+
+      await s.onAppStart();
+      await sub.cancel();
+      await s.stop();
+
+      final fault = seen.whereType<AppFault>().first;
+      expect(fault.kind, BackupFailureKind.unknown.name);
+      expect(fault.operation, 'pull');
+      expect(fault.targetIdentity, 'folder-A');
+    });
   });
 }

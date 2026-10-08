@@ -76,20 +76,65 @@ void main() {
       expect(drive.folders, hasLength(2));
     });
 
-    test('when two machines both created a folder, the oldest wins', () async {
-      final older = drive.seed(
-          name: DriveBackupTarget.folderName,
-          mimeType: FakeDrive.folderMime,
-          appProperties: _folderMarker);
-      final newer = drive.seed(
-          name: DriveBackupTarget.folderName,
-          mimeType: FakeDrive.folderMime,
-          appProperties: _folderMarker);
+    group('two marked folders', () {
+      // Two first runs racing, or a search that had not caught up with a
+      // fresh folder, can leave two. Which one holds the real history is a
+      // person's call, so backups pause and say why. Nothing is moved.
+      late FakeDriveFile older;
+      late FakeDriveFile newer;
+
+      setUp(() {
+        older = drive.seed(
+            name: DriveBackupTarget.folderName,
+            mimeType: FakeDrive.folderMime,
+            appProperties: _folderMarker);
+        newer = drive.seed(
+            name: DriveBackupTarget.folderName,
+            mimeType: FakeDrive.folderMime,
+            appProperties: _folderMarker);
+      });
+
+      test('a fresh install says so instead of reading the empty one',
+          () async {
+        drive.seed(
+            name: 'nav_config_sunday.json',
+            parents: [newer.id],
+            appProperties: {..._revisionMarker, 'contentHash': 'h'},
+            body: '{"schemaVersion":1}');
+
+        await expectLater(
+            target().latest(), fault(BackupFailureKind.targetAmbiguous));
+
+        // Someone tidies Drive by hand; the next attempt finds the backup.
+        older.trashed = true;
+        expect(await target().latest(), isNotNull);
+      });
+
+      test('a remembered folder does not hide the other one', () async {
+        SharedPreferences.setMockInitialValues(
+            {DriveBackupTarget.folderPrefsKey: '$_account|${newer.id}'});
+
+        await expectLater(
+            putOne(target()), fault(BackupFailureKind.targetAmbiguous));
+
+        expect(drive.childrenOf(older.id), isEmpty);
+        expect(drive.childrenOf(newer.id), isEmpty);
+        expect(drive.folders.where((f) => !f.trashed), hasLength(2),
+            reason: 'nothing in Drive is moved or deleted automatically');
+      });
+    });
+
+    test('a folder search has not caught up with is still this one',
+        () async {
+      final t = target();
+      await putOne(t);
+      drive.notYetSearchable.add(drive.folders.single.id);
 
       await putOne(target());
 
-      expect(drive.childrenOf(older.id), hasLength(1));
-      expect(drive.childrenOf(newer.id), isEmpty);
+      expect(drive.folders, hasLength(1),
+          reason: 'search lag must never make a second folder');
+      expect(drive.childrenOf(drive.folders.single.id), hasLength(2));
     });
 
     test('a trashed folder is replaced and reads as empty', () async {

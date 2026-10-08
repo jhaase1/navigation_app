@@ -200,21 +200,43 @@ class DriveBackupTarget implements BackupTargetAbstract {
 
   // ── Folder identity ───────────────────────────────────────────────────────
 
-  /// The backup folder's id, checked live on every operation.
+  /// The backup folder's id, resolved live on every operation.
   ///
-  /// Listing the children of a trashed folder returns an empty list, not an
-  /// error, so without this check a trashed folder would read as "no backups"
-  /// and the next push would write into the trash. A fresh folder reads as
-  /// empty too, which the engine already treats as the backup having gone
-  /// missing (pull branch 2), so replacing it here needs no special case.
+  /// Every marked folder is listed each time, not only the one this machine
+  /// remembers. Two first runs racing can leave two, and a machine that
+  /// trusted its own remembered folder would keep writing there while a
+  /// fresh install read the other and found no backup at all. Which folder
+  /// holds the real history is a person's call, so more than one pauses
+  /// backups with a fault that says so. Nothing in Drive is moved or deleted.
+  ///
+  /// The listing skips trashed folders. Listing the children of a trashed
+  /// folder returns an empty list, not an error, so without that a trashed
+  /// folder would read as "no backups" and the next push would write into
+  /// the trash. A fresh folder reads as empty too, which the engine already
+  /// treats as the backup having gone missing (pull branch 2), so replacing
+  /// it here needs no special case.
   Future<String> _folder() async {
     final prefs = await SharedPreferences.getInstance();
-    final candidate = _folderId ?? _remembered(prefs);
-    if (candidate != null && await _isLive(candidate)) {
-      return _folderId = candidate;
+    final found = await _markedFolders();
+    // Search lags a folder created moments ago. The remembered one is asked
+    // for directly, so that lag never makes a second folder.
+    final remembered = _folderId ?? _remembered(prefs);
+    if (remembered != null &&
+        !found.contains(remembered) &&
+        await _isOurs(remembered)) {
+      found.add(remembered);
     }
-    final id = await _findMarkedFolder() ?? await _createFolder();
-    await prefs.setString(folderPrefsKey, '$account|$id');
+    if (found.length > 1) {
+      throw AppFault.backup(
+          BackupFailureKind.targetAmbiguous,
+          'Backups are paused: Google Drive has more than one '
+          '"$folderName" folder. Move every backup into one of them, put the '
+          'others in the trash, then tap Retry now.');
+    }
+    final id = found.isEmpty ? await _createFolder() : found.single;
+    if (_remembered(prefs) != id) {
+      await prefs.setString(folderPrefsKey, '$account|$id');
+    }
     return _folderId = id;
   }
 
@@ -226,32 +248,36 @@ class DriveBackupTarget implements BackupTargetAbstract {
     return raw.substring(split + 1);
   }
 
-  Future<bool> _isLive(String folderId) async {
+  /// Whether [folderId] is still one of our folders and not in the trash.
+  Future<bool> _isOurs(String folderId) async {
     try {
-      final f = await _api.files.get(folderId, $fields: 'id,trashed')
-          as drive.File;
-      return !(f.trashed ?? false);
+      final f = await _api.files.get(folderId,
+          $fields: 'id,trashed,appProperties') as drive.File;
+      return !(f.trashed ?? false) && f.appProperties?[_marker] == 'root';
     } on drive.DetailedApiRequestError catch (e) {
       if (e.status == 404) return false;
       rethrow;
     }
   }
 
-  /// The oldest folder carrying our marker. Two machines' first runs can
-  /// each create one; the oldest wins so both converge on the same folder.
-  Future<String?> _findMarkedFolder() async {
-    final page = await _api.files.list(
-      q: "mimeType = '$_folderMime' and trashed = false and "
-          "appProperties has { key='$_marker' and value='root' }",
-      orderBy: 'createdTime',
-      pageSize: 100,
-      $fields: 'files(id,createdTime)',
-    );
-    final found = [...?page.files]..sort((a, b) {
-        final byTime = a.createdTime!.compareTo(b.createdTime!);
-        return byTime != 0 ? byTime : a.id!.compareTo(b.id!);
-      });
-    return found.isEmpty ? null : found.first.id;
+  /// Every untrashed folder carrying our marker. Drive may return a short
+  /// page before the end, so this follows the page token to the last one.
+  Future<List<String>> _markedFolders() async {
+    final ids = <String>[];
+    String? token;
+    do {
+      final page = await _api.files.list(
+        q: "mimeType = '$_folderMime' and trashed = false and "
+            "appProperties has { key='$_marker' and value='root' }",
+        pageSize: 100,
+        pageToken: token,
+        $fields: 'nextPageToken,files(id)',
+      );
+      ids.addAll(
+          page.files?.map((f) => f.id).whereType<String>() ?? const []);
+      token = page.nextPageToken;
+    } while (token != null);
+    return ids;
   }
 
   Future<String> _createFolder() async {

@@ -76,6 +76,10 @@ class FakeDrive {
   /// can prove ordering does not depend on it alone.
   bool freezeClock = false;
 
+  /// Files `files.list` does not return yet, though `files.get` finds them:
+  /// Drive's search index lags a file created moments ago.
+  final Set<String> notYetSearchable = {};
+
   int _seq = 0;
 
   late final http.Client client = MockClient(_handle);
@@ -232,7 +236,10 @@ class FakeDrive {
 
   http.Response _list(Map<String, String> query) {
     final predicates = _parseQ(query['q'] ?? '');
-    var matched = files.values.where((f) => predicates.every((p) => p(f))).toList();
+    var matched = files.values
+        .where((f) =>
+            !notYetSearchable.contains(f.id) && predicates.every((p) => p(f)))
+        .toList();
 
     final orderBy = query['orderBy'];
     if (orderBy == 'createdTime desc') {

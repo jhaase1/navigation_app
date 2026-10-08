@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'authorized_drive_client.dart';
@@ -48,7 +49,11 @@ class GoogleDriveAccount implements DriveCredentials {
   Future<void>? _initialized;
   Future<void>? _restored;
 
-  /// How long a silent restore may take before it counts as not signed in.
+  /// Why the last silent restore got no answer, until one does. See
+  /// [headers]: no answer is not the same as signed out.
+  (Object, StackTrace)? _unanswered;
+
+  /// How long a silent restore may take before it counts as no answer.
   final Duration restoreTimeout;
 
   GoogleDriveAccount({
@@ -82,7 +87,7 @@ class GoogleDriveAccount implements DriveCredentials {
       _restored ??= _forgetOnError(_restore(), () => _restored = null);
 
   Future<void> _restore() async {
-    var answered = true;
+    var failed = true;
     try {
       final adopted = await () async {
         await _ready();
@@ -90,21 +95,31 @@ class GoogleDriveAccount implements DriveCredentials {
         return account != null && await _adopt(account);
       }()
           .timeout(restoreTimeout);
+      failed = false;
+      _unanswered = null;
       if (adopted) return;
-    } on GoogleSignInException {
-      // Signed out is the honest answer for now. A misconfigured client
-      // resurfaces with its real message the moment the operator taps Sign in.
-      answered = false;
-    } on TimeoutException {
-      answered = false;
+    } on GoogleSignInException catch (e, s) {
+      // A refusal (a misconfigured client, say) is an answer: signed out,
+      // and the real message resurfaces the moment the operator taps Sign
+      // in. The SDK's catch-all is not one.
+      _unanswered =
+          e.code == GoogleSignInExceptionCode.unknownError ? (e, s) : null;
+    } on PlatformException catch (e, s) {
+      // How a token refresh that could not reach Google comes back.
+      _unanswered = (e, s);
+    } on TimeoutException catch (e, s) {
+      _unanswered = (e, s);
     }
-    if (_status.value.state == DriveAccountState.checking) {
+    // Still checking while there is no answer, so nothing asks for a
+    // sign-in that cannot work offline.
+    if (_unanswered == null &&
+        _status.value.state == DriveAccountState.checking) {
       _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
     }
     // Refused (offline at launch) or never answered is not "nobody signed
     // in": let the next restore — the next backup's headers() — ask again
     // instead of caching signed out until someone signs in by hand.
-    if (!answered) _restored = null;
+    if (failed) _restored = null;
   }
 
   /// Interactive sign-in, then the Drive grant. Operator-triggered only.
@@ -123,38 +138,67 @@ class GoogleDriveAccount implements DriveCredentials {
       }
       rethrow;
     }
-    if (!await _adopt(account)) return;
-    await account.authorizationClient.authorizeScopes(_scopes);
+    if (await _refusedAsWrong(account)) return;
+    try {
+      await account.authorizationClient.authorizeScopes(_scopes);
+    } catch (_) {
+      // Signed in to Google without Drive access backs nothing up, so it
+      // must not read as signed in. Back out to a state that is true.
+      _account = null;
+      _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
+      await _signIn.signOut();
+      rethrow;
+    }
+    _take(account);
   }
 
   Future<void> signOut() async {
     await _ready();
     await _signIn.signOut();
     _account = null;
+    _unanswered = null;
     _status.value = const DriveAccountStatus(DriveAccountState.signedOut);
   }
 
-  /// Takes [account] if it is the expected one. A wrong account is signed
-  /// straight back out before it is ever asked for Drive access.
+  /// Takes [account] if it is the expected one.
   Future<bool> _adopt(GoogleSignInAccount account) async {
-    if (!_isExpected(account.email)) {
-      await _signIn.signOut();
-      _account = null;
-      _status.value =
-          DriveAccountStatus(DriveAccountState.wrongAccount, account.email);
-      return false;
-    }
+    if (await _refusedAsWrong(account)) return false;
+    _take(account);
+    return true;
+  }
+
+  /// A wrong account is signed straight back out before it is ever asked
+  /// for Drive access.
+  Future<bool> _refusedAsWrong(GoogleSignInAccount account) async {
+    _unanswered = null;
+    if (_isExpected(account.email)) return false;
+    await _signIn.signOut();
+    _account = null;
+    _status.value =
+        DriveAccountStatus(DriveAccountState.wrongAccount, account.email);
+    return true;
+  }
+
+  void _take(GoogleSignInAccount account) {
     _account = account;
     _status.value =
         DriveAccountStatus(DriveAccountState.signedIn, account.email);
-    return true;
   }
 
   @override
   Future<Map<String, String>?> headers() async {
     await restore();
     final account = _account;
-    if (account == null) return null;
+    if (account == null) {
+      // No answer is handed on as the failure it was, which the Drive client
+      // reports as offline and the scheduler retries. Null would read as
+      // "sign in again", a fix that cannot work offline.
+      final unanswered = _unanswered;
+      if (unanswered != null) {
+        Error.throwWithStackTrace(unanswered.$1, unanswered.$2);
+      }
+      return null;
+    }
     return account.authorizationClient
         .authorizationHeaders(_scopes, promptIfNecessary: false);
   }

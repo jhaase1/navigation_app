@@ -22,8 +22,15 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   /// Whether the operator cancels the interactive sheet.
   bool cancels = false;
 
+  /// Thrown by the interactive sheet, the way the native side fails when
+  /// it is not configured.
+  Object? authenticateError;
+
   /// Whether drive.file has been granted (without prompting).
   bool granted = false;
+
+  /// Thrown by the Drive consent screen, the way "Don't Allow" fails.
+  Object? grantError;
 
   int tokenSerial = 0;
   final cleared = <String>[];
@@ -62,6 +69,7 @@ class FakeSignInPlatform extends GoogleSignInPlatform
   @override
   Future<AuthenticationResults> authenticate(
       AuthenticateParameters params) async {
+    if (authenticateError != null) throw authenticateError!;
     if (cancels || pickedEmail == null) {
       throw const GoogleSignInException(
           code: GoogleSignInExceptionCode.canceled);
@@ -79,6 +87,7 @@ class FakeSignInPlatform extends GoogleSignInPlatform
       ClientAuthorizationTokensForScopesParameters params) async {
     if (params.request.promptIfUnauthorized) {
       promptedFor.add(params.request.scopes);
+      if (grantError != null) throw grantError!;
       granted = true;
     }
     if (!granted || signedOut) return null;

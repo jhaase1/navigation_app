@@ -78,6 +78,7 @@ class BackupStatus {
     'unsupportedSchema': 'App update needed',
     'malformedRemote': 'Backup unreadable',
     'targetMissing': 'Backup missing',
+    'targetAmbiguous': 'Duplicate backup folders',
     'deviceUnnamed': 'Name this machine',
     'unknown': 'Backup failing',
   };

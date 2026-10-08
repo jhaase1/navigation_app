@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart' show PlatformException;
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 import '../app_fault.dart';
@@ -62,7 +64,20 @@ class AuthorizedDriveClient extends http.BaseClient {
   ) async {
     // Fetching a token can refresh it over the network, so it gets the
     // request's deadline too.
-    final auth = await _credentials.headers().timeout(deadline);
+    final Map<String, String>? auth;
+    try {
+      auth = await _credentials.headers().timeout(deadline);
+    } on GoogleSignInException catch (e) {
+      throw _signInFault(e,
+          needsSignIn: e.code == GoogleSignInExceptionCode.userMismatch);
+    } on PlatformException catch (e) {
+      // Native errors the plugin passes through name their domain in the
+      // code. The token endpoint refusing a refresh means the grant is gone;
+      // anything else (no network, a busy keychain) may pass on its own.
+      throw _signInFault(e,
+          needsSignIn: e.code.startsWith(_tokenEndpointDomain) ||
+              e.code.startsWith(_authorizationDomain));
+    }
     if (auth == null) {
       throw AppFault.backup(
         BackupFailureKind.authExpired,
@@ -97,6 +112,26 @@ class AuthorizedDriveClient extends http.BaseClient {
       auth,
     );
   }
+
+  /// AppAuth's error domains for the OAuth token and authorization
+  /// endpoints, as the iOS/macOS plugin prefixes them onto the code.
+  static const _tokenEndpointDomain = 'org.openid.appauth.oauth_token';
+  static const _authorizationDomain = 'org.openid.appauth.oauth_authorization';
+
+  /// A sign-in SDK failure as a fault the pill can act on: Sign in where a
+  /// sign-in fixes it, otherwise retried on the normal backoff.
+  static AppFault _signInFault(Object cause, {required bool needsSignIn}) =>
+      needsSignIn
+          ? AppFault.backup(
+              BackupFailureKind.authExpired,
+              'Sign in to Google Drive in Settings to resume backups.',
+              cause: cause,
+            )
+          : AppFault.backup(
+              BackupFailureKind.offline,
+              'Google sign-in could not renew access to Drive. Retrying.',
+              cause: cause,
+            );
 
   static bool _isTransfer(Uri url) =>
       url.path.startsWith('/upload/') || url.queryParameters['alt'] == 'media';
