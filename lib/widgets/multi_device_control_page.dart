@@ -173,7 +173,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       // A connect still dialling for a replaced camera is now stale.
       _cameraConnectGeneration.remove(c);
       c.isConnected.value = false;
-      c.service = null;
+      _closeCameraService(c);
       c.dispose();
     }
     setState(() {
@@ -272,6 +272,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {
+      _closeCameraService(camera);
       camera.ipController.dispose();
     }
     unawaited(_backup.dispose());
@@ -374,6 +375,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   /// dialling when it changes is discarded, never installed.
   final Map<PanasonicCameraConfig, int> _cameraConnectGeneration = {};
 
+  /// Ends [camera]'s service. Every Connect builds a new one for the same
+  /// address; an old one left running kept sending its queued recalls,
+  /// racing the new connection's.
+  static void _closeCameraService(PanasonicCameraConfig camera) {
+    unawaited(camera.service?.dispose());
+    camera.service = null;
+  }
+
   /// Lets go of [camera] whether or not it reads connected. A camera the
   /// monitor had marked down still holds its real service and is still
   /// watched; skipping it let the monitor bring it back, live, in Demo.
@@ -389,7 +398,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     // No service at all, not a Demo stand-in: anything that forgets to check
     // the connected flag then fails as not connected instead of "recalling"
     // presets on a fake while the real camera sits dead.
-    camera.service = null;
+    _closeCameraService(camera);
   }
 
   Future<void> _connectPanasonic(int cameraIndex) async {
@@ -430,7 +439,12 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     try {
       final service = await (widget.cameraConnector ?? _openCamera)(
           camera.ipController.text);
-      if (stale() || _mockMode) return;
+      if (stale() || _mockMode) {
+        // Let go of, or superseded, while dialling: nobody else will ever
+        // close this service.
+        unawaited(service.dispose());
+        return;
+      }
       // Already "connected" again, so the monitor will never report it back.
       _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
       setState(() {

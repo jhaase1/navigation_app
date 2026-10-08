@@ -4,6 +4,11 @@ abstract class PanasonicServiceAbstract {
   /// it did not. Implementations without a real camera always answer.
   Future<void> probe() async {}
 
+  /// Lets go of the camera for good: commands still waiting fail, and
+  /// nothing more is sent. Implementations without a real camera hold
+  /// nothing to let go of.
+  Future<void> dispose() async {}
+
   /// Recalls a preset
   Future<String> recallPreset(int preset);
 

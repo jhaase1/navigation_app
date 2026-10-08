@@ -66,31 +66,29 @@ enum GainMode { manual, agc }
 enum SceneFile { none, scene1, scene2, scene3, scene4, scene5 }
 
 /// Manages a queue for PTZ commands to enforce delays between executions.
+///
+/// A command that fails because the camera never answered
+/// ([NetworkException]) fails every command still waiting behind it. A dead
+/// camera takes several timeouts to give up on one command; sending the
+/// waiting ones afterwards would swing it to shots the operator asked for
+/// long ago. A refusal such as `ER3` proves the camera is there, so the
+/// queue carries on.
 class CommandQueue {
   final Duration delay;
-  final Queue<Future<String> Function()> _queue =
-      Queue<Future<String> Function()>();
+  final Queue<_QueuedCommand> _queue = Queue<_QueuedCommand>();
   bool _isProcessing = false;
   DateTime? _lastCommandTime;
+  Object? _closedWith;
 
   CommandQueue(this.delay);
 
   /// Adds a command to the queue and processes it.
-  Future<String> addCommand(Future<String> Function() command) async {
-    final completer = Completer<String>();
-    _queue.add(() async {
-      // The caller hears about a failure through [completer]. Rethrowing it
-      // here as well escaped the queue unhandled and left it marked busy,
-      // so nothing after a refused command was ever sent to the camera.
-      try {
-        completer.complete(await command());
-      } catch (e, st) {
-        completer.completeError(e, st);
-      }
-      return '';
-    });
+  Future<String> addCommand(Future<String> Function() command) {
+    if (_closedWith != null) return Future.error(_closedWith!);
+    final entry = _QueuedCommand(command);
+    _queue.add(entry);
     _processQueue();
-    return completer.future;
+    return entry.completer.future;
   }
 
   Future<void> _processQueue() async {
@@ -108,13 +106,43 @@ class CommandQueue {
         }
         _lastCommandTime = DateTime.now();
 
-        final commandFunc = _queue.removeFirst();
-        await commandFunc();
+        // The caller hears about a failure through its completer. Rethrowing
+        // it here as well escaped the queue unhandled and left it marked
+        // busy, so nothing after a refused command was ever sent.
+        final entry = _queue.removeFirst();
+        try {
+          entry.completer.complete(await entry.command());
+        } on NetworkException catch (e, st) {
+          entry.completer.completeError(e, st);
+          _failWaiting(NetworkException(
+              'Not sent: the camera stopped answering while this waited'));
+        } catch (e, st) {
+          entry.completer.completeError(e, st);
+        }
       }
     } finally {
       _isProcessing = false;
     }
   }
+
+  /// Fails everything still waiting, and everything added from now on.
+  void close(Object error) {
+    _closedWith = error;
+    _failWaiting(error);
+  }
+
+  void _failWaiting(Object error) {
+    while (_queue.isNotEmpty) {
+      _queue.removeFirst().completer.completeError(error);
+    }
+  }
+}
+
+class _QueuedCommand {
+  final Future<String> Function() command;
+  final Completer<String> completer = Completer<String>();
+
+  _QueuedCommand(this.command);
 }
 
 /// Manages TCP-based event notifications for the camera.
@@ -360,6 +388,7 @@ class PanasonicService extends PanasonicServiceAbstract {
   final int maxRetries;
   final CommandQueue _ptzCommandQueue;
   final NotificationManager _notificationManager;
+  bool _disposed = false;
 
   PanasonicService({
     required this.ipAddress,
@@ -427,6 +456,9 @@ class PanasonicService extends PanasonicServiceAbstract {
 
   Future<String> _executeCommand(String endpoint, String command) async {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
+      // Checked before every attempt, retries included: a service let go of
+      // mid-retry would otherwise re-send to a camera someone else now owns.
+      if (_disposed) throw _closedError();
       try {
         final protocol = useHttps ? 'https' : 'http';
         final url =
@@ -460,8 +492,10 @@ class PanasonicService extends PanasonicServiceAbstract {
         if (cleanedResponse.startsWith('ER')) {
           log('Protocol error: $cleanedResponse',
               name: 'PanasonicService', level: 900);
-          // Special handling for ER2 (busy): retry with delay
-          if (cleanedResponse == 'ER2') {
+          // Special handling for ER2 (busy): retry with delay. The reply
+          // carries the command (`ER2:R04`), so match the prefix. Out of
+          // retries, it is reported as the busy it is.
+          if (cleanedResponse.startsWith('ER2') && attempt < maxRetries - 1) {
             await Future.delayed(const Duration(milliseconds: 500));
             continue;
           }
@@ -1485,8 +1519,17 @@ class PanasonicService extends PanasonicServiceAbstract {
     return await _notificationManager.stopNotifications(port);
   }
 
-  /// Disposes the HTTP client and closes any open TCP connections.
+  CameraException _closedError() =>
+      CameraException('Not sent: the connection to $ipAddress was closed');
+
+  /// Fails every PTZ command still queued, stops any retry in progress,
+  /// and disposes the HTTP client and any open TCP connections. A service
+  /// replaced by a reconnect but left running kept sending its queued
+  /// recalls to the same camera, racing the new connection's.
+  @override
   Future<void> dispose() async {
+    _disposed = true;
+    _ptzCommandQueue.close(_closedError());
     _client.close();
     await _notificationManager.dispose();
   }
