@@ -1935,7 +1935,10 @@ class RolandService extends RolandServiceAbstract
       if (link != null && identical(_socket, link)) {
         _linkLost('No reply from the switcher to $command');
       }
-      throw CommandException('No reply from the switcher to $command');
+      // No reply is not proof it did not run: re-firing a CUT that did swaps
+      // the shot back.
+      throw CommandException('No reply from the switcher to $command. It may '
+          'have run: check the program output before firing it again.');
     } finally {
       _pendingCount--;
     }

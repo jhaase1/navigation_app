@@ -110,10 +110,13 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         if (!mounted) return;
         setState(() {});
         if (up) {
-          _showResponse('${camera.name} is back');
+          _showLink('camera:${_cameraFaultId(camera)}', '${camera.name} is back',
+              lost: false);
           _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(camera));
         } else {
-          _showFailure('${camera.name} not responding');
+          _showLink(
+              'camera:${_cameraFaultId(camera)}', '${camera.name} not responding',
+              lost: true);
           _backup.reportDeviceFault(AppFault.device(
               FaultDomain.camera,
               _cameraFaultId(camera),
@@ -192,6 +195,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) showDeviceResponse(context, message, failed: true);
   }
 
+  /// A device's connection dropping or returning. Never hides a failed cue,
+  /// and a return only replaces the same device's "lost" message.
+  void _showLink(String link, String message, {required bool lost}) {
+    if (mounted) {
+      showDeviceResponse(context, message, failed: lost, link: link);
+    }
+  }
+
   /// Keeps the Live badge truthful: follow the switcher's link both ways —
   /// down when it drops underneath us, up again when it reconnects on its own.
   void _watchRolandLink(RolandServiceAbstract service) {
@@ -201,10 +212,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       if (up == _rolandConnected.value) return;
       setState(() => _rolandConnected.value = up);
       if (up) {
-        _showResponse('Roland reconnected');
+        _showLink('roland', 'Roland reconnected', lost: false);
         _backup.clearDeviceFault(FaultDomain.roland, _switcherName);
       } else {
-        _showFailure('Roland connection lost. Reconnecting…');
+        _showLink('roland', 'Roland connection lost. Reconnecting…',
+            lost: true);
         _backup.reportDeviceFault(AppFault.device(FaultDomain.roland,
             _switcherName, 'The switcher is not connected. Macros will fail.'));
       }
