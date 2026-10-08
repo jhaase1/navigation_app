@@ -5,7 +5,9 @@ import 'dart:async';
 
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/models/service.dart';
+import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/abstract/panasonic_service_abstract.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/operator_store.dart';
 import 'package:navigation_app/services/service_store.dart';
@@ -89,6 +91,18 @@ Future<void> _openSettings(WidgetTester tester) async {
   await tester.tap(find.descendant(
       of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
   await tester.pump(const Duration(seconds: 1));
+}
+
+/// A camera that can stop answering, the way one does when it loses power.
+class _FakeCamera extends MockPanasonicService {
+  bool up = true;
+  int probes = 0;
+
+  @override
+  Future<void> probe() async {
+    probes++;
+    if (!up) throw Exception('no answer');
+  }
 }
 
 /// Connects in Live Mode through an injected connector, so the page wires up
@@ -502,5 +516,138 @@ void main() {
         find.descendant(
             of: find.byType(SnackBar), matching: find.byIcon(Icons.error)),
         findsOneWidget);
+  });
+
+  testWidgets('a camera that stops answering is reported, and so is its return',
+      (tester) async {
+    final cameras = <String, _FakeCamera>{};
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => _FakeRoland(),
+        cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+
+    cameras['10.0.1.10']!.up = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Camera 1 not responding'), findsOneWidget);
+
+    cameras['10.0.1.10']!.up = true;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Camera 1 is back'), findsOneWidget);
+
+    // Disposing the page stops the health checks.
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  group('Demo Mode lets go of every real camera', () {
+    Future<void> toggleDemo(WidgetTester tester) async {
+      await _openSettings(tester);
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      await tester.tap(find.text('Close'));
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('a camera that was down when switching to Demo', (tester) async {
+      // Down in Live, so the toggle skipped it and it kept its real service
+      // under watch. When it came back, Demo cues moved the real camera.
+      final cameras = <String, _FakeCamera>{};
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => _FakeRoland(),
+          cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+          cameraHealthInterval: const Duration(seconds: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+      final cam1 = cameras['10.0.1.10']!..up = false;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      await toggleDemo(tester);
+      final probesAtToggle = cam1.probes;
+      cam1.up = true;
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Camera 1 is back'), findsNothing);
+      expect(cam1.probes, probesAtToggle,
+          reason: 'nothing in Demo should be talking to the real camera');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a camera still connecting when switching to Demo',
+        (tester) async {
+      final pending = <Completer<PanasonicServiceAbstract>>[];
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => _FakeRoland(),
+          cameraConnector: (ip) {
+            final c = Completer<PanasonicServiceAbstract>();
+            pending.add(c);
+            return c.future;
+          },
+          cameraHealthInterval: const Duration(seconds: 1),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pump();
+
+      await toggleDemo(tester);
+      final real = [for (final _ in pending) _FakeCamera()];
+      for (var i = 0; i < pending.length; i++) {
+        pending[i].complete(real[i]);
+      }
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(real.map((c) => c.probes), everyElement(0),
+          reason: 'a connect let go of mid-dial must not be installed');
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  testWidgets('a camera whose Connect failed is not driven from the Panel',
+      (tester) async {
+    // Connect lets go of the camera first. Had the Panel driven whatever
+    // service that left behind, a dead camera would "recall" presets and
+    // report success while the real one never moved.
+    await tester.pumpWidget(MaterialApp(
+      home: MultiDeviceControlPage(
+        rolandConnector: (_) async => _FakeRoland(),
+        cameraConnector: (_) async => throw Exception('No route to host'),
+        cameraHealthInterval: const Duration(seconds: 1),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connect All'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Panel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Camera 1'));
+    await tester.pumpAndSettle();
+    final presets = find.widgetWithText(FilledButton, '1');
+    if (presets.evaluate().isNotEmpty) {
+      await tester.tap(presets.first);
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.textContaining('Recalled preset'), findsNothing);
+    expect(presets, findsNothing,
+        reason: 'no presets to offer for a camera that is not connected');
+    await tester.pumpWidget(const SizedBox());
   });
 }

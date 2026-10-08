@@ -1,5 +1,9 @@
 /// Abstract base class for Panasonic service implementations
 abstract class PanasonicServiceAbstract {
+  /// Asks the camera something cheap. Completes if it answered; throws if
+  /// it did not. Implementations without a real camera always answer.
+  Future<void> probe() async {}
+
   /// Recalls a preset
   Future<String> recallPreset(int preset);
 

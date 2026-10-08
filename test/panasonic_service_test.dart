@@ -1,3 +1,4 @@
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -270,4 +271,65 @@ void main() {
       expect(sent, ['#R03', '#R04']);
     });
   });
+  group('PanasonicService.probe', () {
+    // The liveness check runs every few seconds. With the command path's
+    // three retries and five-second timeouts, a dead camera took about 35s
+    // to be noticed.
+    test('asks once, without retrying', () async {
+      var requests = 0;
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: MockClient((r) async {
+            requests++;
+            throw http.ClientException('Connection refused', r.url);
+          }));
+
+      await expectLater(service.probe(), throwsA(anything));
+      expect(requests, 1);
+    });
+
+    test('gives up after its own short timeout', () async {
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          probeTimeout: const Duration(milliseconds: 50),
+          client: MockClient((_) => Completer<http.Response>().future));
+
+      await expectLater(service.probe(), throwsA(isA<TimeoutException>()));
+    });
+
+    test('a probe that times out cancels its request', () async {
+      // A wedged camera takes the connection and never answers. A timeout
+      // that only stops waiting left that socket hanging — one more every
+      // 5 seconds, all service. Cancelling closes it.
+      final client = _AbortRecordingClient();
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: client,
+          probeTimeout: const Duration(milliseconds: 50));
+
+      await expectLater(service.probe(), throwsA(anything));
+
+      expect(client.aborted, 1);
+    });
+
+    test('a busy camera has still answered', () async {
+      final service = PanasonicService(
+          ipAddress: '10.0.1.10',
+          client: MockClient((_) async => http.Response('ER2:QID', 200)));
+
+      await service.probe();
+    });
+  });
+}
+
+/// Never answers, and records requests the caller cancels.
+class _AbortRecordingClient extends http.BaseClient {
+  int aborted = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    final trigger = request is http.Abortable ? request.abortTrigger : null;
+    trigger?.then((_) => aborted++);
+    return Completer<http.StreamedResponse>().future;
+  }
 }
