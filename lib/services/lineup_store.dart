@@ -17,7 +17,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// simply persisted would walk Saturday's readers into Sunday's Mass and aim
 /// their cues at the wrong people. Everything here lives [leaseLength] past
 /// its last save or [renew]; [LineupLease] renews it while the app is on
-/// screen.
+/// screen. It also never outlives the local day it was saved, since a Mac
+/// left on with the app open stays on screen and would renew it forever.
 class LineupStore {
   /// Prefix for per-service lineups: `service_lineup_<serviceId>` holds a
   /// JSON object of participantId → personId.
@@ -50,12 +51,28 @@ class LineupStore {
   // slip between the check and the change and, for instance, delete a lease
   // a save had just taken. Only writing to disk is awaited.
 
+  /// Whether a lease running until [until] (epoch milliseconds) still
+  /// holds. It lapses [leaseLength] after it was last taken, and at the
+  /// first local midnight after that: the time it was taken is [until] less
+  /// [leaseLength], and it must be today. Renewal is the only way to extend
+  /// it and needs a lease that still holds, so no chain of renewals carries
+  /// a lineup out of the day it was saved.
+  static bool _holds(int until) {
+    final at = now().toLocal();
+    if (at.millisecondsSinceEpoch > until) return false;
+    final taken = DateTime.fromMillisecondsSinceEpoch(until)
+        .subtract(leaseLength);
+    return taken.year == at.year &&
+        taken.month == at.month &&
+        taken.day == at.day;
+  }
+
   /// Deletes everything stored here if the lease has lapsed, or was never
   /// taken, and returns the pending writes; null if the lease still holds.
   static List<Future<bool>>? _expireIfDue(SharedPreferences prefs,
       {bool announce = false}) {
     final until = prefs.getInt(leaseKey);
-    if (until != null && now().millisecondsSinceEpoch <= until) return null;
+    if (until != null && _holds(until)) return null;
     final stale = prefs
         .getKeys()
         .where((k) => k.startsWith(keyPrefix) || k == selectedServiceKey)

@@ -141,4 +141,43 @@ void main() {
       expect(await LineupStore.load('vespers'), {'reader1': 'bob'});
     });
   });
+
+  group('the lineup belongs to the local day it was saved', () {
+    // A Mac mini left on with the app open stays on screen all night, so
+    // the 20-minute lease alone would carry one day's readers into the
+    // next day's Mass.
+    test('a new day clears it even inside its 20 minutes', () async {
+      clock = DateTime(2026, 10, 3, 23, 55);
+      await LineupStore.save('mass', {'reader1': 'alice'});
+      await LineupStore.saveSelectedServiceId('mass');
+
+      clock = DateTime(2026, 10, 4, 0, 10);
+
+      expect(await LineupStore.load('mass'), isEmpty);
+      expect(await LineupStore.loadSelectedServiceId(), isNull);
+    });
+
+    test('renewing across midnight does not carry it over', () async {
+      clock = DateTime(2026, 10, 3, 23, 50);
+      await LineupStore.save('mass', {'reader1': 'alice'});
+      clock = DateTime(2026, 10, 3, 23, 55);
+      expect(await LineupStore.renew(), isTrue);
+
+      clock = DateTime(2026, 10, 4, 0, 0);
+      expect(await LineupStore.renew(), isFalse);
+      expect(await LineupStore.load('mass'), isEmpty);
+    });
+
+    test('renewed all day, it is kept until midnight', () async {
+      clock = DateTime(2026, 10, 3, 9, 0);
+      await LineupStore.save('mass', {'reader1': 'alice'});
+      while (clock.isBefore(DateTime(2026, 10, 3, 23, 55))) {
+        clock = clock.add(const Duration(minutes: 5));
+        expect(await LineupStore.renew(), isTrue);
+      }
+
+      clock = DateTime(2026, 10, 3, 23, 59);
+      expect(await LineupStore.load('mass'), {'reader1': 'alice'});
+    });
+  });
 }
