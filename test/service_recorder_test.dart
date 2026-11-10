@@ -9,6 +9,7 @@ import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/services/service_recorder.dart';
 import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/widgets/positions_tab.dart';
+import 'package:navigation_app/widgets/recording_controls.dart';
 import 'package:navigation_app/widgets/service_tab.dart';
 
 const _camIp = '10.0.1.10';
@@ -70,6 +71,13 @@ void main() {
       expect(r.roleNameFor('bob'), isNull);
     });
 
+    test('starting again mid-recording keeps the steps taken so far', () {
+      final r = ServiceRecorder()..start();
+      r.recordStep(const ServiceStep(id: 'm', type: StepType.macro));
+      r.start();
+      expect(r.steps, hasLength(1));
+    });
+
     test('nothing is recorded while not recording', () {
       final r = ServiceRecorder();
       r.recordMinistry(
@@ -109,6 +117,9 @@ void main() {
     final recordResponses = <String>[];
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
+        appBar: AppBar(actions: [
+          RecordingIndicator(recorder: recorder, onResponse: (_) {}),
+        ]),
         body: PositionsTab(
           cameras: [cam],
           positions: [ambo],

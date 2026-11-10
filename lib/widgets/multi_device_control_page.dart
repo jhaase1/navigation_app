@@ -20,6 +20,7 @@ import '../services/people_store.dart';
 import '../services/position_store.dart';
 import '../services/service_recorder.dart';
 import '../services/service_store.dart';
+import 'recording_controls.dart';
 import 'backup/backup_status_pill.dart';
 import 'operator_panel.dart';
 import 'people_manager_dialog.dart';
@@ -376,11 +377,16 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               setDialogState(() {});
             },
             backupController: _backup,
+            onStartRecording: _anyDeviceConnected ? _recorder.start : null,
           ),
         );
       },
     );
   }
+
+  bool get _anyDeviceConnected =>
+      _rolandConnected.value ||
+      _panasonicCameras.any((c) => c.isConnected.value);
 
   // ── Operator selector ────────────────────────────────────────────────────
 
@@ -409,8 +415,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = _rolandConnected.value ||
-        _panasonicCameras.any((c) => c.isConnected.value);
+    final isConnected = _anyDeviceConnected;
 
     if (!isConnected) {
       return Scaffold(
@@ -490,6 +495,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         centerTitle: false,
         title: BackupStatusPill(controller: _backup),
         actions: [
+          RecordingIndicator(
+            recorder: _recorder,
+            onResponse: (_) {},
+            onServicesChanged: _loadServices,
+          ),
           Tooltip(
             message: 'Switch operator',
             child: InkWell(
@@ -573,7 +583,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     rolandIpController: _rolandIpController,
                     cameras: _panasonicCameras,
                     onResponse: (_) {},
-                    onServicesChanged: _loadServices,
                     recorder: _recorder,
                   ),
                   PositionsTab(
@@ -583,7 +592,6 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     heightRanges: _heightRanges,
                     onResponse: (_) {},
                     recorder: _recorder,
-                    onServicesChanged: _loadServices,
                   ),
                 ],
               ),

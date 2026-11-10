@@ -6,17 +6,18 @@ import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
+import 'package:navigation_app/services/service_recorder.dart';
 import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/services/visibility_store.dart';
 import 'package:navigation_app/services/preset_name_store.dart';
 import 'package:navigation_app/widgets/operator_panel.dart';
+import 'package:navigation_app/widgets/recording_controls.dart';
 
 Widget _build({
   OperatorProfile operator = OperatorProfile.defaultProfile,
   List<PanasonicCameraConfig> cameras = const [],
   RolandServiceAbstract? rolandService,
   ValueNotifier<bool>? rolandConnected,
-  VoidCallback? onServicesChanged,
 }) {
   return MaterialApp(
     theme: ThemeData(useMaterial3: false),
@@ -27,24 +28,10 @@ Widget _build({
         rolandConnected: rolandConnected ?? ValueNotifier(false),
         cameras: cameras,
         onResponse: (_) {},
-        onServicesChanged: onServicesChanged,
       ),
     ),
   );
 }
-
-Widget _buildConnected({
-  OperatorProfile operator = OperatorProfile.defaultProfile,
-  List<PanasonicCameraConfig> cameras = const [],
-  VoidCallback? onServicesChanged,
-}) =>
-    _build(
-      operator: operator,
-      cameras: cameras,
-      rolandService: MockRolandService(),
-      rolandConnected: ValueNotifier(true),
-      onServicesChanged: onServicesChanged,
-    );
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -277,85 +264,82 @@ void main() {
     });
   });
 
-  group('OperatorPanel — recording', () {
-    testWidgets('shows a Record button that is not active initially',
-        (tester) async {
-      await tester.pumpWidget(_build());
+  group('OperatorPanel — recording (started from Settings, stopped in the top bar)', () {
+    late ServiceRecorder recorder;
+    setUp(() => recorder = ServiceRecorder());
+    tearDown(() => recorder.dispose());
+
+    Widget build({VoidCallback? onServicesChanged}) => MaterialApp(
+          theme: ThemeData(useMaterial3: false),
+          home: Scaffold(
+            appBar: AppBar(actions: [
+              RecordingIndicator(
+                recorder: recorder,
+                onResponse: (_) {},
+                onServicesChanged: onServicesChanged,
+              ),
+            ]),
+            body: OperatorPanel(
+              operator: OperatorProfile.defaultProfile,
+              rolandService: MockRolandService(),
+              rolandConnected: ValueNotifier(true),
+              cameras: const [],
+              onResponse: (_) {},
+              recorder: recorder,
+            ),
+          ),
+        );
+
+    testWidgets(
+        'the panel has no Record button; the top bar shows nothing until a '
+        'recording starts', (tester) async {
+      await tester.pumpWidget(build());
       await tester.pumpAndSettle();
-      expect(find.text('Record'), findsOneWidget);
+      expect(find.text('Record'), findsNothing);
+      expect(find.textContaining('Recording'), findsNothing);
+
+      recorder.start();
+      await tester.pumpAndSettle();
+      expect(find.text('Recording · 0 steps · Stop'), findsOneWidget);
     });
 
-    testWidgets('tapping Record switches to a Stop button with a step count',
+    testWidgets('firing an action while not recording records nothing',
         (tester) async {
-      await tester.pumpWidget(_build());
+      await tester.pumpWidget(build());
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Stop'), findsOneWidget);
-      expect(find.textContaining('0 step'), findsOneWidget);
-    });
-
-    testWidgets('firing an action while recording increments the step count',
-        (tester) async {
-      await tester.pumpWidget(_buildConnected());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
-      await tester.pumpAndSettle();
-
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
-
-      expect(find.textContaining('1 step'), findsOneWidget);
-    });
-
-    testWidgets('firing an action while not recording does not open the save dialog',
-        (tester) async {
-      await tester.pumpWidget(_buildConnected());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Macro 1').first);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Record'), findsOneWidget);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(recorder.steps, isEmpty);
     });
 
     testWidgets('stopping with no recorded steps does not show a save dialog',
         (tester) async {
-      await tester.pumpWidget(_build());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
+      await tester.pumpWidget(build());
+      recorder.start();
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Stop'));
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsNothing);
-      expect(find.text('Record'), findsOneWidget);
+      expect(recorder.isRecording, isFalse);
     });
 
     testWidgets(
-        'stopping with recorded steps opens a naming dialog; Save persists the Service',
+        'macros fired while recording are saved in order on Stop then Save',
         (tester) async {
       var changedCount = 0;
-      await tester.pumpWidget(
-          _buildConnected(onServicesChanged: () => changedCount++));
+      await tester.pumpWidget(build(onServicesChanged: () => changedCount++));
+      recorder.start();
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Record'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 2').first);
       await tester.pumpAndSettle();
+      expect(find.text('Recording · 2 steps · Stop'), findsOneWidget);
+
       await tester.tap(find.textContaining('Stop'));
       await tester.pumpAndSettle();
-
-      expect(find.byType(AlertDialog), findsOneWidget);
-
       await tester.enterText(find.byType(TextField), 'Recorded Run');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
@@ -367,17 +351,13 @@ void main() {
           [StepType.macro, StepType.macro]);
       expect(saved.first.steps.map((s) => s.macroNumber), [1, 2]);
       expect(changedCount, 1);
-
-      // Recording state is reset back to idle.
-      expect(find.text('Record'), findsOneWidget);
+      expect(find.textContaining('Recording'), findsNothing);
     });
 
     testWidgets('Discard clears the pending recording without saving',
         (tester) async {
-      await tester.pumpWidget(_buildConnected());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
+      await tester.pumpWidget(build());
+      recorder.start();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
@@ -388,50 +368,25 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await ServiceStore.loadAll(), isEmpty);
-      expect(find.text('Record'), findsOneWidget);
+      expect(recorder.isRecording, isFalse);
+      expect(recorder.steps, isEmpty);
     });
 
     testWidgets(
-        'disposing the panel while the save dialog is open does not throw',
+        'the recorder going away while the save dialog is open does not throw',
         (tester) async {
-      final showPanel = ValueNotifier<bool>(true);
-      addTearDown(showPanel.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData(useMaterial3: false),
-          home: Scaffold(
-            body: ValueListenableBuilder<bool>(
-              valueListenable: showPanel,
-              builder: (context, show, _) => show
-                  ? OperatorPanel(
-                      operator: OperatorProfile.defaultProfile,
-                      rolandService: MockRolandService(),
-                      rolandConnected: ValueNotifier(true),
-                      cameras: const [],
-                      onResponse: (_) {},
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
+      await tester.pumpWidget(build());
+      recorder.start();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Stop'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AlertDialog), findsOneWidget);
-
-      // showDialog always targets the root navigator, so the dialog
-      // survives even though the panel underneath it is now disposed
-      // while _stopRecording() is still awaiting its result.
-      showPanel.value = false;
-      await tester.pump();
+      // The page that owns the recorder is torn down mid-dialog.
+      final orphan = recorder;
+      recorder = ServiceRecorder();
+      orphan.dispose();
 
       await tester.enterText(find.byType(TextField), 'Late Save');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));

@@ -14,11 +14,10 @@ class PositionsTab extends StatefulWidget {
   final List<HeightRange> heightRanges;
   final ValueChanged<String> onResponse;
 
-  /// Shared with the Panel tab. While it is recording, tapping a person fires
-  /// the shot and then asks which role they are playing, so the saved step
-  /// follows the role rather than this particular person.
+  /// The shared recording, started from Settings. While it is recording,
+  /// tapping a person fires the shot and then asks which role they are
+  /// playing, so the saved step follows the role rather than this person.
   final ServiceRecorder? recorder;
-  final VoidCallback? onServicesChanged;
 
   const PositionsTab({
     super.key,
@@ -28,7 +27,6 @@ class PositionsTab extends StatefulWidget {
     required this.heightRanges,
     required this.onResponse,
     this.recorder,
-    this.onServicesChanged,
   });
 
   @override
@@ -111,7 +109,6 @@ class _PositionsTabState extends State<PositionsTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.recorder != null) _buildRecordingBar(widget.recorder!),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: ToggleButtons(
@@ -155,35 +152,6 @@ class _PositionsTabState extends State<PositionsTab> {
           ),
         ],
       ),
-    );
-  }
-
-  /// Visible only while recording, so the live-service view is unchanged.
-  Widget _buildRecordingBar(ServiceRecorder recorder) {
-    return ListenableBuilder(
-      listenable: recorder,
-      builder: (context, _) {
-        if (!recorder.isRecording) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Row(
-            children: [
-              const Icon(Icons.fiber_manual_record,
-                  color: Colors.red, size: 16),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                    'Recording — tap a person, then say which role they are'),
-              ),
-              RecordButton(
-                recorder: recorder,
-                onResponse: widget.onResponse,
-                onServicesChanged: widget.onServicesChanged,
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 

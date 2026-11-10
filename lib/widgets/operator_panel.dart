@@ -8,7 +8,6 @@ import '../services/abstract/roland_service_abstract.dart';
 import '../services/preset_name_store.dart';
 import '../services/service_recorder.dart';
 import '../services/visibility_store.dart';
-import 'recording_controls.dart';
 
 class OperatorPanel extends StatefulWidget {
   final OperatorProfile operator;
@@ -17,10 +16,9 @@ class OperatorPanel extends StatefulWidget {
   final TextEditingController? rolandIpController;
   final List<PanasonicCameraConfig> cameras;
   final ValueChanged<String> onResponse;
-  final VoidCallback? onServicesChanged;
 
-  /// Shared with the Positions tab so one recording can hold both. When null
-  /// the panel records on its own.
+  /// The shared recording, started from Settings. While it is recording,
+  /// every action fired here is added as a step.
   final ServiceRecorder? recorder;
 
   const OperatorPanel({
@@ -31,7 +29,6 @@ class OperatorPanel extends StatefulWidget {
     required this.cameras,
     required this.onResponse,
     this.rolandIpController,
-    this.onServicesChanged,
     this.recorder,
   });
 
@@ -47,9 +44,6 @@ class _OperatorPanelState extends State<OperatorPanel> {
   final List<VoidCallback> _deviceListeners = [];
   final ScrollController _scrollController = ScrollController();
 
-  ServiceRecorder? _ownRecorder;
-  ServiceRecorder get _recorder =>
-      widget.recorder ?? (_ownRecorder ??= ServiceRecorder());
 
   // Each device's storageKey is dynamic (e.g. RolandDevice reads the IP via
   // a closure), so it can change under an unchanged device instance -- e.g.
@@ -109,7 +103,6 @@ class _OperatorPanelState extends State<OperatorPanel> {
     VisibilityStore.changes.removeListener(_onVisibilityChangedElsewhere);
     _removeListeners();
     _scrollController.dispose();
-    _ownRecorder?.dispose();
     super.dispose();
   }
 
@@ -170,7 +163,7 @@ class _OperatorPanelState extends State<OperatorPanel> {
     final device = _devices[_selectedDeviceIndex];
     try {
       widget.onResponse(await device.execute(index));
-      _recorder.recordStep(device.toServiceStep(index));
+      widget.recorder?.recordStep(device.toServiceStep(index));
     } catch (e) {
       widget.onResponse('$e');
     }
@@ -239,12 +232,6 @@ class _OperatorPanelState extends State<OperatorPanel> {
                           .toList(),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                RecordButton(
-                  recorder: _recorder,
-                  onResponse: widget.onResponse,
-                  onServicesChanged: widget.onServicesChanged,
                 ),
               ],
             ),

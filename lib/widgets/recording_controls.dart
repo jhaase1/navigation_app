@@ -3,15 +3,15 @@ import 'package:flutter/material.dart';
 import '../services/service_recorder.dart';
 import '../services/service_store.dart';
 
-/// Record / Stop toggle bound to a shared [ServiceRecorder]. Shown on every
-/// tab that can add steps, so recording can be stopped from wherever the
-/// operator is.
-class RecordButton extends StatelessWidget {
+/// Top-bar indicator for a recording in progress: a red dot, the step count,
+/// and Stop. Takes no space when nothing is being recorded, so the live view
+/// is unchanged. Recording is started from Settings → Record a Service.
+class RecordingIndicator extends StatelessWidget {
   final ServiceRecorder recorder;
   final VoidCallback? onServicesChanged;
   final ValueChanged<String> onResponse;
 
-  const RecordButton({
+  const RecordingIndicator({
     super.key,
     required this.recorder,
     required this.onResponse,
@@ -23,25 +23,22 @@ class RecordButton extends StatelessWidget {
     return ListenableBuilder(
       listenable: recorder,
       builder: (context, _) {
-        if (!recorder.isRecording) {
-          return OutlinedButton.icon(
-            onPressed: recorder.start,
-            icon: const Icon(Icons.fiber_manual_record, color: Colors.red),
-            label: const Text('Record'),
-          );
-        }
+        if (!recorder.isRecording) return const SizedBox.shrink();
         final n = recorder.steps.length;
-        return ElevatedButton.icon(
-          onPressed: () => finishRecording(
-            context,
-            recorder,
-            onSaved: onServicesChanged,
-            onError: onResponse,
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: FilledButton.icon(
+            onPressed: () => finishRecording(
+              context,
+              recorder,
+              onSaved: onServicesChanged,
+              onError: onResponse,
+            ),
+            style: FilledButton.styleFrom(
+                backgroundColor: Colors.red, foregroundColor: Colors.white),
+            icon: const Icon(Icons.stop),
+            label: Text('Recording · $n step${n == 1 ? '' : 's'} · Stop'),
           ),
-          style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red, foregroundColor: Colors.white),
-          icon: const Icon(Icons.stop),
-          label: Text('Stop ($n step${n == 1 ? '' : 's'})'),
         );
       },
     );

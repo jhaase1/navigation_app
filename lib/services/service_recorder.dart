@@ -47,7 +47,10 @@ class ServiceRecorder extends ChangeNotifier {
     return _participants.where((p) => p.id == pid).firstOrNull?.name;
   }
 
+  /// Starts a fresh recording. Does nothing if one is already running, so a
+  /// second tap on Record can't wipe the steps taken so far.
   void start() {
+    if (_isRecording) return;
     _clear();
     _isRecording = true;
     notifyListeners();
