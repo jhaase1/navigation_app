@@ -3,7 +3,9 @@ import '../models/height_range.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
 import '../models/position.dart';
+import '../services/service_recorder.dart';
 import '../utils/preset_resolver.dart';
+import 'recording_controls.dart';
 
 class PositionsTab extends StatefulWidget {
   final List<PanasonicCameraConfig> cameras;
@@ -12,6 +14,12 @@ class PositionsTab extends StatefulWidget {
   final List<HeightRange> heightRanges;
   final ValueChanged<String> onResponse;
 
+  /// Shared with the Panel tab. While it is recording, tapping a person fires
+  /// the shot and then asks which role they are playing, so the saved step
+  /// follows the role rather than this particular person.
+  final ServiceRecorder? recorder;
+  final VoidCallback? onServicesChanged;
+
   const PositionsTab({
     super.key,
     required this.cameras,
@@ -19,6 +27,8 @@ class PositionsTab extends StatefulWidget {
     required this.people,
     required this.heightRanges,
     required this.onResponse,
+    this.recorder,
+    this.onServicesChanged,
   });
 
   @override
@@ -28,7 +38,34 @@ class PositionsTab extends StatefulWidget {
 class _PositionsTabState extends State<PositionsTab> {
   int _selectedCameraIndex = 0;
 
-  Future<void> _executePerson(Position position, Person person) async {
+  Future<void> _onPersonTapped(Position position, Person person) async {
+    final cameraIp = widget.cameras[
+            _selectedCameraIndex.clamp(0, widget.cameras.length - 1)]
+        .ipController
+        .text;
+    final fired = await _executePerson(position, person);
+    final recorder = widget.recorder;
+    if (!fired || recorder == null || !recorder.isRecording || !mounted) {
+      return;
+    }
+    final role = await askForRole(
+      context,
+      personName: person.name,
+      positionName: position.name,
+      existingRoles: recorder.participants.map((p) => p.name).toList(),
+      initialRole: recorder.roleNameFor(person.id),
+    );
+    if (role == null) return;
+    recorder.recordMinistry(
+      roleName: role,
+      personId: person.id,
+      positionId: position.id,
+      cameraIp: cameraIp,
+    );
+  }
+
+  /// Fires the shot. Returns true when the camera accepted it.
+  Future<bool> _executePerson(Position position, Person person) async {
     final idx = _selectedCameraIndex.clamp(0, widget.cameras.length - 1);
     final camera = widget.cameras[idx];
     final ip = camera.ipController.text;
@@ -42,18 +79,20 @@ class _PositionsTabState extends State<PositionsTab> {
     if (presetIndex == null) {
       widget.onResponse(
           'No preset linked for ${camera.name} — ${person.name} at ${position.name}');
-      return;
+      return false;
     }
     if (!camera.isConnected.value || camera.service == null) {
       widget.onResponse('${camera.name} not connected');
-      return;
+      return false;
     }
     try {
       final response = await camera.service!.recallPreset(presetIndex);
       widget.onResponse(
           '${person.name} · ${position.name} → ${camera.name}: $response');
+      return true;
     } catch (e) {
       widget.onResponse('Error: $e');
+      return false;
     }
   }
 
@@ -72,6 +111,7 @@ class _PositionsTabState extends State<PositionsTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (widget.recorder != null) _buildRecordingBar(widget.recorder!),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: ToggleButtons(
@@ -118,6 +158,35 @@ class _PositionsTabState extends State<PositionsTab> {
     );
   }
 
+  /// Visible only while recording, so the live-service view is unchanged.
+  Widget _buildRecordingBar(ServiceRecorder recorder) {
+    return ListenableBuilder(
+      listenable: recorder,
+      builder: (context, _) {
+        if (!recorder.isRecording) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              const Icon(Icons.fiber_manual_record,
+                  color: Colors.red, size: 16),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                    'Recording — tap a person, then say which role they are'),
+              ),
+              RecordButton(
+                recorder: recorder,
+                onResponse: widget.onResponse,
+                onServicesChanged: widget.onServicesChanged,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildPositionCard(Position position, String cameraIp) {
     final peopleHere = widget.people
         .where((p) => resolvePreset(
@@ -150,7 +219,7 @@ class _PositionsTabState extends State<PositionsTab> {
                 runSpacing: 8,
                 children: peopleHere
                     .map((person) => FilledButton(
-                          onPressed: () => _executePerson(position, person),
+                          onPressed: () => _onPersonTapped(position, person),
                           child: Text(person.name),
                         ))
                     .toList(),

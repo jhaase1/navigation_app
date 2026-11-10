@@ -18,6 +18,7 @@ import '../services/height_range_store.dart';
 import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/position_store.dart';
+import '../services/service_recorder.dart';
 import '../services/service_store.dart';
 import 'backup/backup_status_pill.dart';
 import 'operator_panel.dart';
@@ -61,6 +62,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Position> _positions = [];
   List<Person> _people = [];
   List<Service> _services = [];
+
+  /// One recording shared by the Panel and Positions tabs.
+  final ServiceRecorder _recorder = ServiceRecorder();
   List<HeightRange> _heightRanges = [];
   late final BackupController _backup;
 
@@ -134,6 +138,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   void dispose() {
+    _recorder.dispose();
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {
@@ -569,6 +574,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     cameras: _panasonicCameras,
                     onResponse: (_) {},
                     onServicesChanged: _loadServices,
+                    recorder: _recorder,
                   ),
                   PositionsTab(
                     cameras: _panasonicCameras,
@@ -576,6 +582,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                     people: _people,
                     heightRanges: _heightRanges,
                     onResponse: (_) {},
+                    recorder: _recorder,
+                    onServicesChanged: _loadServices,
                   ),
                 ],
               ),
