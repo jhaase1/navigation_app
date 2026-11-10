@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/service.dart';
@@ -31,6 +34,33 @@ Widget _build({
       ),
     ),
   );
+}
+
+/// Refuses the first write of the saved services list; later writes succeed.
+class _RefuseFirstServicesWrite extends InMemorySharedPreferencesStore {
+  _RefuseFirstServicesWrite() : super.empty();
+  bool refused = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('services') && !refused) {
+      refused = true;
+      return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
+
+/// Holds every write of the saved services list until [release] completes.
+class _GatedServicesWrite extends InMemorySharedPreferencesStore {
+  _GatedServicesWrite() : super.empty();
+  final release = Completer<void>();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('services')) await release.future;
+    return super.setValue(valueType, key, value);
+  }
 }
 
 void main() {
@@ -352,6 +382,66 @@ void main() {
       expect(saved.first.steps.map((s) => s.macroNumber), [1, 2]);
       expect(changedCount, 1);
       expect(find.textContaining('Recording'), findsNothing);
+    });
+
+    testWidgets(
+        'a save that fails tells the operator and keeps the recording, so '
+        'Stop then Save again succeeds', (tester) async {
+      SharedPreferencesStorePlatform.instance = _RefuseFirstServicesWrite();
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("Couldn't save"), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'OK'));
+      await tester.pumpAndSettle();
+
+      // Nothing lost: still recording, same step, Stop still reachable.
+      expect(find.text('Recording · 1 step · Stop'), findsOneWidget);
+
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await ServiceStore.loadAll();
+      expect(saved.map((s) => s.name), ['Sunday Mass']);
+      expect(saved.single.steps, hasLength(1));
+    });
+
+    testWidgets('Stop cannot start a second save while one is in progress',
+        (tester) async {
+      final store = _GatedServicesWrite();
+      SharedPreferencesStorePlatform.instance = store;
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Once');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      // The write is still pending; a second Stop must not reopen the dialog.
+      await tester.tap(find.byType(RecordingIndicator), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      store.release.complete();
+      await tester.pumpAndSettle();
+      expect((await ServiceStore.loadAll()).map((s) => s.name), ['Once']);
     });
 
     testWidgets('Discard clears the pending recording without saving',

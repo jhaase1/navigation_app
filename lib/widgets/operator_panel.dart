@@ -44,7 +44,6 @@ class _OperatorPanelState extends State<OperatorPanel> {
   final List<VoidCallback> _deviceListeners = [];
   final ScrollController _scrollController = ScrollController();
 
-
   // Each device's storageKey is dynamic (e.g. RolandDevice reads the IP via
   // a closure), so it can change under an unchanged device instance -- e.g.
   // Settings -> Connections mutating the shared TextEditingController.

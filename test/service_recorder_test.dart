@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,21 +16,31 @@ import 'package:navigation_app/widgets/service_tab.dart';
 
 const _camIp = '10.0.1.10';
 
+/// A camera whose recalls don't answer until [release] completes.
+class _SlowCamera extends MockPanasonicService {
+  final release = Completer<void>();
+  @override
+  Future<String> recallPreset(int preset) async {
+    await release.future;
+    return super.recallPreset(preset);
+  }
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('ServiceRecorder', () {
     test('keeps macros and role shots in the order they were fired', () {
       final r = ServiceRecorder()..start();
-      r.recordStep(const ServiceStep(
-          id: 'm1', type: StepType.macro, macroNumber: 3));
+      r.recordStep(
+          const ServiceStep(id: 'm1', type: StepType.macro, macroNumber: 3));
       r.recordMinistry(
           roleName: 'Lector',
           personId: 'jane',
           positionId: 'ambo',
           cameraIp: _camIp);
-      r.recordStep(const ServiceStep(
-          id: 'm2', type: StepType.macro, macroNumber: 4));
+      r.recordStep(
+          const ServiceStep(id: 'm2', type: StepType.macro, macroNumber: 4));
 
       final service = r.toService('Sunday Mass');
       expect(service.steps.map((s) => s.type),
@@ -187,5 +199,73 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(runResponses.last, contains('Recalled preset 7'));
+  });
+
+  testWidgets(
+      'a second person tapped before the first shot answers is ignored while '
+      'recording, so prompts never stack and steps stay in firing order',
+      (tester) async {
+    final slow = _SlowCamera();
+    final cam =
+        PanasonicCameraConfig(name: 'Cam', ipAddress: _camIp, service: slow);
+    cam.isConnected.value = true;
+    addTearDown(cam.dispose);
+
+    final ambo = Position(id: 'ambo', name: 'Ambo');
+    final jane = Person(id: 'jane', name: 'Jane', positionPresets: {
+      'ambo': {_camIp: 2},
+    });
+    final bob = Person(id: 'bob', name: 'Bob', positionPresets: {
+      'ambo': {_camIp: 7},
+    });
+    final recorder = ServiceRecorder()..start();
+    addTearDown(recorder.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PositionsTab(
+          cameras: [cam],
+          positions: [ambo],
+          people: [jane, bob],
+          heightRanges: const [],
+          recorder: recorder,
+          onResponse: (_) {},
+        ),
+      ),
+    ));
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Jane'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Bob'));
+    await tester.pump();
+
+    slow.release.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Jane at Ambo'), findsOneWidget);
+  });
+
+  testWidgets(
+      'typing an existing role in a different case highlights that role',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (ctx) => TextButton(
+          onPressed: () => askForRole(ctx,
+              personName: 'Bob',
+              positionName: 'Ambo',
+              existingRoles: const ['Lector']),
+          child: const Text('Ask'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('Ask'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'lector');
+    await tester.pump();
+
+    final chip = tester.widget<ChoiceChip>(find.byType(ChoiceChip));
+    expect(chip.selected, isTrue);
   });
 }

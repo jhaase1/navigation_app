@@ -25,19 +25,24 @@ class RecordingIndicator extends StatelessWidget {
       builder: (context, _) {
         if (!recorder.isRecording) return const SizedBox.shrink();
         final n = recorder.steps.length;
+        final saving = recorder.isSaving;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: FilledButton.icon(
-            onPressed: () => finishRecording(
-              context,
-              recorder,
-              onSaved: onServicesChanged,
-              onError: onResponse,
-            ),
+            onPressed: saving
+                ? null
+                : () => finishRecording(
+                      context,
+                      recorder,
+                      onSaved: onServicesChanged,
+                      onError: onResponse,
+                    ),
             style: FilledButton.styleFrom(
                 backgroundColor: Colors.red, foregroundColor: Colors.white),
             icon: const Icon(Icons.stop),
-            label: Text('Recording · $n step${n == 1 ? '' : 's'} · Stop'),
+            label: Text(saving
+                ? 'Saving…'
+                : 'Recording · $n step${n == 1 ? '' : 's'} · Stop'),
           ),
         );
       },
@@ -53,14 +58,16 @@ Future<void> finishRecording(
   VoidCallback? onSaved,
   ValueChanged<String>? onError,
 }) async {
+  if (recorder.isSaving) return;
   if (recorder.steps.isEmpty) {
     recorder.stop();
     return;
   }
 
-  // Recording stays on until the dialog closes. Stopping first would hide the
-  // Positions tab's recording bar, unmount the Stop button that owns
-  // [context], and the save below would silently never happen.
+  // Recording stays on until the save has landed. Stopping first would hide
+  // the top-bar RecordingIndicator, unmount the Stop button that owns
+  // [context], and the save below would silently never happen. Staying on
+  // after a failed save is what keeps Stop reachable for a retry.
 
   var pendingName = '';
   final name = await showDialog<String>(
@@ -97,13 +104,31 @@ Future<void> finishRecording(
     return;
   }
 
+  recorder.isSaving = true;
   try {
     final services = await ServiceStore.loadAll();
     services.add(recorder.toService(name));
     await ServiceStore.saveAll(services);
   } catch (e) {
+    recorder.isSaving = false;
     onError?.call('Error saving service: $e');
-    recorder.stop();
+    // Never silent: the operator may have an hour of steps in here.
+    if (context.mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Couldn't save the recording"),
+          content: Text('Your ${recorder.steps.length} recorded steps are '
+              'still here. Tap Stop to try saving again.\n\n$e'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
     return;
   }
 
@@ -182,7 +207,7 @@ class _RoleDialogState extends State<_RoleDialog> {
               children: widget.existingRoles
                   .map((r) => ChoiceChip(
                         label: Text(r),
-                        selected: _role == r,
+                        selected: _role.toLowerCase() == r.toLowerCase(),
                         onSelected: (_) => setState(() => _controller.text = r),
                       ))
                   .toList(),

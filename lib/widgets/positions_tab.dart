@@ -36,7 +36,27 @@ class PositionsTab extends StatefulWidget {
 class _PositionsTabState extends State<PositionsTab> {
   int _selectedCameraIndex = 0;
 
+  /// While recording, a tap is in flight from the shot until its role
+  /// prompt closes. A second tap in that window is ignored, so prompts never
+  /// stack and steps are recorded in the order the shots were fired.
+  bool _recordingTapInFlight = false;
+
   Future<void> _onPersonTapped(Position position, Person person) async {
+    final recording = widget.recorder?.isRecording ?? false;
+    if (!recording) {
+      await _executePerson(position, person);
+      return;
+    }
+    if (_recordingTapInFlight) return;
+    _recordingTapInFlight = true;
+    try {
+      await _recordPersonTap(position, person);
+    } finally {
+      _recordingTapInFlight = false;
+    }
+  }
+
+  Future<void> _recordPersonTap(Position position, Person person) async {
     final cameraIp = widget.cameras[
             _selectedCameraIndex.clamp(0, widget.cameras.length - 1)]
         .ipController

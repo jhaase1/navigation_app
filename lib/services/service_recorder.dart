@@ -37,6 +37,16 @@ class ServiceRecorder extends ChangeNotifier {
   }
 
   bool get isRecording => _isRecording;
+
+  /// True while a save of this recording is being written. The Stop button
+  /// is disabled so a second tap can't start a second, racing save.
+  bool get isSaving => _isSaving;
+  bool _isSaving = false;
+  set isSaving(bool value) {
+    _isSaving = value;
+    notifyListeners();
+  }
+
   List<ServiceStep> get steps => List.unmodifiable(_steps);
   List<Participant> get participants => List.unmodifiable(_participants);
 
@@ -117,6 +127,7 @@ class ServiceRecorder extends ChangeNotifier {
 
   void _clear() {
     _isRecording = false;
+    _isSaving = false;
     _steps.clear();
     _participants.clear();
     _roleByPerson.clear();

@@ -377,7 +377,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               setDialogState(() {});
             },
             backupController: _backup,
-            onStartRecording: _anyDeviceConnected ? _recorder.start : null,
+            onStartRecording: _anyDeviceConnected && !_recorder.isRecording
+                ? _recorder.start
+                : null,
           ),
         );
       },
@@ -423,6 +425,12 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           centerTitle: false,
           title: BackupStatusPill(controller: _backup),
           actions: [
+            // A recording outlives a dropped connection; keep Stop reachable.
+            RecordingIndicator(
+              recorder: _recorder,
+              onResponse: (_) {},
+              onServicesChanged: _loadServices,
+            ),
             IconButton(
               icon: const Icon(Icons.person_add),
               tooltip: 'Manage People',
