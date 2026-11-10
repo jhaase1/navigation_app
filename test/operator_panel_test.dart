@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
@@ -59,6 +60,37 @@ class _GatedServicesWrite extends InMemorySharedPreferencesStore {
   @override
   Future<bool> setValue(String valueType, String key, Object value) async {
     if (key.endsWith('services')) await release.future;
+    return super.setValue(valueType, key, value);
+  }
+}
+
+/// The services list is written, then the backup generation bump that
+/// follows is refused once, so saveAll throws after the data is on disk.
+class _RefuseFirstGenerationBump extends InMemorySharedPreferencesStore {
+  _RefuseFirstGenerationBump() : super.empty();
+  bool refused = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('backup_mutation_generation') && !refused) {
+      refused = true;
+      return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
+
+/// Holds the services write until [release], then refuses it.
+class _GatedThenRefusedServicesWrite extends InMemorySharedPreferencesStore {
+  _GatedThenRefusedServicesWrite() : super.empty();
+  final release = Completer<void>();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('services')) {
+      await release.future;
+      return false;
+    }
     return super.setValue(valueType, key, value);
   }
 }
@@ -442,6 +474,101 @@ void main() {
       store.release.complete();
       await tester.pumpAndSettle();
       expect((await ServiceStore.loadAll()).map((s) => s.name), ['Once']);
+    });
+
+    testWidgets(
+        'tapping outside the name dialog keeps the recording; only Discard '
+        'throws it away', (tester) async {
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+
+      await tester.tapAt(const Offset(5, 590));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(recorder.steps, hasLength(1));
+      expect(recorder.isRecording, isTrue);
+    });
+
+    testWidgets(
+        'a retry after a save that half-landed keeps one copy of the service',
+        (tester) async {
+      SharedPreferencesStorePlatform.instance = _RefuseFirstGenerationBump();
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await tester.tap(find.textContaining('Stop'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Sunday Mass');
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
+        if (attempt == 0) {
+          expect(find.textContaining("Couldn't save"), findsOneWidget);
+          await tester.tap(find.widgetWithText(TextButton, 'OK'));
+          await tester.pumpAndSettle();
+        }
+      }
+
+      final saved = await ServiceStore.loadAll();
+      expect(saved.map((s) => s.name), ['Sunday Mass']);
+    });
+
+    testWidgets(
+        'a failed save still tells the operator when the Stop button is gone '
+        'by the time it fails', (tester) async {
+      final store = _GatedThenRefusedServicesWrite();
+      SharedPreferencesStorePlatform.instance = store;
+      final showIndicator = ValueNotifier(true);
+      addTearDown(showIndicator.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: false),
+        home: Scaffold(
+          appBar: AppBar(actions: [
+            ValueListenableBuilder<bool>(
+              valueListenable: showIndicator,
+              builder: (_, show, __) => show
+                  ? RecordingIndicator(recorder: recorder, onResponse: (_) {})
+                  : const SizedBox.shrink(),
+            ),
+          ]),
+          body: OperatorPanel(
+            operator: OperatorProfile.defaultProfile,
+            rolandService: MockRolandService(),
+            rolandConnected: ValueNotifier(true),
+            cameras: const [],
+            onResponse: (_) {},
+            recorder: recorder,
+          ),
+        ),
+      ));
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      // Devices drop mid-save: the page swaps app bars under the save.
+      showIndicator.value = false;
+      await tester.pumpAndSettle();
+      store.release.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("Couldn't save"), findsOneWidget);
     });
 
     testWidgets('Discard clears the pending recording without saving',

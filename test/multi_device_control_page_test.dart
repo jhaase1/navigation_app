@@ -171,4 +171,29 @@ void main() {
       expect(find.text('Tap to switch operator'), findsNothing);
     });
   });
+
+  group('MultiDeviceControlPage — recording', () {
+    testWidgets(
+        'Settings > Record a Service starts a recording shown in the top bar, '
+        'and the item is gone from Settings while it runs', (tester) async {
+      await _connect(tester);
+
+      Future<void> openSettings() async {
+        await tester.tap(find.descendant(
+            of: find.byType(AppBar), matching: find.byIcon(Icons.settings)));
+        await tester.pumpAndSettle();
+      }
+
+      await openSettings();
+      await tester.ensureVisible(find.text('Record a Service'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Record a Service'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recording · 0 steps · Stop'), findsOneWidget);
+
+      await openSettings();
+      expect(find.text('Record a Service'), findsNothing);
+    });
+  });
 }

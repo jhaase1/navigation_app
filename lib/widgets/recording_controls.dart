@@ -64,13 +64,36 @@ Future<void> finishRecording(
     return;
   }
 
-  // Recording stays on until the save has landed. Stopping first would hide
-  // the top-bar RecordingIndicator, unmount the Stop button that owns
-  // [context], and the save below would silently never happen. Staying on
-  // after a failed save is what keeps Stop reachable for a retry.
+  // Every dialog hangs off the root navigator, which outlives the Stop
+  // button: the page swaps app bars when devices drop, and a failure must
+  // still be shown after that.
+  final rootContext = Navigator.of(context, rootNavigator: true).context;
+  recorder.isSaving = true;
+  try {
+    await _nameAndSave(rootContext, recorder,
+        onSaved: onSaved, onError: onError);
+  } finally {
+    recorder.isSaving = false;
+  }
+}
 
+/// What the operator chose in the name dialog. A dialog dismissed any other
+/// way (tap outside, Esc) returns null and keeps the recording.
+class _NameChoice {
+  final String? name; // null = Discard
+  const _NameChoice(this.name);
+}
+
+Future<void> _nameAndSave(
+  BuildContext context,
+  ServiceRecorder recorder, {
+  VoidCallback? onSaved,
+  ValueChanged<String>? onError,
+}) async {
+  // Recording stays on until the save has landed. Staying on after a failed
+  // or dismissed save is what keeps the top-bar Stop reachable for a retry.
   var pendingName = '';
-  final name = await showDialog<String>(
+  final choice = await showDialog<_NameChoice>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text('Save Recording (${recorder.steps.length} steps)'),
@@ -84,14 +107,14 @@ Future<void> finishRecording(
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
+          onPressed: () => Navigator.of(ctx).pop(const _NameChoice(null)),
           child: const Text('Discard'),
         ),
         FilledButton(
           onPressed: () {
             final trimmed = pendingName.trim();
             if (trimmed.isEmpty) return;
-            Navigator.of(ctx).pop(trimmed);
+            Navigator.of(ctx).pop(_NameChoice(trimmed));
           },
           child: const Text('Save'),
         ),
@@ -99,18 +122,24 @@ Future<void> finishRecording(
     ),
   );
 
+  // Dismissed without choosing: nothing is thrown away, recording goes on.
+  if (choice == null) return;
+
+  final name = choice.name;
   if (name == null) {
     recorder.clear();
     return;
   }
 
-  recorder.isSaving = true;
   try {
-    final services = await ServiceStore.loadAll();
-    services.add(recorder.toService(name));
+    // Replace, don't append: a retry after a half-landed save must not
+    // leave two copies.
+    final service = recorder.toService(name);
+    final services = await ServiceStore.loadAll()
+      ..removeWhere((s) => s.id == service.id);
+    services.add(service);
     await ServiceStore.saveAll(services);
   } catch (e) {
-    recorder.isSaving = false;
     onError?.call('Error saving service: $e');
     // Never silent: the operator may have an hour of steps in here.
     if (context.mounted) {
@@ -119,7 +148,8 @@ Future<void> finishRecording(
         builder: (ctx) => AlertDialog(
           title: const Text("Couldn't save the recording"),
           content: Text('Your ${recorder.steps.length} recorded steps are '
-              'still here. Tap Stop to try saving again.\n\n$e'),
+              'still here, and recording is still on: anything you fire now '
+              'is added too. Tap Stop to try saving again.\n\n$e'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),

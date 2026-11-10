@@ -47,7 +47,13 @@ class _PositionsTabState extends State<PositionsTab> {
       await _executePerson(position, person);
       return;
     }
-    if (_recordingTapInFlight) return;
+    if (_recordingTapInFlight) {
+      const msg = 'Still waiting on the last shot — tap again once it answers';
+      widget.onResponse(msg);
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(const SnackBar(content: Text(msg)));
+      return;
+    }
     _recordingTapInFlight = true;
     try {
       await _recordPersonTap(position, person);

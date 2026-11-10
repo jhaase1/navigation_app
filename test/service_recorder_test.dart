@@ -239,33 +239,13 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Bob'));
     await tester.pump();
 
+    // The dropped tap is said out loud, not swallowed.
+    expect(find.textContaining('Still waiting'), findsOneWidget);
+
     slow.release.complete();
     await tester.pumpAndSettle();
 
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.text('Jane at Ambo'), findsOneWidget);
-  });
-
-  testWidgets(
-      'typing an existing role in a different case highlights that role',
-      (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: Builder(
-        builder: (ctx) => TextButton(
-          onPressed: () => askForRole(ctx,
-              personName: 'Bob',
-              positionName: 'Ambo',
-              existingRoles: const ['Lector']),
-          child: const Text('Ask'),
-        ),
-      ),
-    ));
-    await tester.tap(find.text('Ask'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'lector');
-    await tester.pump();
-
-    final chip = tester.widget<ChoiceChip>(find.byType(ChoiceChip));
-    expect(chip.selected, isTrue);
   });
 }

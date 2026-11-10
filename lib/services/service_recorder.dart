@@ -21,6 +21,10 @@ class ServiceRecorder extends ChangeNotifier {
 
   int _idCounter = 0;
 
+  /// Fixed for the life of one recording, so retrying a save that already
+  /// half-landed replaces that copy instead of adding a second one.
+  String _serviceId = generateServiceId();
+
   /// The tab that owned this recorder can be torn down while its save dialog
   /// is still open; the dialog's follow-up calls must not throw.
   bool _disposed = false;
@@ -62,6 +66,7 @@ class ServiceRecorder extends ChangeNotifier {
   void start() {
     if (_isRecording) return;
     _clear();
+    _serviceId = generateServiceId();
     _isRecording = true;
     notifyListeners();
   }
@@ -119,7 +124,7 @@ class ServiceRecorder extends ChangeNotifier {
 
   /// The recording as a [Service] named [name].
   Service toService(String name) => Service(
-        id: generateServiceId(),
+        id: _serviceId,
         name: name,
         participants: List.of(_participants),
         steps: List.of(_steps),

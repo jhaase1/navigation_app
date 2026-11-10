@@ -386,6 +386,14 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     );
   }
 
+  /// Shown in both app bars (connected and not), built in one place so the
+  /// two can't drift apart.
+  Widget _recordingIndicator() => RecordingIndicator(
+        recorder: _recorder,
+        onResponse: (_) {},
+        onServicesChanged: _loadServices,
+      );
+
   bool get _anyDeviceConnected =>
       _rolandConnected.value ||
       _panasonicCameras.any((c) => c.isConnected.value);
@@ -426,11 +434,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
           title: BackupStatusPill(controller: _backup),
           actions: [
             // A recording outlives a dropped connection; keep Stop reachable.
-            RecordingIndicator(
-              recorder: _recorder,
-              onResponse: (_) {},
-              onServicesChanged: _loadServices,
-            ),
+            _recordingIndicator(),
             IconButton(
               icon: const Icon(Icons.person_add),
               tooltip: 'Manage People',
@@ -503,11 +507,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         centerTitle: false,
         title: BackupStatusPill(controller: _backup),
         actions: [
-          RecordingIndicator(
-            recorder: _recorder,
-            onResponse: (_) {},
-            onServicesChanged: _loadServices,
-          ),
+          _recordingIndicator(),
           Tooltip(
             message: 'Switch operator',
             child: InkWell(
