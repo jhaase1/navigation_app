@@ -23,9 +23,11 @@ class RecordingIndicator extends StatelessWidget {
     return ListenableBuilder(
       listenable: recorder,
       builder: (context, _) {
-        if (!recorder.isRecording) return const SizedBox.shrink();
+        if (!recorder.isActive) return const SizedBox.shrink();
         final n = recorder.steps.length;
+        final steps = '$n step${n == 1 ? '' : 's'}';
         final saving = recorder.isSaving;
+        final unsaved = recorder.hasUnsaved;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: FilledButton.icon(
@@ -38,11 +40,15 @@ class RecordingIndicator extends StatelessWidget {
                       onError: onResponse,
                     ),
             style: FilledButton.styleFrom(
-                backgroundColor: Colors.red, foregroundColor: Colors.white),
-            icon: const Icon(Icons.stop),
+                backgroundColor:
+                    unsaved ? Colors.orange.shade800 : Colors.red,
+                foregroundColor: Colors.white),
+            icon: Icon(unsaved ? Icons.save : Icons.stop),
             label: Text(saving
                 ? 'Saving…'
-                : 'Recording · $n step${n == 1 ? '' : 's'} · Stop'),
+                : unsaved
+                    ? 'Unsaved recording · $steps · Save'
+                    : 'Recording · $steps · Stop'),
           ),
         );
       },
@@ -68,10 +74,15 @@ Future<void> finishRecording(
   // button: the page swaps app bars when devices drop, and a failure must
   // still be shown after that.
   final rootContext = Navigator.of(context, rootNavigator: true).context;
+
+  // Capture stops the moment Stop is pressed; the steps are held (and the
+  // indicator stays up) until they are saved or explicitly discarded.
+  final wasRecording = recorder.isRecording;
+  recorder.stop();
   recorder.isSaving = true;
   try {
     await _nameAndSave(rootContext, recorder,
-        onSaved: onSaved, onError: onError);
+        resumeOnDismiss: wasRecording, onSaved: onSaved, onError: onError);
   } finally {
     recorder.isSaving = false;
   }
@@ -87,11 +98,10 @@ class _NameChoice {
 Future<void> _nameAndSave(
   BuildContext context,
   ServiceRecorder recorder, {
+  required bool resumeOnDismiss,
   VoidCallback? onSaved,
   ValueChanged<String>? onError,
 }) async {
-  // Recording stays on until the save has landed. Staying on after a failed
-  // or dismissed save is what keeps the top-bar Stop reachable for a retry.
   var pendingName = '';
   final choice = await showDialog<_NameChoice>(
     context: context,
@@ -122,11 +132,16 @@ Future<void> _nameAndSave(
     ),
   );
 
-  // Dismissed without choosing: nothing is thrown away, recording goes on.
-  if (choice == null) return;
+  // Dismissed without choosing: nothing is thrown away. If it was capturing,
+  // it picks back up; if it was a retry, the steps stay held.
+  if (choice == null) {
+    if (resumeOnDismiss) recorder.resume();
+    return;
+  }
 
   final name = choice.name;
   if (name == null) {
+    await _removeHalfLandedCopy(recorder.serviceId, onError);
     recorder.clear();
     return;
   }
@@ -148,8 +163,8 @@ Future<void> _nameAndSave(
         builder: (ctx) => AlertDialog(
           title: const Text("Couldn't save the recording"),
           content: Text('Your ${recorder.steps.length} recorded steps are '
-              'still here, and recording is still on: anything you fire now '
-              'is added too. Tap Stop to try saving again.\n\n$e'),
+              'kept, and recording has stopped. Tap "Save" in the top bar to '
+              'try again.\n\n$e'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
@@ -164,6 +179,20 @@ Future<void> _nameAndSave(
 
   recorder.clear();
   onSaved?.call();
+}
+
+/// A save can write the list and then fail on the bookkeeping after it.
+/// Discarding afterwards must not leave that copy behind.
+Future<void> _removeHalfLandedCopy(
+    String serviceId, ValueChanged<String>? onError) async {
+  try {
+    final services = await ServiceStore.loadAll();
+    final before = services.length;
+    services.removeWhere((s) => s.id == serviceId);
+    if (services.length != before) await ServiceStore.saveAll(services);
+  } catch (e) {
+    onError?.call('Error discarding service: $e');
+  }
 }
 
 /// Asks which role [personName] is playing at [positionName], so a recorded

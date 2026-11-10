@@ -40,7 +40,21 @@ class ServiceRecorder extends ChangeNotifier {
     if (!_disposed) super.notifyListeners();
   }
 
+  /// Capturing: actions fired now are added as steps. Turns off the moment
+  /// Stop is pressed, so nothing fired during or after a save sneaks in.
   bool get isRecording => _isRecording;
+
+  /// Steps held after Stop that are not saved yet (a failed or pending save).
+  bool get hasUnsaved => !_isRecording && _steps.isNotEmpty;
+
+  /// Anything in progress: capturing, holding unsaved steps, or saving. The
+  /// top-bar indicator shows while this is true, and a new recording can't
+  /// start over it.
+  bool get isActive => _isRecording || _steps.isNotEmpty || _isSaving;
+
+  /// The id the saved Service gets. Also used to remove a half-landed copy
+  /// if the operator then discards.
+  String get serviceId => _serviceId;
 
   /// True while a save of this recording is being written. The Stop button
   /// is disabled so a second tap can't start a second, racing save.
@@ -61,17 +75,24 @@ class ServiceRecorder extends ChangeNotifier {
     return _participants.where((p) => p.id == pid).firstOrNull?.name;
   }
 
-  /// Starts a fresh recording. Does nothing if one is already running, so a
-  /// second tap on Record can't wipe the steps taken so far.
+  /// Starts a fresh recording. Does nothing while one is active (capturing or
+  /// holding unsaved steps), so a second Record can't wipe them.
   void start() {
-    if (_isRecording) return;
+    if (isActive) return;
     _clear();
     _serviceId = generateServiceId();
     _isRecording = true;
     notifyListeners();
   }
 
-  /// Stops recording. Steps are kept until [clear] so they can still be saved.
+  /// Picks capturing back up, keeping the steps (the name dialog was closed
+  /// without a choice).
+  void resume() {
+    _isRecording = true;
+    notifyListeners();
+  }
+
+  /// Stops capturing. Steps are kept until [clear] so they can still be saved.
   void stop() {
     _isRecording = false;
     notifyListeners();

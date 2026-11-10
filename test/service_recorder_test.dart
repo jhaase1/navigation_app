@@ -206,6 +206,9 @@ void main() {
       'recording, so prompts never stack and steps stay in firing order',
       (tester) async {
     final slow = _SlowCamera();
+    addTearDown(() {
+      if (!slow.release.isCompleted) slow.release.complete();
+    });
     final cam =
         PanasonicCameraConfig(name: 'Cam', ipAddress: _camIp, service: slow);
     cam.isConnected.value = true;
@@ -247,5 +250,56 @@ void main() {
 
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.text('Jane at Ambo'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a shot still in flight when Stop is pressed does not stack a role '
+      'prompt on the save dialog', (tester) async {
+    final slow = _SlowCamera();
+    addTearDown(() {
+      if (!slow.release.isCompleted) slow.release.complete();
+    });
+    final cam =
+        PanasonicCameraConfig(name: 'Cam', ipAddress: _camIp, service: slow);
+    cam.isConnected.value = true;
+    addTearDown(cam.dispose);
+
+    final ambo = Position(id: 'ambo', name: 'Ambo');
+    final jane = Person(id: 'jane', name: 'Jane', positionPresets: {
+      'ambo': {_camIp: 2},
+    });
+    final recorder = ServiceRecorder()..start();
+    addTearDown(recorder.dispose);
+    recorder.recordStep(
+        const ServiceStep(id: 'm', type: StepType.macro, macroNumber: 1));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        appBar: AppBar(actions: [
+          RecordingIndicator(recorder: recorder, onResponse: (_) {}),
+        ]),
+        body: PositionsTab(
+          cameras: [cam],
+          positions: [ambo],
+          people: [jane],
+          heightRanges: const [],
+          recorder: recorder,
+          onResponse: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Jane'));
+    await tester.pump();
+    await tester.tap(find.byType(RecordingIndicator));
+    await tester.pumpAndSettle();
+
+    slow.release.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.textContaining('Save Recording'), findsOneWidget);
+    expect(find.text('Jane at Ambo'), findsNothing);
   });
 }

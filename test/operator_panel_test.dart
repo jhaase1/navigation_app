@@ -436,10 +436,14 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, 'OK'));
       await tester.pumpAndSettle();
 
-      // Nothing lost: still recording, same step, Stop still reachable.
-      expect(find.text('Recording · 1 step · Stop'), findsOneWidget);
+      // Nothing lost, nothing added: capture stopped at Stop, the steps are
+      // held, and the top bar offers the retry.
+      expect(find.text('Unsaved recording · 1 step · Save'), findsOneWidget);
+      await tester.tap(find.text('Macro 2').first);
+      await tester.pumpAndSettle();
+      expect(recorder.steps, hasLength(1));
 
-      await tester.tap(find.textContaining('Stop'));
+      await tester.tap(find.byType(RecordingIndicator));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'Sunday Mass');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
@@ -453,6 +457,9 @@ void main() {
     testWidgets('Stop cannot start a second save while one is in progress',
         (tester) async {
       final store = _GatedServicesWrite();
+      addTearDown(() {
+        if (!store.release.isCompleted) store.release.complete();
+      });
       SharedPreferencesStorePlatform.instance = store;
       await tester.pumpWidget(build());
       recorder.start();
@@ -470,6 +477,12 @@ void main() {
       await tester.tap(find.byType(RecordingIndicator), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
+
+      // A button pressed after Stop is not captured, so it can't be wiped
+      // by the post-save clear without anyone knowing.
+      await tester.tap(find.text('Macro 2').first);
+      await tester.pumpAndSettle();
+      expect(recorder.steps, hasLength(1));
 
       store.release.complete();
       await tester.pumpAndSettle();
@@ -507,7 +520,7 @@ void main() {
       await tester.pumpAndSettle();
 
       for (var attempt = 0; attempt < 2; attempt++) {
-        await tester.tap(find.textContaining('Stop'));
+        await tester.tap(find.byType(RecordingIndicator));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Sunday Mass');
         await tester.tap(find.widgetWithText(FilledButton, 'Save'));
@@ -524,9 +537,40 @@ void main() {
     });
 
     testWidgets(
+        'Discard after a save that half-landed removes that copy too',
+        (tester) async {
+      SharedPreferencesStorePlatform.instance = _RefuseFirstGenerationBump();
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(RecordingIndicator));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'OK'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(RecordingIndicator));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Discard'));
+      await tester.pumpAndSettle();
+
+      expect(await ServiceStore.loadAll(), isEmpty);
+      expect(find.byType(RecordingIndicator), findsOneWidget);
+      expect(find.textContaining('Recording'), findsNothing);
+    });
+
+    testWidgets(
         'a failed save still tells the operator when the Stop button is gone '
         'by the time it fails', (tester) async {
       final store = _GatedThenRefusedServicesWrite();
+      addTearDown(() {
+        if (!store.release.isCompleted) store.release.complete();
+      });
       SharedPreferencesStorePlatform.instance = store;
       final showIndicator = ValueNotifier(true);
       addTearDown(showIndicator.dispose);

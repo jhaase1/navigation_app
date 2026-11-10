@@ -377,7 +377,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               setDialogState(() {});
             },
             backupController: _backup,
-            onStartRecording: _anyDeviceConnected && !_recorder.isRecording
+            onStartRecording: _anyDeviceConnected && !_recorder.isActive
                 ? _recorder.start
                 : null,
           ),

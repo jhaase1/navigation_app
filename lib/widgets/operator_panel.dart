@@ -162,7 +162,10 @@ class _OperatorPanelState extends State<OperatorPanel> {
     final device = _devices[_selectedDeviceIndex];
     try {
       widget.onResponse(await device.execute(index));
-      widget.recorder?.recordStep(device.toServiceStep(index));
+      final recorder = widget.recorder;
+      if (recorder != null && recorder.isRecording) {
+        recorder.recordStep(device.toServiceStep(index));
+      }
     } catch (e) {
       widget.onResponse('$e');
     }
