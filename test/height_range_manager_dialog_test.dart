@@ -5,6 +5,7 @@ import 'package:navigation_app/models/height_range.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/services/height_range_store.dart';
+import 'package:navigation_app/services/mock/mock_panasonic_service.dart';
 import 'package:navigation_app/services/preset_name_store.dart';
 import 'package:navigation_app/utils/height_utils.dart';
 import 'package:navigation_app/widgets/height_range_manager_dialog.dart';
@@ -340,6 +341,67 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Up to 5\'4"'), findsOneWidget);
+    });
+  });
+  group('HeightRangeManagerDialog — presets saved on the camera', () {
+    // The mock camera reports presets 1–10, 21–30, 51–60 and 81–90 saved.
+    PanasonicCameraConfig connectedCamera() {
+      final camera = PanasonicCameraConfig(
+          name: 'Wide', ipAddress: '10.0.1.10', service: MockPanasonicService())
+        ..isConnected.value = true;
+      addTearDown(camera.dispose);
+      return camera;
+    }
+
+    List<int> offered(WidgetTester tester) => tester
+        .widget<DropdownButton<int?>>(find.byType(DropdownButton<int?>))
+        .items!
+        .map((i) => i.value)
+        .whereType<int>()
+        .toList();
+
+    testWidgets('a connected camera offers only the presets saved on it',
+        (tester) async {
+      await _open(
+          tester,
+          (_) => HeightRangeManagerDialog(
+              positions: [Position(id: 'ambo', name: 'Ambo')],
+              cameras: [connectedCamera()],
+              onSaved: () {}));
+      await tester.tap(find.text('Add Height Range'));
+      await tester.pumpAndSettle();
+
+      expect(offered(tester), hasLength(40));
+      expect(offered(tester), isNot(contains(11)));
+    });
+
+    testWidgets(
+        'a preset already chosen stays chosen when the camera no longer has it',
+        (tester) async {
+      // Preset 15 (index 14) is not saved on the mock. Dropping it would
+      // clear the range's preset on the next Save, and everyone resolved
+      // through this range would lose their shot.
+      await HeightRangeStore.saveAll([
+        HeightRange(id: 'r1', positionPresets: {
+          'ambo': {'10.0.1.10': 14},
+        }),
+      ]);
+      await _open(
+          tester,
+          (_) => HeightRangeManagerDialog(
+              positions: [Position(id: 'ambo', name: 'Ambo')],
+              cameras: [connectedCamera()],
+              onSaved: () {}));
+      await tester.tap(find.byIcon(Icons.edit));
+      await tester.pumpAndSettle();
+
+      expect(offered(tester), contains(15));
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await HeightRangeStore.loadAll();
+      expect(saved.single.positionPresets['ambo']!['10.0.1.10'], 14);
     });
   });
 }

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:navigation_app/services/backup/backup_controller.dart';
+import 'package:navigation_app/services/backup/backup_scheduler.dart';
+import 'package:navigation_app/services/backup/backup_service.dart';
 import 'package:navigation_app/services/backup/device_label.dart';
+import 'package:navigation_app/services/backup/mock/mock_backup_target.dart';
 import 'package:navigation_app/widgets/backup/device_name_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -41,6 +44,39 @@ void main() {
 
     expect(await DeviceLabel.load(), 'Sanctuary Mac mini');
     expect(await DeviceLabel.require(), 'Sanctuary Mac mini');
+    await controller.dispose();
+  });
+
+  testWidgets('naming the machine retries the backup there and then',
+      (tester) async {
+    // The name was saved but nothing retried the backup, so "Name this
+    // machine" stayed on the pill until the next ten-minute sweep.
+    final service = BackupService(
+      target: MockBackupTarget(),
+      targetIdentity: 'mock:test',
+      deviceLabel: DeviceLabel.require,
+      readBundleJson: () async => {'schemaVersion': 1},
+      localIsPristine: () async => true,
+    );
+    final scheduler = BackupScheduler(
+      service: service,
+      sweepInterval: const Duration(days: 1),
+      sleep: (_) async {},
+    );
+    final controller =
+        BackupController.forService(service, scheduler: scheduler);
+    await open(tester, controller);
+    final pullsBefore = scheduler.pullCount;
+
+    await tester.enterText(find.byType(TextField), 'Tech Booth iPad');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await settleDialog(tester);
+
+    expect(await DeviceLabel.load(), 'Tech Booth iPad');
+    expect(scheduler.pullCount, greaterThan(pullsBefore));
+    // As in backup_wiring_test: the scheduler's stream has to be cancelled
+    // off the widget-test fake clock.
+    await tester.runAsync(scheduler.stop);
     await controller.dispose();
   });
 
