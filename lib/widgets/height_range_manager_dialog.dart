@@ -5,7 +5,7 @@ import '../models/position.dart';
 import '../services/height_range_store.dart';
 import '../services/preset_name_store.dart';
 import '../utils/height_utils.dart';
-import '../utils/label_utils.dart';
+import 'camera_preset_dropdown.dart';
 
 class HeightRangeManagerDialog extends StatefulWidget {
   final List<Position> positions;
@@ -35,12 +35,21 @@ class _HeightRangeManagerDialogState extends State<HeightRangeManagerDialog> {
   final Map<String, Map<String, int?>> _presetSelections = {};
   // cameraIp → (0-based preset index → saved name)
   Map<String, Map<int, String>> _presetNamesByCamera = {};
+  // cameraIp → 0-based indices of the presets saved on that camera. A camera
+  // with no entry offers all 100.
+  Map<String, Set<int>> _savedPresetsByCamera = {};
 
   @override
   void initState() {
     super.initState();
     _loadRanges();
     _loadPresetNames();
+    _loadSavedPresets();
+  }
+
+  Future<void> _loadSavedPresets() async {
+    final result = await loadSavedPresets(widget.cameras);
+    if (mounted) setState(() => _savedPresetsByCamera = result);
   }
 
   Future<void> _loadPresetNames() async {
@@ -346,9 +355,10 @@ class _HeightRangeManagerDialogState extends State<HeightRangeManagerDialog> {
                         style: const TextStyle(fontSize: 13)),
                   ),
                   Expanded(
-                    child: _presetDropdown(
+                    child: CameraPresetDropdown(
                       value: _presetSelections[position.id]?[ip],
                       presetNames: _presetNamesByCamera[ip] ?? const {},
+                      savedPresets: _savedPresetsByCamera[ip],
                       onChanged: (val) => setState(() {
                         _presetSelections[position.id] ??= {};
                         _presetSelections[position.id]![ip] = val;
@@ -360,38 +370,6 @@ class _HeightRangeManagerDialogState extends State<HeightRangeManagerDialog> {
             );
           }),
         ],
-      ),
-    );
-  }
-
-  Widget _presetDropdown({
-    required int? value,
-    required Map<int, String> presetNames,
-    required ValueChanged<int?> onChanged,
-  }) {
-    return InputDecorator(
-      decoration: const InputDecoration(
-        labelText: 'Preset #',
-        border: OutlineInputBorder(),
-        isDense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<int?>(
-          value: value,
-          isDense: true,
-          isExpanded: true,
-          hint: const Text('—', style: TextStyle(color: Colors.grey)),
-          items: [
-            const DropdownMenuItem<int?>(value: null, child: Text('—')),
-            for (var n = 1; n <= 100; n++)
-              DropdownMenuItem<int?>(
-                value: n,
-                child: Text(formatItemLabel(presetNames[n - 1], '$n')),
-              ),
-          ],
-          onChanged: onChanged,
-        ),
       ),
     );
   }
