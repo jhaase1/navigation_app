@@ -40,6 +40,9 @@ Future<void> nameThisMachine(
     return;
   }
   await DeviceLabel.save(accepted);
+  // The name was what the backup was waiting on. Without this the "Name
+  // this machine" warning stays up until the next sweep, minutes later.
+  await controller.retryNow();
 }
 
 /// Owns the field. Disposing it the moment `showDialog` returns uses it
