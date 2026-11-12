@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/height_range.dart';
 import '../models/panasonic_camera_config.dart';
@@ -39,12 +41,39 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
   final Map<String, Map<String, int?>> _presetSelections = {};
   // cameraIp → (0-based preset index → saved name)
   Map<String, Map<int, String>> _presetNamesByCamera = {};
+  // cameraIp → 0-based indices of the presets saved on that camera. A camera
+  // with no entry (not connected, or it did not answer) offers all 100, so
+  // people can still be set up before the rack is on.
+  Map<String, Set<int>> _savedPresetsByCamera = {};
 
   @override
   void initState() {
     super.initState();
     _loadPeople();
     _loadPresetNames();
+    _loadSavedPresets();
+  }
+
+  /// Asks each connected camera which presets it holds, the same question
+  /// the Panel tab asks, so the picker lists those and not 100 blanks.
+  Future<void> _loadSavedPresets() async {
+    final result = <String, Set<int>>{};
+    await Future.wait(widget.cameras.map((camera) async {
+      final service = camera.service;
+      if (service == null || !camera.isConnected.value) return;
+      try {
+        final statuses = await service
+            .getAllPresetStatuses()
+            .timeout(const Duration(seconds: 15));
+        result[camera.ipController.text] = {
+          for (final e in statuses.entries)
+            if (e.value) e.key
+        };
+      } catch (_) {
+        // No answer: leave this camera offering all 100.
+      }
+    }));
+    if (mounted) setState(() => _savedPresetsByCamera = result);
   }
 
   Future<void> _loadPresetNames() async {
@@ -346,8 +375,16 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
   Widget _presetDropdown({
     required int? value,
     required Map<int, String> presetNames,
+    required Set<int>? savedPresets,
     required ValueChanged<int?> onChanged,
   }) {
+    // The chosen preset is always offered, saved on the camera or not:
+    // leaving it out would clear the assignment on the next Save.
+    final offered = [
+      for (var n = 1; n <= 100; n++)
+        if (savedPresets == null || savedPresets.contains(n - 1) || n == value)
+          n
+    ];
     return InputDecorator(
       decoration: const InputDecoration(
         labelText: 'Preset #',
@@ -363,10 +400,15 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
           hint: const Text('—', style: TextStyle(color: Colors.grey)),
           items: [
             const DropdownMenuItem<int?>(value: null, child: Text('—')),
-            for (var n = 1; n <= 100; n++)
+            for (final n in offered)
               DropdownMenuItem<int?>(
                 value: n,
-                child: Text(formatItemLabel(presetNames[n - 1], '$n')),
+                child: Text(
+                  savedPresets != null && !savedPresets.contains(n - 1)
+                      ? '${formatItemLabel(presetNames[n - 1], '$n')} · not saved on camera'
+                      : formatItemLabel(presetNames[n - 1], '$n'),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
           ],
           onChanged: onChanged,
@@ -419,6 +461,7 @@ class _PeopleManagerDialogState extends State<PeopleManagerDialog> {
                         child: _presetDropdown(
                           value: _presetSelections[position.id]?[ip],
                           presetNames: _presetNamesByCamera[ip] ?? const {},
+                          savedPresets: _savedPresetsByCamera[ip],
                           onChanged: (val) => setState(() {
                             _presetSelections[position.id] ??= {};
                             _presetSelections[position.id]![ip] = val;
