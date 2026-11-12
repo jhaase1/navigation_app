@@ -52,3 +52,9 @@ app.*.map.json
 !.claude/settings.json
 .superpowers/
 .worktrees/
+
+# CocoaPods files generated locally by `flutter build` / `pod install`
+/ios/Podfile
+/ios/Podfile.lock
+/macos/Podfile
+/macos/Podfile.lock
