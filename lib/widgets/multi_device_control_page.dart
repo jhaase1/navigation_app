@@ -196,6 +196,11 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     if (mounted) showDeviceResponse(context, message);
   }
 
+  /// A cue that went through says nothing. On the live rig the result is on
+  /// the program monitor, and a toast on every cue covered the controls.
+  /// Failures still go to [_showFailure].
+  void _cueSucceeded(String message) {}
+
   void _showFailure(String message) {
     if (mounted) showDeviceResponse(context, message, failed: true);
   }
@@ -736,7 +741,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                           rolandService: _rolandService,
                           rolandConnected: _rolandConnected,
                           rolandIpController: _rolandIpController,
-                          onResponse: _showResponse,
+                          onResponse: _cueSucceeded,
                           onFailure: _showFailure,
                         ),
                         OperatorPanel(
@@ -745,7 +750,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                           rolandConnected: _rolandConnected,
                           rolandIpController: _rolandIpController,
                           cameras: _panasonicCameras,
-                          onResponse: _showResponse,
+                          onResponse: _cueSucceeded,
                           onFailure: _showFailure,
                           recorder: _recorder,
                         ),
@@ -754,7 +759,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                           positions: _positions,
                           people: _people,
                           heightRanges: _heightRanges,
-                          onResponse: _showResponse,
+                          onResponse: _cueSucceeded,
                           onFailure: _showFailure,
                           recorder: _recorder,
                         ),
