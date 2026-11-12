@@ -122,8 +122,21 @@ backed by a test that failed first.
 
 The backup status surface (pill, popover, log, `BackupController`) carries
 device faults since #34. Google Drive (#27) is compiled in but inert unless
-built with `--dart-define=BACKUP_GOOGLE_ACCOUNT=...`, and must not be until
-the Apple config in `steps-to-mvp.md` lands.
+built with `--dart-define=BACKUP_GOOGLE_ACCOUNT=<shared account>`. The address
+stays out of source: the repository is public.
+
+Drive against real Google, verified 2026-11-12:
+- The Apple config is in. One iOS-type OAuth client covers iOS and macOS,
+  because they share a bundle ID.
+- The macOS target signs with the team, not "Sign to Run Locally": the
+  `keychain-access-groups` entry needs a team prefix. A Mac that has never
+  built it needs one `xcodebuild -allowProvisioningUpdates` to get a profile.
+- Signing fails over SSH with `errSecInternalComponent`. Run the build in the
+  Mac's own desktop session.
+- A consent screen left in "Testing" refuses sign-in with a 403
+  `access_denied`. It has to be published to "In production".
+- The Mac mini signed in and pushed the first revision. Not yet verified: the
+  iPad reading the Mac's revision, and a session lasting past an hour.
 
 ## Agent setup
 

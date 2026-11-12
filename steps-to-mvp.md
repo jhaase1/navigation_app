@@ -23,10 +23,14 @@ Specs and plans: `docs/superpowers/specs/2026-08-21-drive-backup-and-status-surf
 | 1–2 | Foundations and engine against `MockBackupTarget` | **Merged** |
 | 3a | Status pill, log popover, lifecycle | **Merged** (PR #19) |
 | 3b | Conflict dialog, revision history, machine naming | **Merged** (PR #22) |
-| 4 | Google Drive target, Google sign-in, retention | **Merged** (#27), code-complete against a fake Drive and inert until built with `BACKUP_GOOGLE_ACCOUNT`. **Blocked** on the items below. |
+| 4 | Google Drive target, Google sign-in, retention | **Merged** (#27). Google Cloud setup and Apple config done 2026-11-12; the Mac mini signed in and pushed its first backup to real Drive. Hand test and retention still **Open** below. |
 | 5 | Switcher and camera faults on the pill | **Merged** (#34) |
 
 ### Phase 4 — what's left
+
+Steps 1–3 are **done** (2026-11-12): Drive API on, consent screen published,
+one iOS-type client for the shared bundle ID, Apple config merged, and the Mac
+mini and iPad built with the define. Steps 4–5 are open.
 
 1. **Google Cloud setup (account owner):**
    - Enable the Drive API.
