@@ -22,8 +22,10 @@ import '../services/operator_store.dart';
 import '../services/people_store.dart';
 import '../services/lineup_lease.dart';
 import '../services/position_store.dart';
+import '../services/service_recorder.dart';
 import '../services/service_store.dart';
 import '../utils/device_feedback.dart';
+import 'recording_controls.dart';
 import 'backup/backup_status_pill.dart';
 import 'backup/google_sign_in_banner.dart';
 import 'operator_panel.dart';
@@ -89,6 +91,9 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   List<Position> _positions = [];
   List<Person> _people = [];
   List<Service> _services = [];
+
+  /// One recording shared by the Panel and Positions tabs.
+  final ServiceRecorder _recorder = ServiceRecorder();
   List<HeightRange> _heightRanges = [];
   late final BackupController _backup;
   final _lineupLease = LineupLease();
@@ -269,6 +274,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
     _cameraHealth.stop();
     _rolandLinkSub?.cancel();
     _lineupLease.dispose();
+    _recorder.dispose();
     _rolandService.disconnect();
     _rolandIpController.dispose();
     for (final camera in _panasonicCameras) {
@@ -570,11 +576,26 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
               setDialogState(() {});
             },
             backupController: _backup,
+            onStartRecording: _anyDeviceConnected && !_recorder.isActive
+                ? _recorder.start
+                : null,
           ),
         );
       },
     );
   }
+
+  /// Shown in both app bars (connected and not), built in one place so the
+  /// two can't drift apart.
+  Widget _recordingIndicator() => RecordingIndicator(
+        recorder: _recorder,
+        onResponse: _showFailure,
+        onServicesChanged: _loadServices,
+      );
+
+  bool get _anyDeviceConnected =>
+      _rolandConnected.value ||
+      _panasonicCameras.any((c) => c.isConnected.value);
 
   /// Shown above the tabs while nothing is connected, so service prep, rosters
   /// and cue review stay available at home or before the rack is powered on.
@@ -617,8 +638,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = _rolandConnected.value ||
-        _panasonicCameras.any((c) => c.isConnected.value);
+    final isConnected = _anyDeviceConnected;
     // The badge answers "will a macro go out?", so it follows the switcher
     // alone; a camera that is still up keeps the banner away, not the badge.
     final switcherUp = _rolandConnected.value;
@@ -628,6 +648,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
         centerTitle: false,
         title: BackupStatusPill(controller: _backup),
         actions: [
+          _recordingIndicator(),
           Tooltip(
             message: 'Switch operator',
             child: InkWell(
@@ -726,7 +747,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                           cameras: _panasonicCameras,
                           onResponse: _showResponse,
                           onFailure: _showFailure,
-                          onServicesChanged: _loadServices,
+                          recorder: _recorder,
                         ),
                         PositionsTab(
                           cameras: _panasonicCameras,
@@ -735,6 +756,7 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
                           heightRanges: _heightRanges,
                           onResponse: _showResponse,
                           onFailure: _showFailure,
+                          recorder: _recorder,
                         ),
                       ],
                     ),

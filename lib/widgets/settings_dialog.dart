@@ -53,6 +53,10 @@ class SettingsDialog extends StatelessWidget {
   /// Native save/open dialogs for export and import; injected by tests.
   final ConfigFilePicker configFilePicker;
 
+  /// Starts a live recording. Null when nothing is connected (there is
+  /// nothing to record), and the tile is hidden rather than dead.
+  final VoidCallback? onStartRecording;
+
   const SettingsDialog({
     super.key,
     required this.mockMode,
@@ -78,6 +82,7 @@ class SettingsDialog extends StatelessWidget {
     required this.onOperatorsChanged,
     this.backupController,
     this.configFilePicker = const NativeConfigFilePicker(),
+    this.onStartRecording,
   });
 
   // ── Operator ─────────────────────────────────────────────────────────────
@@ -407,6 +412,17 @@ class SettingsDialog extends StatelessWidget {
                 subtitle: 'Build service sequences with steps and participants',
                 onTap: () => _openServiceManager(context),
               ),
+              if (onStartRecording != null)
+                _tile(
+                  icon: Icons.fiber_manual_record,
+                  title: 'Record a Service',
+                  subtitle:
+                      'Run it once live; the app saves each step in order',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onStartRecording!();
+                  },
+                ),
               _tile(
                 icon: Icons.height,
                 title: 'Manage Height Ranges',
