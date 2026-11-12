@@ -28,6 +28,7 @@ Widget _settingsDialog({
   ValueChanged<String>? onResponse,
   ConfigFilePicker? configFilePicker,
   BackupController? backupController,
+  VoidCallback? onStartRecording,
 }) {
   return MaterialApp(
     theme: ThemeData(useMaterial3: false),
@@ -58,6 +59,7 @@ Widget _settingsDialog({
             onOperatorsChanged: () {},
             configFilePicker: configFilePicker ?? _FakePicker(),
             backupController: backupController,
+            onStartRecording: onStartRecording,
           ),
         ),
         child: const Text('Open'),
@@ -124,6 +126,29 @@ final _emptyConfig = jsonEncode({
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('Record a Service is hidden when nothing is connected',
+      (tester) async {
+    await tester.pumpWidget(_settingsDialog());
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(find.text('Record a Service'), findsNothing);
+  });
+
+  testWidgets('tapping Record a Service closes Settings and starts recording',
+      (tester) async {
+    var started = 0;
+    await tester.pumpWidget(_settingsDialog(onStartRecording: () => started++));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Record a Service'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Record a Service'));
+    await tester.pumpAndSettle();
+
+    expect(started, 1);
+    expect(find.byType(SettingsDialog), findsNothing);
   });
 
   testWidgets('shows a Manage Height Ranges tile', (tester) async {

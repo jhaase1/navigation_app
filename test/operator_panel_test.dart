@@ -1,25 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:navigation_app/models/operator_profile.dart';
 import 'package:navigation_app/models/panasonic_camera_config.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/abstract/roland_service_abstract.dart';
 import 'package:navigation_app/services/mock/mock_roland_service.dart';
 import 'package:navigation_app/services/panasonic_service.dart';
+import 'package:navigation_app/services/service_recorder.dart';
 import 'package:navigation_app/services/service_store.dart';
 import 'package:navigation_app/services/visibility_store.dart';
 import 'package:navigation_app/services/preset_name_store.dart';
 import 'package:navigation_app/widgets/operator_panel.dart';
+import 'package:navigation_app/widgets/recording_controls.dart';
 
 Widget _build({
   OperatorProfile operator = OperatorProfile.defaultProfile,
   List<PanasonicCameraConfig> cameras = const [],
   RolandServiceAbstract? rolandService,
   ValueNotifier<bool>? rolandConnected,
-  VoidCallback? onServicesChanged,
 }) {
   return MaterialApp(
     theme: ThemeData(useMaterial3: false),
@@ -30,7 +35,6 @@ Widget _build({
         rolandConnected: rolandConnected ?? ValueNotifier(false),
         cameras: cameras,
         onResponse: (_) {},
-        onServicesChanged: onServicesChanged,
       ),
     ),
   );
@@ -39,15 +43,71 @@ Widget _build({
 Widget _buildConnected({
   OperatorProfile operator = OperatorProfile.defaultProfile,
   List<PanasonicCameraConfig> cameras = const [],
-  VoidCallback? onServicesChanged,
 }) =>
     _build(
       operator: operator,
       cameras: cameras,
       rolandService: MockRolandService(),
       rolandConnected: ValueNotifier(true),
-      onServicesChanged: onServicesChanged,
     );
+
+/// Refuses the first write of the saved services list; later writes succeed.
+class _RefuseFirstServicesWrite extends InMemorySharedPreferencesStore {
+  _RefuseFirstServicesWrite() : super.empty();
+  bool refused = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('services') && !refused) {
+      refused = true;
+      return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
+
+/// Holds every write of the saved services list until [release] completes.
+class _GatedServicesWrite extends InMemorySharedPreferencesStore {
+  _GatedServicesWrite() : super.empty();
+  final release = Completer<void>();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('services')) await release.future;
+    return super.setValue(valueType, key, value);
+  }
+}
+
+/// The services list is written, then the backup generation bump that
+/// follows is refused once, so saveAll throws after the data is on disk.
+class _RefuseFirstGenerationBump extends InMemorySharedPreferencesStore {
+  _RefuseFirstGenerationBump() : super.empty();
+  bool refused = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('backup_mutation_generation') && !refused) {
+      refused = true;
+      return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
+
+/// Holds the services write until [release], then refuses it.
+class _GatedThenRefusedServicesWrite extends InMemorySharedPreferencesStore {
+  _GatedThenRefusedServicesWrite() : super.empty();
+  final release = Completer<void>();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key.endsWith('services')) {
+      await release.future;
+      return false;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -280,85 +340,82 @@ void main() {
     });
   });
 
-  group('OperatorPanel — recording', () {
-    testWidgets('shows a Record button that is not active initially',
-        (tester) async {
-      await tester.pumpWidget(_build());
+  group('OperatorPanel — recording (started from Settings, stopped in the top bar)', () {
+    late ServiceRecorder recorder;
+    setUp(() => recorder = ServiceRecorder());
+    tearDown(() => recorder.dispose());
+
+    Widget build({VoidCallback? onServicesChanged}) => MaterialApp(
+          theme: ThemeData(useMaterial3: false),
+          home: Scaffold(
+            appBar: AppBar(actions: [
+              RecordingIndicator(
+                recorder: recorder,
+                onResponse: (_) {},
+                onServicesChanged: onServicesChanged,
+              ),
+            ]),
+            body: OperatorPanel(
+              operator: OperatorProfile.defaultProfile,
+              rolandService: MockRolandService(),
+              rolandConnected: ValueNotifier(true),
+              cameras: const [],
+              onResponse: (_) {},
+              recorder: recorder,
+            ),
+          ),
+        );
+
+    testWidgets(
+        'the panel has no Record button; the top bar shows nothing until a '
+        'recording starts', (tester) async {
+      await tester.pumpWidget(build());
       await tester.pumpAndSettle();
-      expect(find.text('Record'), findsOneWidget);
+      expect(find.text('Record'), findsNothing);
+      expect(find.textContaining('Recording'), findsNothing);
+
+      recorder.start();
+      await tester.pumpAndSettle();
+      expect(find.text('Recording · 0 steps · Stop'), findsOneWidget);
     });
 
-    testWidgets('tapping Record switches to a Stop button with a step count',
+    testWidgets('firing an action while not recording records nothing',
         (tester) async {
-      await tester.pumpWidget(_build());
+      await tester.pumpWidget(build());
       await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Stop'), findsOneWidget);
-      expect(find.textContaining('0 step'), findsOneWidget);
-    });
-
-    testWidgets('firing an action while recording increments the step count',
-        (tester) async {
-      await tester.pumpWidget(_buildConnected());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
-      await tester.pumpAndSettle();
-
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
-
-      expect(find.textContaining('1 step'), findsOneWidget);
-    });
-
-    testWidgets('firing an action while not recording does not open the save dialog',
-        (tester) async {
-      await tester.pumpWidget(_buildConnected());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Macro 1').first);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Record'), findsOneWidget);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(recorder.steps, isEmpty);
     });
 
     testWidgets('stopping with no recorded steps does not show a save dialog',
         (tester) async {
-      await tester.pumpWidget(_build());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
+      await tester.pumpWidget(build());
+      recorder.start();
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Stop'));
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsNothing);
-      expect(find.text('Record'), findsOneWidget);
+      expect(recorder.isRecording, isFalse);
     });
 
     testWidgets(
-        'stopping with recorded steps opens a naming dialog; Save persists the Service',
+        'macros fired while recording are saved in order on Stop then Save',
         (tester) async {
       var changedCount = 0;
-      await tester.pumpWidget(
-          _buildConnected(onServicesChanged: () => changedCount++));
+      await tester.pumpWidget(build(onServicesChanged: () => changedCount++));
+      recorder.start();
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Record'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 2').first);
       await tester.pumpAndSettle();
+      expect(find.text('Recording · 2 steps · Stop'), findsOneWidget);
+
       await tester.tap(find.textContaining('Stop'));
       await tester.pumpAndSettle();
-
-      expect(find.byType(AlertDialog), findsOneWidget);
-
       await tester.enterText(find.byType(TextField), 'Recorded Run');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
@@ -370,17 +427,212 @@ void main() {
           [StepType.macro, StepType.macro]);
       expect(saved.first.steps.map((s) => s.macroNumber), [1, 2]);
       expect(changedCount, 1);
+      expect(find.textContaining('Recording'), findsNothing);
+    });
 
-      // Recording state is reset back to idle.
-      expect(find.text('Record'), findsOneWidget);
+    testWidgets(
+        'a save that fails tells the operator and keeps the recording, so '
+        'Stop then Save again succeeds', (tester) async {
+      SharedPreferencesStorePlatform.instance = _RefuseFirstServicesWrite();
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("Couldn't save"), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'OK'));
+      await tester.pumpAndSettle();
+
+      // Nothing lost, nothing added: capture stopped at Stop, the steps are
+      // held, and the top bar offers the retry.
+      expect(find.text('Unsaved recording · 1 step · Save'), findsOneWidget);
+      await tester.tap(find.text('Macro 2').first);
+      await tester.pumpAndSettle();
+      expect(recorder.steps, hasLength(1));
+
+      await tester.tap(find.byType(RecordingIndicator));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await ServiceStore.loadAll();
+      expect(saved.map((s) => s.name), ['Sunday Mass']);
+      expect(saved.single.steps, hasLength(1));
+    });
+
+    testWidgets('Stop cannot start a second save while one is in progress',
+        (tester) async {
+      final store = _GatedServicesWrite();
+      addTearDown(() {
+        if (!store.release.isCompleted) store.release.complete();
+      });
+      SharedPreferencesStorePlatform.instance = store;
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Once');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      // The write is still pending; a second Stop must not reopen the dialog.
+      await tester.tap(find.byType(RecordingIndicator), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      // A button pressed after Stop is not captured, so it can't be wiped
+      // by the post-save clear without anyone knowing.
+      await tester.tap(find.text('Macro 2').first);
+      await tester.pumpAndSettle();
+      expect(recorder.steps, hasLength(1));
+
+      store.release.complete();
+      await tester.pumpAndSettle();
+      expect((await ServiceStore.loadAll()).map((s) => s.name), ['Once']);
+    });
+
+    testWidgets(
+        'tapping outside the name dialog keeps the recording; only Discard '
+        'throws it away', (tester) async {
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+
+      await tester.tapAt(const Offset(5, 590));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(recorder.steps, hasLength(1));
+      expect(recorder.isRecording, isTrue);
+    });
+
+    testWidgets(
+        'a retry after a save that half-landed keeps one copy of the service',
+        (tester) async {
+      SharedPreferencesStorePlatform.instance = _RefuseFirstGenerationBump();
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await tester.tap(find.byType(RecordingIndicator));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Sunday Mass');
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+        await tester.pumpAndSettle();
+        if (attempt == 0) {
+          expect(find.textContaining("Couldn't save"), findsOneWidget);
+          await tester.tap(find.widgetWithText(TextButton, 'OK'));
+          await tester.pumpAndSettle();
+        }
+      }
+
+      final saved = await ServiceStore.loadAll();
+      expect(saved.map((s) => s.name), ['Sunday Mass']);
+    });
+
+    testWidgets(
+        'Discard after a save that half-landed removes that copy too',
+        (tester) async {
+      SharedPreferencesStorePlatform.instance = _RefuseFirstGenerationBump();
+      await tester.pumpWidget(build());
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(RecordingIndicator));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'OK'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(RecordingIndicator));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Discard'));
+      await tester.pumpAndSettle();
+
+      expect(await ServiceStore.loadAll(), isEmpty);
+      expect(find.byType(RecordingIndicator), findsOneWidget);
+      expect(find.textContaining('Recording'), findsNothing);
+    });
+
+    testWidgets(
+        'a failed save still tells the operator when the Stop button is gone '
+        'by the time it fails', (tester) async {
+      final store = _GatedThenRefusedServicesWrite();
+      addTearDown(() {
+        if (!store.release.isCompleted) store.release.complete();
+      });
+      SharedPreferencesStorePlatform.instance = store;
+      final showIndicator = ValueNotifier(true);
+      addTearDown(showIndicator.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: false),
+        home: Scaffold(
+          appBar: AppBar(actions: [
+            ValueListenableBuilder<bool>(
+              valueListenable: showIndicator,
+              builder: (_, show, __) => show
+                  ? RecordingIndicator(recorder: recorder, onResponse: (_) {})
+                  : const SizedBox.shrink(),
+            ),
+          ]),
+          body: OperatorPanel(
+            operator: OperatorProfile.defaultProfile,
+            rolandService: MockRolandService(),
+            rolandConnected: ValueNotifier(true),
+            cameras: const [],
+            onResponse: (_) {},
+            recorder: recorder,
+          ),
+        ),
+      ));
+      recorder.start();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Macro 1').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Stop'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Sunday Mass');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      // Devices drop mid-save: the page swaps app bars under the save.
+      showIndicator.value = false;
+      await tester.pumpAndSettle();
+      store.release.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("Couldn't save"), findsOneWidget);
     });
 
     testWidgets('Discard clears the pending recording without saving',
         (tester) async {
-      await tester.pumpWidget(_buildConnected());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
+      await tester.pumpWidget(build());
+      recorder.start();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
@@ -391,50 +643,25 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(await ServiceStore.loadAll(), isEmpty);
-      expect(find.text('Record'), findsOneWidget);
+      expect(recorder.isRecording, isFalse);
+      expect(recorder.steps, isEmpty);
     });
 
     testWidgets(
-        'disposing the panel while the save dialog is open does not throw',
+        'the recorder going away while the save dialog is open does not throw',
         (tester) async {
-      final showPanel = ValueNotifier<bool>(true);
-      addTearDown(showPanel.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData(useMaterial3: false),
-          home: Scaffold(
-            body: ValueListenableBuilder<bool>(
-              valueListenable: showPanel,
-              builder: (context, show, _) => show
-                  ? OperatorPanel(
-                      operator: OperatorProfile.defaultProfile,
-                      rolandService: MockRolandService(),
-                      rolandConnected: ValueNotifier(true),
-                      cameras: const [],
-                      onResponse: (_) {},
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Record'));
+      await tester.pumpWidget(build());
+      recorder.start();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Macro 1').first);
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Stop'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AlertDialog), findsOneWidget);
-
-      // showDialog always targets the root navigator, so the dialog
-      // survives even though the panel underneath it is now disposed
-      // while _stopRecording() is still awaiting its result.
-      showPanel.value = false;
-      await tester.pump();
+      // The page that owns the recorder is torn down mid-dialog.
+      final orphan = recorder;
+      recorder = ServiceRecorder();
+      orphan.dispose();
 
       await tester.enterText(find.byType(TextField), 'Late Save');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));

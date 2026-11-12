@@ -3,7 +3,9 @@ import '../models/height_range.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/person.dart';
 import '../models/position.dart';
+import '../services/service_recorder.dart';
 import '../utils/preset_resolver.dart';
+import 'recording_controls.dart';
 
 class PositionsTab extends StatefulWidget {
   final List<PanasonicCameraConfig> cameras;
@@ -15,6 +17,11 @@ class PositionsTab extends StatefulWidget {
   /// caller that only wants text still gets every message.
   final ValueChanged<String>? onFailure;
 
+  /// The shared recording, started from Settings. While it is recording,
+  /// tapping a person fires the shot and then asks which role they are
+  /// playing, so the saved step follows the role rather than this person.
+  final ServiceRecorder? recorder;
+
   const PositionsTab({
     super.key,
     required this.cameras,
@@ -23,6 +30,7 @@ class PositionsTab extends StatefulWidget {
     required this.heightRanges,
     required this.onResponse,
     this.onFailure,
+    this.recorder,
   });
 
   @override
@@ -35,7 +43,60 @@ class _PositionsTabState extends State<PositionsTab> {
       (widget.onFailure ?? widget.onResponse)(message);
   int _selectedCameraIndex = 0;
 
-  Future<void> _executePerson(Position position, Person person) async {
+  /// While recording, a tap is in flight from the shot until its role
+  /// prompt closes. A second tap in that window is ignored, so prompts never
+  /// stack and steps are recorded in the order the shots were fired.
+  bool _recordingTapInFlight = false;
+
+  Future<void> _onPersonTapped(Position position, Person person) async {
+    final recording = widget.recorder?.isRecording ?? false;
+    if (!recording) {
+      await _executePerson(position, person);
+      return;
+    }
+    if (_recordingTapInFlight) {
+      const msg = 'Still waiting on the last shot — tap again once it answers';
+      widget.onResponse(msg);
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(const SnackBar(content: Text(msg)));
+      return;
+    }
+    _recordingTapInFlight = true;
+    try {
+      await _recordPersonTap(position, person);
+    } finally {
+      _recordingTapInFlight = false;
+    }
+  }
+
+  Future<void> _recordPersonTap(Position position, Person person) async {
+    final cameraIp = widget.cameras[
+            _selectedCameraIndex.clamp(0, widget.cameras.length - 1)]
+        .ipController
+        .text;
+    final fired = await _executePerson(position, person);
+    final recorder = widget.recorder;
+    if (!fired || recorder == null || !recorder.isRecording || !mounted) {
+      return;
+    }
+    final role = await askForRole(
+      context,
+      personName: person.name,
+      positionName: position.name,
+      existingRoles: recorder.participants.map((p) => p.name).toList(),
+      initialRole: recorder.roleNameFor(person.id),
+    );
+    if (role == null) return;
+    recorder.recordMinistry(
+      roleName: role,
+      personId: person.id,
+      positionId: position.id,
+      cameraIp: cameraIp,
+    );
+  }
+
+  /// Fires the shot. Returns true when the camera accepted it.
+  Future<bool> _executePerson(Position position, Person person) async {
     final idx = _selectedCameraIndex.clamp(0, widget.cameras.length - 1);
     final camera = widget.cameras[idx];
     final ip = camera.ipController.text;
@@ -49,18 +110,20 @@ class _PositionsTabState extends State<PositionsTab> {
     if (presetIndex == null) {
       _fail(
           'No preset linked for ${camera.name} — ${person.name} at ${position.name}');
-      return;
+      return false;
     }
     if (!camera.isConnected.value || camera.service == null) {
       _fail('${camera.name} not connected');
-      return;
+      return false;
     }
     try {
       final response = await camera.service!.recallPreset(presetIndex);
       widget.onResponse(
           '${person.name} · ${position.name} → ${camera.name}: $response');
+      return true;
     } catch (e) {
       _fail('Error: $e');
+      return false;
     }
   }
 
@@ -157,7 +220,7 @@ class _PositionsTabState extends State<PositionsTab> {
                 runSpacing: 8,
                 children: peopleHere
                     .map((person) => FilledButton(
-                          onPressed: () => _executePerson(position, person),
+                          onPressed: () => _onPersonTapped(position, person),
                           child: Text(person.name),
                         ))
                     .toList(),

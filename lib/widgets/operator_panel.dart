@@ -4,10 +4,9 @@ import '../models/operator_profile.dart';
 import '../models/panasonic_camera_config.dart';
 import '../models/panasonic_device.dart';
 import '../models/roland_device.dart';
-import '../models/service.dart';
 import '../services/abstract/roland_service_abstract.dart';
 import '../services/preset_name_store.dart';
-import '../services/service_store.dart';
+import '../services/service_recorder.dart';
 import '../services/visibility_store.dart';
 
 class OperatorPanel extends StatefulWidget {
@@ -20,7 +19,10 @@ class OperatorPanel extends StatefulWidget {
   /// Where failures go. Falls back to [onResponse] when not given, so a
   /// caller that only wants text still gets every message.
   final ValueChanged<String>? onFailure;
-  final VoidCallback? onServicesChanged;
+
+  /// The shared recording, started from Settings. While it is recording,
+  /// every action fired here is added as a step.
+  final ServiceRecorder? recorder;
 
   const OperatorPanel({
     super.key,
@@ -31,7 +33,7 @@ class OperatorPanel extends StatefulWidget {
     required this.onResponse,
     this.onFailure,
     this.rolandIpController,
-    this.onServicesChanged,
+    this.recorder,
   });
 
   @override
@@ -48,9 +50,6 @@ class _OperatorPanelState extends State<OperatorPanel> {
   final Map<int, Set<int>> _hiddenByDevice = {};
   final List<VoidCallback> _deviceListeners = [];
   final ScrollController _scrollController = ScrollController();
-
-  bool _isRecording = false;
-  final List<ServiceStep> _recordedSteps = [];
 
   // Each device's storageKey is dynamic (e.g. RolandDevice reads the IP via
   // a closure), so it can change under an unchanged device instance -- e.g.
@@ -188,73 +187,13 @@ class _OperatorPanelState extends State<OperatorPanel> {
     final device = _devices[_selectedDeviceIndex];
     try {
       widget.onResponse(await device.execute(index));
-      if (_isRecording) {
-        setState(() => _recordedSteps.add(device.toServiceStep(index)));
+      final recorder = widget.recorder;
+      if (recorder != null && recorder.isRecording) {
+        recorder.recordStep(device.toServiceStep(index));
       }
     } catch (e) {
       _fail('$e');
     }
-  }
-
-  void _startRecording() => setState(() => _isRecording = true);
-
-  Future<void> _stopRecording() async {
-    setState(() => _isRecording = false);
-    if (_recordedSteps.isEmpty) return;
-
-    var pendingName = '';
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Save Recording (${_recordedSteps.length} steps)'),
-        content: TextField(
-          autofocus: true,
-          onChanged: (v) => pendingName = v,
-          decoration: const InputDecoration(
-            labelText: 'Service Name',
-            hintText: 'e.g. Standard Mass',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Discard'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final trimmed = pendingName.trim();
-              if (trimmed.isEmpty) return;
-              Navigator.of(ctx).pop(trimmed);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted) return;
-
-    if (name == null) {
-      setState(() => _recordedSteps.clear());
-      return;
-    }
-
-    try {
-      final services = await ServiceStore.loadAll();
-      services.add(Service(
-        id: generateServiceId(),
-        name: name,
-        steps: List.of(_recordedSteps),
-      ));
-      await ServiceStore.saveAll(services);
-    } catch (e) {
-      if (mounted) _fail('Error saving service: $e');
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() => _recordedSteps.clear());
-    widget.onServicesChanged?.call();
   }
 
   List<int> _visibleIndices(ControllableDevice device) {
@@ -321,23 +260,6 @@ class _OperatorPanelState extends State<OperatorPanel> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                _isRecording
-                    ? ElevatedButton.icon(
-                        onPressed: _stopRecording,
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white),
-                        icon: const Icon(Icons.stop),
-                        label: Text(
-                            'Stop (${_recordedSteps.length} step${_recordedSteps.length == 1 ? '' : 's'})'),
-                      )
-                    : OutlinedButton.icon(
-                        onPressed: _startRecording,
-                        icon: const Icon(Icons.fiber_manual_record,
-                            color: Colors.red),
-                        label: const Text('Record'),
-                      ),
               ],
             ),
             if (device.isLoadingItems) ...[
