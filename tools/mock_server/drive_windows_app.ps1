@@ -52,8 +52,11 @@ public static class Drive {
   public struct RECT { public int Left, Top, Right, Bottom; }
 
   [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr v);
+  [DllImport("user32.dll")] public static extern IntPtr GetThreadDpiAwarenessContext();
+  [DllImport("user32.dll")] public static extern bool AreDpiAwarenessContextsEqual(IntPtr a, IntPtr b);
   [DllImport("user32.dll")] public static extern IntPtr FindWindow(string cls, string title);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
@@ -94,11 +97,22 @@ public static class Drive {
 '@
 
 # Per-monitor v2: window positions, cursor and capture all in physical pixels.
-[void][Drive]::SetProcessDpiAwarenessContext([IntPtr]-4)
+# The call fails if the process already has an awareness (a second run in the
+# same session, or a host manifest); only the wrong awareness is a problem.
+if (-not [Drive]::SetProcessDpiAwarenessContext([IntPtr]-4) -and
+    -not [Drive]::AreDpiAwarenessContextsEqual([Drive]::GetThreadDpiAwarenessContext(), [IntPtr]-4)) {
+  Write-Warning 'could not make this process per-monitor DPI aware; coordinates may be scaled'
+}
 
 function Find-Window {
-  $p = Get-Process -Name $AppProcess -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+  $procs = @(Get-Process -Name $AppProcess -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero })
+  if ($procs.Count -gt 1) {
+    # Several worktrees can each have a build running; say which one we drive.
+    Write-Warning ("$($procs.Count) '$AppProcess' windows are open; driving pid $($procs[0].Id) " +
+      "($($procs[0].Path)). Close the others to be sure.")
+  }
+  $p = $procs | Select-Object -First 1
   $h = if ($p) { $p.MainWindowHandle } else { [Drive]::FindWindow($null, $AppTitle) }
   if ($h -eq [IntPtr]::Zero) {
     Write-Error "no window for process '$AppProcess' or title '$AppTitle' -- is the app running?"
@@ -106,9 +120,10 @@ function Find-Window {
   $h
 }
 
-function Pin {
+function Pin([switch] $NeedFocus) {
   $h = Find-Window
-  if ([Drive]::IsIconic($h)) { [void][Drive]::ShowWindow($h, 9) }  # SW_RESTORE
+  # SW_RESTORE: a minimized or maximized window would not take the pinned frame.
+  if ([Drive]::IsIconic($h) -or [Drive]::IsZoomed($h)) { [void][Drive]::ShowWindow($h, 9) }
   # No Alt-tap trick here: a lone Alt toggles the window's menu mode, so
   # every other run left the app in it, swallowing the mouse wheel.
   [Drive]::Focus($h)
@@ -130,6 +145,9 @@ function Pin {
   Start-Sleep -Milliseconds 400
 
   if ([Drive]::GetForegroundWindow() -ne $h) {
+    # Keystrokes go to whatever has focus -- usually this terminal, where an
+    # ENTER would run whatever was just typed. Refuse rather than risk it.
+    if ($NeedFocus) { Write-Error 'app did not come to the front; refusing to send keys elsewhere' }
     Write-Warning 'app did not come to the front; the action may land on another window'
   }
   $h
@@ -142,15 +160,22 @@ function Need-Args($n, $usage) {
 switch ($Verb) {
   'shot' {
     Need-Args 1 'shot <name>'
+    # .NET resolves relative paths against the process directory, not the
+    # PowerShell location, so make the path absolute before Save sees it.
+    $dir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ShotDir)
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+      Write-Error "SHOT_DIR '$dir' is not a directory"
+    }
+    $out = Join-Path $dir "$($Rest[0]).png"
     $h = Pin
     $f = [Drive]::Frame($h)
     $w = $f.Right - $f.Left; $ht = $f.Bottom - $f.Top
     $bmp = New-Object System.Drawing.Bitmap $w, $ht
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($f.Left, $f.Top, 0, 0, $bmp.Size)
-    $out = Join-Path $ShotDir "$($Rest[0]).png"
-    $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
-    $g.Dispose(); $bmp.Dispose()
+    try {
+      $g.CopyFromScreen($f.Left, $f.Top, 0, 0, $bmp.Size)
+      $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally { $g.Dispose(); $bmp.Dispose() }
     "wrote $out"
   }
   'click' {
@@ -186,15 +211,16 @@ switch ($Verb) {
   }
   'type' {
     Need-Args 1 'type <text>'
-    [void](Pin)
+    [void](Pin -NeedFocus)
     # SendKeys treats these as syntax; brace them to type them literally.
     $text = ($Rest -join ' ') -replace '([+^%~(){}\[\]])', '{$1}'
     [System.Windows.Forms.SendKeys]::SendWait($text)
   }
   'key' {
     Need-Args 1 'key <keyname>'
-    [void](Pin)
-    [System.Windows.Forms.SendKeys]::SendWait("{$($Rest[0].ToUpper())}")
+    [void](Pin -NeedFocus)
+    # Key names are case-insensitive; upper-casing would turn `key a` into Shift+A.
+    [System.Windows.Forms.SendKeys]::SendWait("{$($Rest[0])}")
   }
   'bounds' {
     $f = [Drive]::Frame((Find-Window))
