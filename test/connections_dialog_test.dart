@@ -206,6 +206,28 @@ void main() {
       expect(captured?.single.rolandInput, 'HDMI3');
     });
 
+    testWidgets('two cameras on one switcher input are warned about until fixed',
+        (tester) async {
+      final wide = PanasonicCameraConfig(
+          name: 'Wide', ipAddress: '10.0.0.5', rolandInput: 'SDI1');
+      final tight = PanasonicCameraConfig(
+          name: 'Tight', ipAddress: '10.0.0.6', rolandInput: 'SDI1');
+      addTearDown(wide.dispose);
+      addTearDown(tight.dispose);
+
+      await _openDialog(tester, cameras: [wide, tight], onSaved: (_, __) {});
+      const warning = 'Wide and Tight are both on SDI1';
+      expect(find.text(warning), findsOneWidget);
+
+      await tester.ensureVisible(find.text('SDI1').last);
+      await tester.tap(find.text('SDI1').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SDI3').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text(warning), findsNothing);
+    });
+
     testWidgets('includes a newly added camera in onSaved', (tester) async {
       List<CameraEntry>? captured;
 
