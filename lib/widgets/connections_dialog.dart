@@ -36,6 +36,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
   // PanasonicCameraConfig objects so add/remove can be previewed before save.
   late final List<TextEditingController> _nameControllers;
   late final List<TextEditingController> _ipControllers;
+  late final List<String?> _inputs;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
     _ipControllers = widget.panasonicCameras
         .map((c) => TextEditingController(text: c.ipController.text))
         .toList();
+    _inputs = widget.panasonicCameras.map((c) => c.rolandInput).toList();
   }
 
   @override
@@ -64,6 +66,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
       _nameControllers
           .add(TextEditingController(text: 'Camera ${_nameControllers.length + 1}'));
       _ipControllers.add(TextEditingController());
+      _inputs.add(null);
     });
   }
 
@@ -73,6 +76,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
       _ipControllers[index].dispose();
       _nameControllers.removeAt(index);
       _ipControllers.removeAt(index);
+      _inputs.removeAt(index);
     });
   }
 
@@ -83,6 +87,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
               ? 'Camera ${i + 1}'
               : _nameControllers[i].text.trim(),
           ip: _ipControllers[i].text.trim(),
+          rolandInput: _inputs[i],
         ),
       );
 
@@ -165,6 +170,18 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
                   ),
                 ],
               ),
+              // Rebuilt on renames too, so the names in it stay current.
+              ListenableBuilder(
+                listenable: Listenable.merge(_nameControllers),
+                builder: (context, _) {
+                  final clashes = _inputClashes();
+                  if (clashes.isEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _warningBox(clashes.join('\n')),
+                  );
+                },
+              ),
               const SizedBox(height: 12),
               ...List.generate(_nameControllers.length, (index) {
                 final isLive = index < widget.panasonicCameras.length;
@@ -225,6 +242,30 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
                             ),
                           ),
                           const SizedBox(height: 8),
+                          DropdownButtonFormField<String?>(
+                            // Keyed to its row: removing a camera above
+                            // would otherwise leave this showing that
+                            // camera's input.
+                            key: ObjectKey(_ipControllers[index]),
+                            initialValue: _inputs[index],
+                            decoration: const InputDecoration(
+                              labelText: 'Switcher input',
+                              helperText: 'Goes on preview when its cue fires',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.input),
+                            ),
+                            items: [
+                              const DropdownMenuItem<String?>(
+                                  value: null, child: Text('None')),
+                              for (final input in CameraEntry.switcherInputs)
+                                DropdownMenuItem<String?>(
+                                    value: input, child: Text(input)),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _inputs[index] = v),
+                          ),
+                          const SizedBox(height: 8),
                           FilledButton(
                             onPressed: !isLive || cnting
                                 ? null
@@ -277,6 +318,47 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
         width: 20,
         height: 20,
         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+      );
+
+  /// One line per switcher input set on more than one camera. A cue on any
+  /// of them would preview whatever is really cabled to that input.
+  List<String> _inputClashes() {
+    final byInput = <String, List<String>>{};
+    for (var i = 0; i < _inputs.length; i++) {
+      final input = _inputs[i];
+      if (input == null) continue;
+      final name = _nameControllers[i].text.trim();
+      byInput
+          .putIfAbsent(input, () => [])
+          .add(name.isEmpty ? 'Camera ${i + 1}' : name);
+    }
+    return [
+      for (final MapEntry(key: input, value: names) in byInput.entries)
+        if (names.length > 1)
+          '${names.sublist(0, names.length - 1).join(', ')} and ${names.last} '
+              'are ${names.length == 2 ? 'both' : 'all'} on $input',
+    ];
+  }
+
+  Widget _warningBox(String message) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber, color: Colors.orange.shade800, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(message,
+                  style:
+                      TextStyle(color: Colors.orange.shade900, fontSize: 12)),
+            ),
+          ],
+        ),
       );
 
   Widget _errorBox(String message) => Container(

@@ -350,6 +350,43 @@ class _ServiceTabState extends State<ServiceTab> {
     }
     setState(() =>
         _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
+    // Preview follows the cue the operator is on. A slow cue that lands
+    // after they moved on: to another camera, or to a macro that took the
+    // shot. It must not pull preview back to it. Compared by cue, not row:
+    // an edit to the service while it was out can put another cue there.
+    final current = _currentStepIndex;
+    final now = _flatSteps;
+    if (ok &&
+        current != null &&
+        current < now.length &&
+        _cueKey(now, current) == key) {
+      await _previewCamera(s);
+    }
+  }
+
+  /// Puts the camera a cue just aimed onto the switcher's preview, so the
+  /// operator can check the shot before taking it. Only for a cue that
+  /// went through: a refused preset would preview a camera still pointing
+  /// at the last shot. A camera with no switcher input set is left alone.
+  Future<void> _previewCamera(_FlatStep s) async {
+    if (s.type != StepType.ministry && s.type != StepType.shot) return;
+    final input = widget.cameras
+        .where((c) => c.ipController.text == s.cameraIp)
+        .firstOrNull
+        ?.rolandInput;
+    if (input == null) return;
+    final roland = widget.rolandService;
+    if (roland == null || !(widget.rolandConnected?.value ?? false)) {
+      // The camera moved, so the cue is green; say preview did not follow,
+      // or the operator takes a shot they think is up and is not.
+      _fail('$input not put on preview: switcher not connected');
+      return;
+    }
+    try {
+      await roland.setPreview(input);
+    } catch (e) {
+      if (mounted) _fail('Preview $input: $e');
+    }
   }
 
   Future<bool> _fireMinistryStep(_FlatStep s) async {
