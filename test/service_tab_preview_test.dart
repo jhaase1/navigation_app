@@ -74,7 +74,10 @@ void main() {
   late RolandService roland;
 
   Future<void> open(WidgetTester tester, PanasonicCameraConfig cam,
-      {List<PanasonicCameraConfig>? cameras, Service? service}) async {
+      {List<PanasonicCameraConfig>? cameras,
+      Service? service,
+      bool switcherUp = true,
+      List<String>? failures}) async {
     await tester.runAsync(() async {
       switcher = _Switcher();
       await switcher.start();
@@ -97,8 +100,9 @@ void main() {
           services: [service ?? _service],
           heightRanges: const [],
           rolandService: roland,
-          rolandConnected: ValueNotifier(true),
+          rolandConnected: ValueNotifier(switcherUp),
           onResponse: (_) {},
+          onFailure: (m) => failures?.add(m),
         ),
       ),
     ));
@@ -219,6 +223,45 @@ void main() {
   });
 
   testWidgets(
+      'a slow cue landing after the service was reordered under it does not '
+      'go on preview', (tester) async {
+    final slowReply = await openSlowAndFast(tester);
+    final tab = tester.widget<ServiceTab>(find.byType(ServiceTab));
+
+    await tapSlowCue(tester);
+    // Someone edits the service while A is out: B now sits where A was, so
+    // the highlighted row is a cue that never fired.
+    final reordered = Service(id: 's2', name: 'Mass', steps: [
+      const ServiceStep(
+          id: 'b',
+          type: StepType.shot,
+          cameraIp: '10.0.1.12',
+          cameraPresetIndex: 5),
+      const ServiceStep(
+          id: 'a', type: StepType.shot, cameraIp: _camIp, cameraPresetIndex: 3),
+      const ServiceStep(id: 'm', type: StepType.macro, macroNumber: 7),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ServiceTab(
+          cameras: tab.cameras,
+          people: const [],
+          positions: const [],
+          services: [reordered],
+          heightRanges: const [],
+          rolandService: tab.rolandService,
+          rolandConnected: tab.rolandConnected,
+          onResponse: (_) {},
+        ),
+      ),
+    ));
+    slowReply.complete(http.Response('s03', 200));
+    await settle(tester);
+
+    expect(switcher.commands, isEmpty);
+  });
+
+  testWidgets(
       'a slow camera cue landing after a macro does not overwrite preview',
       (tester) async {
     final slowReply = await openSlowAndFast(tester);
@@ -230,5 +273,19 @@ void main() {
     await settle(tester);
 
     expect(switcher.commands, ['MCREX:MACRO7;']);
+  });
+
+  testWidgets(
+      'a camera cue that cannot reach preview because the switcher is down says so',
+      (tester) async {
+    final failures = <String>[];
+    await open(tester, _camera(reply: 's03'),
+        switcherUp: false, failures: failures);
+
+    await tapCue(tester, 'Preset 4');
+
+    // The cue itself went through; only the preview could not follow.
+    expect(failures, ['SDI2 not put on preview: switcher not connected']);
+    expect(switcher.commands, isEmpty);
   });
 }

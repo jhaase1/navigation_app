@@ -352,8 +352,16 @@ class _ServiceTabState extends State<ServiceTab> {
         _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
     // Preview follows the cue the operator is on. A slow cue that lands
     // after they moved on: to another camera, or to a macro that took the
-    // shot. It must not pull preview back to it.
-    if (ok && _currentStepIndex == index) await _previewCamera(s);
+    // shot. It must not pull preview back to it. Compared by cue, not row:
+    // an edit to the service while it was out can put another cue there.
+    final current = _currentStepIndex;
+    final now = _flatSteps;
+    if (ok &&
+        current != null &&
+        current < now.length &&
+        _cueKey(now, current) == key) {
+      await _previewCamera(s);
+    }
   }
 
   /// Puts the camera a cue just aimed onto the switcher's preview, so the
@@ -368,7 +376,12 @@ class _ServiceTabState extends State<ServiceTab> {
         ?.rolandInput;
     if (input == null) return;
     final roland = widget.rolandService;
-    if (roland == null || !(widget.rolandConnected?.value ?? false)) return;
+    if (roland == null || !(widget.rolandConnected?.value ?? false)) {
+      // The camera moved, so the cue is green; say preview did not follow,
+      // or the operator takes a shot they think is up and is not.
+      _fail('$input not put on preview: switcher not connected');
+      return;
+    }
     try {
       await roland.setPreview(input);
     } catch (e) {
