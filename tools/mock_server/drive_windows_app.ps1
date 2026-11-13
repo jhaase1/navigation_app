@@ -4,7 +4,7 @@
 #   .\drive_windows_app.ps1 shot <name>       focus, pin the window, screenshot
 #   .\drive_windows_app.ps1 click <wx> <wy>   focus, click at a window-relative point
 #   .\drive_windows_app.ps1 scroll <wx> <wy> <n>  focus, wheel n notches at a point (n>0 scrolls down)
-#   .\drive_windows_app.ps1 type <text>       focus, type text
+#   .\drive_windows_app.ps1 type '<text>'     focus, type text (quote it: PowerShell splits on commas and spaces)
 #   .\drive_windows_app.ps1 key <key>         focus, press a key (SendKeys name: ENTER, TAB, ESC, DOWN...)
 #   .\drive_windows_app.ps1 bounds            print the current window frame
 #
@@ -55,6 +55,11 @@ public static class Drive {
   [DllImport("user32.dll")] public static extern IntPtr GetThreadDpiAwarenessContext();
   [DllImport("user32.dll")] public static extern bool AreDpiAwarenessContextsEqual(IntPtr a, IntPtr b);
   [DllImport("user32.dll")] public static extern IntPtr FindWindow(string cls, string title);
+  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr v);
+
+  // PowerShell passes $null to a string parameter as "", which FindWindow
+  // reads as a class named "" and matches nothing. Pass a real null here.
+  public static IntPtr FindByTitle(string title) { return FindWindow(null, title); }
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
@@ -99,8 +104,10 @@ public static class Drive {
 # Per-monitor v2: window positions, cursor and capture all in physical pixels.
 # The call fails if the process already has an awareness (a second run in the
 # same session, or a host manifest); only the wrong awareness is a problem.
+# If the process is locked to another awareness, the thread can still opt in.
 if (-not [Drive]::SetProcessDpiAwarenessContext([IntPtr]-4) -and
-    -not [Drive]::AreDpiAwarenessContextsEqual([Drive]::GetThreadDpiAwarenessContext(), [IntPtr]-4)) {
+    -not [Drive]::AreDpiAwarenessContextsEqual([Drive]::GetThreadDpiAwarenessContext(), [IntPtr]-4) -and
+    [Drive]::SetThreadDpiAwarenessContext([IntPtr]-4) -eq [IntPtr]::Zero) {
   Write-Warning 'could not make this process per-monitor DPI aware; coordinates may be scaled'
 }
 
@@ -113,7 +120,7 @@ function Find-Window {
       "($($procs[0].Path)). Close the others to be sure.")
   }
   $p = $procs | Select-Object -First 1
-  $h = if ($p) { $p.MainWindowHandle } else { [Drive]::FindWindow($null, $AppTitle) }
+  $h = if ($p) { $p.MainWindowHandle } else { [Drive]::FindByTitle($AppTitle) }
   if ($h -eq [IntPtr]::Zero) {
     Write-Error "no window for process '$AppProcess' or title '$AppTitle' -- is the app running?"
   }
@@ -192,10 +199,12 @@ switch ($Verb) {
     Need-Args 3 'scroll <x> <y> <notches>'
     $h = Pin
     $f = [Drive]::Frame($h)
-    [void][Drive]::SetCursorPos($f.Left + [int]$Rest[0], $f.Top + [int]$Rest[1])
-    # Tell Flutter the pointer is here before the wheel turns.
-    [Drive]::mouse_event(0x1, 1, 0, 0, [UIntPtr]::Zero)
-    [Drive]::mouse_event(0x1, -1, 0, 0, [UIntPtr]::Zero)
+    $sx = $f.Left + [int]$Rest[0]; $sy = $f.Top + [int]$Rest[1]
+    # Tell Flutter the pointer is here before the wheel turns. Absolute
+    # moves: relative ones go through pointer acceleration and may not cancel.
+    [void][Drive]::SetCursorPos($sx + 1, $sy)
+    Start-Sleep -Milliseconds 30
+    [void][Drive]::SetCursorPos($sx, $sy)
     Start-Sleep -Milliseconds 300
     # One notch per event, as a real wheel sends them. The delta is a signed
     # DWORD; positive is away from the user (up).
