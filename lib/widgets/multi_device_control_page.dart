@@ -173,6 +173,25 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
   }
 
   void _applyDeviceConfig(String rolandIp, List<CameraEntry> entries) {
+    // Only switcher inputs changed: they say nothing about how to reach a
+    // device, so update them in place. Rebuilding would drop every live
+    // connection mid-service just to fix which input goes on preview.
+    final sameDevices = rolandIp == _rolandIpController.text &&
+        entries.length == _panasonicCameras.length &&
+        [
+          for (var i = 0; i < entries.length; i++)
+            entries[i].name == _panasonicCameras[i].name &&
+                entries[i].ip == _panasonicCameras[i].ipController.text
+        ].every((same) => same);
+    if (sameDevices) {
+      setState(() {
+        for (var i = 0; i < entries.length; i++) {
+          _panasonicCameras[i].rolandInput = entries[i].rolandInput;
+        }
+      });
+      DeviceConfigStore.save(rolandIp, entries);
+      return;
+    }
     for (final c in _panasonicCameras) {
       // Renamed or removed, nothing would ever clear it again.
       _backup.clearDeviceFault(FaultDomain.camera, _cameraFaultId(c));

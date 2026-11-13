@@ -7,7 +7,8 @@ class PanasonicCameraConfig {
   final TextEditingController ipController;
 
   /// Switcher connector this camera is cabled into (e.g. `SDI2`), or null.
-  final String? rolandInput;
+  /// Not final: changing it needs no reconnect, so Save updates it in place.
+  String? rolandInput;
   PanasonicServiceAbstract? service;
   ValueNotifier<bool> isConnected = ValueNotifier(false);
   ValueNotifier<bool> isConnecting = ValueNotifier(false);
