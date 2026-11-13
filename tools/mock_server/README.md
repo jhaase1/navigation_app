@@ -279,7 +279,8 @@ defaults write com.example.navigationApp flutter.panasonic_cameras -string \
 ```
 
 `drive_macos_app.sh` clicks and screenshots the running app for repeatable
-manual tests — see the header for the permissions it needs.
+manual tests — see the header for the permissions it needs. On Windows use
+`drive_windows_app.ps1`: same verbs plus `scroll`, nothing to install.
 
 **The demo worth showing:** connect, fire a macro (it works), press the
 inspector's socket-drop button, then fire the same macro again. The rig shows
