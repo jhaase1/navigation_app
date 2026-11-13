@@ -10,6 +10,12 @@ class CameraEntry {
   /// a cue on this camera puts it on preview. Null means none set.
   final String? rolandInput;
 
+  /// The physical connectors a camera can be cabled into on the V-160HD.
+  static const switcherInputs = [
+    'HDMI1', 'HDMI2', 'HDMI3', 'HDMI4', 'HDMI5', 'HDMI6', 'HDMI7', 'HDMI8',
+    'SDI1', 'SDI2', 'SDI3', 'SDI4', 'SDI5', 'SDI6', 'SDI7', 'SDI8',
+  ];
+
   const CameraEntry({required this.name, required this.ip, this.rolandInput});
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -19,7 +25,12 @@ class CameraEntry {
   factory CameraEntry.fromJson(Map<String, dynamic> j) => CameraEntry(
         name: j['name'] as String,
         ip: j['ip'] as String,
-        rolandInput: j['rolandInput'] as String?,
+        // A value no picker offers (hand-edited or foreign bundle) loads
+        // as none: it would crash the Connections picker, and a bad type
+        // would otherwise fail the whole camera list.
+        rolandInput: switcherInputs.contains(j['rolandInput'])
+            ? j['rolandInput'] as String
+            : null,
       );
 }
 

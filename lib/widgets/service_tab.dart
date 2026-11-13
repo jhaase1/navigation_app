@@ -77,6 +77,9 @@ class _ServiceTabState extends State<ServiceTab> {
   // Bumped whenever the cue list is swapped out, so a command that finishes
   // afterwards cannot stamp its outcome onto a different service's cue.
   int _cueGeneration = 0;
+  // Bumped by each camera cue fired, so a slow cue finishing after a later
+  // one cannot pull preview back to the camera the operator moved past.
+  int _previewTicket = 0;
 
   // "serviceId/cueKey" for every cue whose command is still out. Unlike
   // [_cueStates] it survives a service switch or re-pick, and — being
@@ -329,6 +332,8 @@ class _ServiceTabState extends State<ServiceTab> {
       _cueStates[key] = _CueState.executing;
     });
     final s = flat[index];
+    final previewTicket =
+        s.type == StepType.macro ? _previewTicket : ++_previewTicket;
 
     final bool ok;
     try {
@@ -350,7 +355,7 @@ class _ServiceTabState extends State<ServiceTab> {
     }
     setState(() =>
         _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
-    if (ok) await _previewCamera(s);
+    if (ok && previewTicket == _previewTicket) await _previewCamera(s);
   }
 
   /// Puts the camera a cue just aimed onto the switcher's preview, so the
@@ -369,7 +374,7 @@ class _ServiceTabState extends State<ServiceTab> {
     try {
       await roland.setPreview(input);
     } catch (e) {
-      _fail('Preview $input: $e');
+      if (mounted) _fail('Preview $input: $e');
     }
   }
 

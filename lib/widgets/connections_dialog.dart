@@ -38,12 +38,6 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
   late final List<TextEditingController> _ipControllers;
   late final List<String?> _inputs;
 
-  /// The physical connectors a camera can be cabled into on the V-160HD.
-  static const _inputChoices = [
-    'HDMI1', 'HDMI2', 'HDMI3', 'HDMI4', 'HDMI5', 'HDMI6', 'HDMI7', 'HDMI8',
-    'SDI1', 'SDI2', 'SDI3', 'SDI4', 'SDI5', 'SDI6', 'SDI7', 'SDI8',
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -252,7 +246,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
                             items: [
                               const DropdownMenuItem<String?>(
                                   value: null, child: Text('None')),
-                              for (final input in _inputChoices)
+                              for (final input in CameraEntry.switcherInputs)
                                 DropdownMenuItem<String?>(
                                     value: input, child: Text(input)),
                             ],

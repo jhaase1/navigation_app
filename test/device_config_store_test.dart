@@ -32,6 +32,21 @@ void main() {
       expect(entry.rolandInput, isNull);
     });
 
+    test('a switcher input no picker offers loads as none', () {
+      // An unknown value would crash the Connections picker; a wrong type
+      // would fail the whole camera list.
+      expect(
+          CameraEntry.fromJson(
+                  {'name': 'A', 'ip': '10.0.1.10', 'rolandInput': 'SDI9'})
+              .rolandInput,
+          isNull);
+      expect(
+          CameraEntry.fromJson(
+                  {'name': 'A', 'ip': '10.0.1.10', 'rolandInput': 2})
+              .rolandInput,
+          isNull);
+    });
+
     test('the switcher input survives save and load', () async {
       await DeviceConfigStore.save('10.0.1.20', const [
         CameraEntry(name: 'Wide', ip: '10.0.1.10', rolandInput: 'HDMI1'),

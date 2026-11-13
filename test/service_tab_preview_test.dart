@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -72,7 +73,8 @@ void main() {
   late _Switcher switcher;
   late RolandService roland;
 
-  Future<void> open(WidgetTester tester, PanasonicCameraConfig cam) async {
+  Future<void> open(WidgetTester tester, PanasonicCameraConfig cam,
+      {List<PanasonicCameraConfig>? cameras, Service? service}) async {
     await tester.runAsync(() async {
       switcher = _Switcher();
       await switcher.start();
@@ -89,10 +91,10 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: ServiceTab(
-          cameras: [cam],
+          cameras: cameras ?? [cam],
           people: const [],
           positions: const [],
-          services: [_service],
+          services: [service ?? _service],
           heightRanges: const [],
           rolandService: roland,
           rolandConnected: ValueNotifier(true),
@@ -106,8 +108,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> tapCue(WidgetTester tester, String label) async {
-    await tester.tap(find.textContaining(label));
+  Future<void> settle(WidgetTester tester) async {
     // The switcher is a real socket and the tab runs on the fake clock, so
     // alternate the two until the command and its ACK have both landed.
     for (var i = 0; i < 10; i++) {
@@ -116,6 +117,11 @@ void main() {
           () => Future<void>.delayed(const Duration(milliseconds: 30)));
     }
     await tester.pump(const Duration(milliseconds: 10));
+  }
+
+  Future<void> tapCue(WidgetTester tester, String label) async {
+    await tester.tap(find.textContaining(label));
+    await settle(tester);
   }
 
   testWidgets('firing a camera cue puts that camera on preview',
@@ -146,5 +152,42 @@ void main() {
 
     // The macro reaching the switcher proves the link was live.
     expect(switcher.commands, ['MCREX:MACRO7;']);
+  });
+
+  testWidgets(
+      'a slow camera cue finishing after a later one does not take preview back',
+      (tester) async {
+    // Cam 2 answers only when the test says; Cam 3 answers at once.
+    final slowReply = Completer<http.Response>();
+    final slow = PanasonicCameraConfig(
+        name: 'Cam 2', ipAddress: _camIp, rolandInput: 'SDI2')
+      ..service = PanasonicService(
+          ipAddress: _camIp,
+          maxRetries: 1,
+          client: MockClient((_) => slowReply.future))
+      ..isConnected.value = true;
+    const fastIp = '10.0.1.12';
+    final fast = PanasonicCameraConfig(
+        name: 'Cam 3', ipAddress: fastIp, rolandInput: 'SDI3')
+      ..service = PanasonicService(
+          ipAddress: fastIp,
+          maxRetries: 1,
+          client: MockClient((_) async => http.Response('s05', 200)))
+      ..isConnected.value = true;
+    final twoShots = Service(id: 's2', name: 'Mass', steps: [
+      const ServiceStep(
+          id: 'a', type: StepType.shot, cameraIp: _camIp, cameraPresetIndex: 3),
+      const ServiceStep(
+          id: 'b', type: StepType.shot, cameraIp: fastIp, cameraPresetIndex: 5),
+    ]);
+    await open(tester, slow, cameras: [slow, fast], service: twoShots);
+
+    await tester.tap(find.textContaining('Preset 4'));
+    await tester.pump();
+    await tapCue(tester, 'Preset 6');
+    slowReply.complete(http.Response('s03', 200));
+    await settle(tester);
+
+    expect(switcher.commands, ['PST:SDI3;']);
   });
 }
