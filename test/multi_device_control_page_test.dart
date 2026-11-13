@@ -943,6 +943,9 @@ void main() {
     await tester.ensureVisible(find.text('Connections'));
     await tester.tap(find.text('Connections'));
     await tester.pumpAndSettle();
+    // The camera rows scroll; the last one's Connect sits below the fold.
+    await tester.ensureVisible(find.text('Connect').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Connect').last);
     await tester.pumpAndSettle();
     // Cancel, not Save & Close: saving replaces the camera list outright.

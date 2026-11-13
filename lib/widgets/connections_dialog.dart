@@ -36,6 +36,13 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
   // PanasonicCameraConfig objects so add/remove can be previewed before save.
   late final List<TextEditingController> _nameControllers;
   late final List<TextEditingController> _ipControllers;
+  late final List<String?> _inputs;
+
+  /// The physical connectors a camera can be cabled into on the V-160HD.
+  static const _inputChoices = [
+    'HDMI1', 'HDMI2', 'HDMI3', 'HDMI4', 'HDMI5', 'HDMI6', 'HDMI7', 'HDMI8',
+    'SDI1', 'SDI2', 'SDI3', 'SDI4', 'SDI5', 'SDI6', 'SDI7', 'SDI8',
+  ];
 
   @override
   void initState() {
@@ -46,6 +53,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
     _ipControllers = widget.panasonicCameras
         .map((c) => TextEditingController(text: c.ipController.text))
         .toList();
+    _inputs = widget.panasonicCameras.map((c) => c.rolandInput).toList();
   }
 
   @override
@@ -64,6 +72,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
       _nameControllers
           .add(TextEditingController(text: 'Camera ${_nameControllers.length + 1}'));
       _ipControllers.add(TextEditingController());
+      _inputs.add(null);
     });
   }
 
@@ -73,6 +82,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
       _ipControllers[index].dispose();
       _nameControllers.removeAt(index);
       _ipControllers.removeAt(index);
+      _inputs.removeAt(index);
     });
   }
 
@@ -83,6 +93,7 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
               ? 'Camera ${i + 1}'
               : _nameControllers[i].text.trim(),
           ip: _ipControllers[i].text.trim(),
+          rolandInput: _inputs[i],
         ),
       );
 
@@ -223,6 +234,30 @@ class _ConnectionsDialogState extends State<ConnectionsDialog> {
                               border: OutlineInputBorder(),
                               prefixIcon: Icon(Icons.videocam),
                             ),
+                          ),
+                          const SizedBox(height: 8),
+                          DropdownButtonFormField<String?>(
+                            // Keyed to its row: removing a camera above
+                            // would otherwise leave this showing that
+                            // camera's input.
+                            key: ObjectKey(_ipControllers[index]),
+                            initialValue: _inputs[index],
+                            decoration: const InputDecoration(
+                              labelText: 'Switcher input',
+                              helperText: 'Goes on preview when its cue fires',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.input),
+                            ),
+                            items: [
+                              const DropdownMenuItem<String?>(
+                                  value: null, child: Text('None')),
+                              for (final input in _inputChoices)
+                                DropdownMenuItem<String?>(
+                                    value: input, child: Text(input)),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _inputs[index] = v),
                           ),
                           const SizedBox(height: 8),
                           FilledButton(

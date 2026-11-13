@@ -350,6 +350,27 @@ class _ServiceTabState extends State<ServiceTab> {
     }
     setState(() =>
         _cueStates[key] = ok ? _CueState.succeeded : _CueState.failed);
+    if (ok) await _previewCamera(s);
+  }
+
+  /// Puts the camera a cue just aimed onto the switcher's preview, so the
+  /// operator can check the shot before taking it. Only for a cue that
+  /// went through: a refused preset would preview a camera still pointing
+  /// at the last shot. A camera with no switcher input set is left alone.
+  Future<void> _previewCamera(_FlatStep s) async {
+    if (s.type != StepType.ministry && s.type != StepType.shot) return;
+    final input = widget.cameras
+        .where((c) => c.ipController.text == s.cameraIp)
+        .firstOrNull
+        ?.rolandInput;
+    if (input == null) return;
+    final roland = widget.rolandService;
+    if (roland == null || !(widget.rolandConnected?.value ?? false)) return;
+    try {
+      await roland.setPreview(input);
+    } catch (e) {
+      _fail('Preview $input: $e');
+    }
   }
 
   Future<bool> _fireMinistryStep(_FlatStep s) async {

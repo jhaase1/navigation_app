@@ -5,10 +5,22 @@ import 'backup/config_mutation_notifier.dart';
 class CameraEntry {
   final String name;
   final String ip;
-  const CameraEntry({required this.name, required this.ip});
-  Map<String, dynamic> toJson() => {'name': name, 'ip': ip};
-  factory CameraEntry.fromJson(Map<String, dynamic> j) =>
-      CameraEntry(name: j['name'] as String, ip: j['ip'] as String);
+
+  /// The switcher connector this camera is cabled into, e.g. `SDI2`. Firing
+  /// a cue on this camera puts it on preview. Null means none set.
+  final String? rolandInput;
+
+  const CameraEntry({required this.name, required this.ip, this.rolandInput});
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'ip': ip,
+        if (rolandInput != null) 'rolandInput': rolandInput,
+      };
+  factory CameraEntry.fromJson(Map<String, dynamic> j) => CameraEntry(
+        name: j['name'] as String,
+        ip: j['ip'] as String,
+        rolandInput: j['rolandInput'] as String?,
+      );
 }
 
 class DeviceConfigStore {

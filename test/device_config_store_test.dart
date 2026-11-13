@@ -19,6 +19,27 @@ void main() {
       expect(copy.name, 'Main Cam');
       expect(copy.ip, '192.168.1.5');
     });
+
+    test('a switcher input is written under rolandInput', () {
+      const entry =
+          CameraEntry(name: 'Camera 2', ip: '10.0.1.11', rolandInput: 'SDI2');
+      expect(entry.toJson(),
+          {'name': 'Camera 2', 'ip': '10.0.1.11', 'rolandInput': 'SDI2'});
+    });
+
+    test('a camera saved before inputs existed loads with no input', () {
+      final entry = CameraEntry.fromJson({'name': 'Old', 'ip': '10.0.1.10'});
+      expect(entry.rolandInput, isNull);
+    });
+
+    test('the switcher input survives save and load', () async {
+      await DeviceConfigStore.save('10.0.1.20', const [
+        CameraEntry(name: 'Wide', ip: '10.0.1.10', rolandInput: 'HDMI1'),
+        CameraEntry(name: 'Tight', ip: '10.0.1.11'),
+      ]);
+      final loaded = await DeviceConfigStore.loadCameras();
+      expect(loaded.map((c) => c.rolandInput), ['HDMI1', null]);
+    });
   });
 
   group('DeviceConfigStore — Roland IP', () {

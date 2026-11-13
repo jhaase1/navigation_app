@@ -148,7 +148,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       _panasonicCameras
         ..clear()
         ..addAll(cameras
-            .map((e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
+            .map((e) => PanasonicCameraConfig(
+                name: e.name, ipAddress: e.ip, rolandInput: e.rolandInput)));
     });
   }
 
@@ -187,7 +188,8 @@ class _MultiDeviceControlPageState extends State<MultiDeviceControlPage> {
       _panasonicCameras
         ..clear()
         ..addAll(entries
-            .map((e) => PanasonicCameraConfig(name: e.name, ipAddress: e.ip)));
+            .map((e) => PanasonicCameraConfig(
+                name: e.name, ipAddress: e.ip, rolandInput: e.rolandInput)));
     });
     DeviceConfigStore.save(rolandIp, entries);
   }

@@ -173,6 +173,39 @@ void main() {
       expect(captured?.first.ip, '10.0.0.5');
     });
 
+    testWidgets('saving without touching a camera keeps its switcher input',
+        (tester) async {
+      List<CameraEntry>? captured;
+      final cam = PanasonicCameraConfig(
+          name: 'Cam A', ipAddress: '10.0.0.5', rolandInput: 'SDI2');
+      addTearDown(cam.dispose);
+
+      await _openDialog(tester,
+          cameras: [cam], onSaved: (_, cams) => captured = cams);
+      await tester.tap(find.text('Save & Close'));
+      await tester.pumpAndSettle();
+
+      expect(captured?.single.rolandInput, 'SDI2');
+    });
+
+    testWidgets('a switcher input picked for a camera is saved',
+        (tester) async {
+      List<CameraEntry>? captured;
+      final cam = PanasonicCameraConfig(name: 'Cam A', ipAddress: '10.0.0.5');
+      addTearDown(cam.dispose);
+
+      await _openDialog(tester,
+          cameras: [cam], onSaved: (_, cams) => captured = cams);
+      await tester.tap(find.text('None'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('HDMI3').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save & Close'));
+      await tester.pumpAndSettle();
+
+      expect(captured?.single.rolandInput, 'HDMI3');
+    });
+
     testWidgets('includes a newly added camera in onSaved', (tester) async {
       List<CameraEntry>? captured;
 
