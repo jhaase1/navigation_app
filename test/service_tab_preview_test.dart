@@ -154,10 +154,9 @@ void main() {
     expect(switcher.commands, ['MCREX:MACRO7;']);
   });
 
-  testWidgets(
-      'a slow camera cue finishing after a later one does not take preview back',
-      (tester) async {
-    // Cam 2 answers only when the test says; Cam 3 answers at once.
+  /// Cam 2 (SDI2) answers only when the test completes [slowReply];
+  /// Cam 3 (SDI3) answers at once. Steps: A on Cam 2, B on Cam 3, a macro.
+  Future<Completer<http.Response>> openSlowAndFast(WidgetTester tester) async {
     final slowReply = Completer<http.Response>();
     final slow = PanasonicCameraConfig(
         name: 'Cam 2', ipAddress: _camIp, rolandInput: 'SDI2')
@@ -174,20 +173,62 @@ void main() {
           maxRetries: 1,
           client: MockClient((_) async => http.Response('s05', 200)))
       ..isConnected.value = true;
-    final twoShots = Service(id: 's2', name: 'Mass', steps: [
+    final steps = Service(id: 's2', name: 'Mass', steps: [
       const ServiceStep(
           id: 'a', type: StepType.shot, cameraIp: _camIp, cameraPresetIndex: 3),
       const ServiceStep(
           id: 'b', type: StepType.shot, cameraIp: fastIp, cameraPresetIndex: 5),
+      const ServiceStep(id: 'm', type: StepType.macro, macroNumber: 7),
     ]);
-    await open(tester, slow, cameras: [slow, fast], service: twoShots);
+    await open(tester, slow, cameras: [slow, fast], service: steps);
+    return slowReply;
+  }
 
+  // Taps a cue whose camera will not answer yet; settling would wait on it.
+  Future<void> tapSlowCue(WidgetTester tester) async {
     await tester.tap(find.textContaining('Preset 4'));
     await tester.pump();
+  }
+
+  testWidgets(
+      'a slow camera cue finishing after a later one does not take preview back',
+      (tester) async {
+    final slowReply = await openSlowAndFast(tester);
+
+    await tapSlowCue(tester);
     await tapCue(tester, 'Preset 6');
     slowReply.complete(http.Response('s03', 200));
     await settle(tester);
 
     expect(switcher.commands, ['PST:SDI3;']);
+  });
+
+  testWidgets(
+      're-picking a slow camera cue still in flight puts it on preview when it lands',
+      (tester) async {
+    final slowReply = await openSlowAndFast(tester);
+
+    await tapSlowCue(tester);
+    await tapCue(tester, 'Preset 6');
+    // The operator goes back to the slow cue before its camera answers.
+    await tapSlowCue(tester);
+    slowReply.complete(http.Response('s03', 200));
+    await settle(tester);
+
+    expect(switcher.commands, ['PST:SDI3;', 'PST:SDI2;']);
+  });
+
+  testWidgets(
+      'a slow camera cue landing after a macro does not overwrite preview',
+      (tester) async {
+    final slowReply = await openSlowAndFast(tester);
+
+    await tapSlowCue(tester);
+    // The operator fires the take macro before the camera has answered.
+    await tapCue(tester, 'Macro 7');
+    slowReply.complete(http.Response('s03', 200));
+    await settle(tester);
+
+    expect(switcher.commands, ['MCREX:MACRO7;']);
   });
 }
