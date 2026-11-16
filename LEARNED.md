@@ -81,6 +81,20 @@ Recording permission for the controlling terminal. **Screenshots come out at
 the display's backing scale** — a 1200×820 window gives a 2400×1640 image, so
 halve image coordinates before feeding them back to the script.
 
+**Windows twin: `tools/mock_server/drive_windows_app.ps1`** — same verbs plus
+`scroll <x> <y> <n>`, no dependencies, verified 2026-11-13 against the rig.
+DPI-aware, so screenshot pixels *are* click coordinates; no halving.
+- It never taps Alt to win focus. A lone Alt toggles the window's menu mode,
+  which swallows the mouse wheel while clicks still land — so every other run
+  silently failed to scroll. Focus comes from borrowing the front window's
+  input queue instead.
+- On Windows the rig runs unprivileged: all of `127.0.0.0/8` is loopback and
+  port 80 binds without admin. Building the app needs Developer Mode.
+- `flutter test integration_test/ -d windows` can fail the *second* file with
+  "Unable to start the app on the device"; run each file alone.
+- A `MOCK_RIG` build ignores saved cameras at startup by design, so a setting
+  can't be checked across a restart against the rig.
+
 ## Architecture
 
 - **Eight `SharedPreferences`-backed stores** — device config, people, positions,
