@@ -134,6 +134,11 @@ Future<_FakeRoland> _connectLive(WidgetTester tester) async {
 }
 
 void main() {
+  // A tap that misses its target lands on whatever covers it. Here that was
+  // Save & Close under the dialog's fold, which rebuilt every device and
+  // passed tests for the wrong reason. Make a miss fail instead.
+  WidgetController.hitTestWarningShouldBeFatal = true;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
@@ -672,6 +677,10 @@ void main() {
       await tester.ensureVisible(find.text('Connections'));
       await tester.tap(find.text('Connections'));
       await tester.pumpAndSettle();
+      // Below the fold behind the dialog's actions: an unscrolled tap lands
+      // on Save & Close, which once passed this test by rebuilding devices.
+      await tester.ensureVisible(find.text('Connect'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Connect'));
       await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 1));
@@ -855,6 +864,8 @@ void main() {
       await stallRecalls(tester);
 
       await openConnections(tester);
+      await tester.ensureVisible(find.text('Disconnect').last);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Disconnect').last);
       await tester.pump();
       await cameraComesBack(tester);
@@ -867,6 +878,10 @@ void main() {
       await stallRecalls(tester);
 
       await openConnections(tester);
+      // A Save that changes nothing but inputs keeps the list; adding a
+      // camera is what replaces it.
+      await tester.tap(find.text('Add'));
+      await tester.pump();
       await tester.tap(find.text('Save & Close'));
       await tester.pump();
       await cameraComesBack(tester);
@@ -884,6 +899,68 @@ void main() {
       expect(reached, isEmpty);
     });
   });
+  group('Connections Save', () {
+    late Map<String, _FakeCamera> cameras;
+    late _FakeRoland roland;
+
+    Future<void> openConnected(WidgetTester tester) async {
+      await DeviceConfigStore.save(
+          '10.0.1.100', const [CameraEntry(name: 'Wide', ip: '10.0.1.10')]);
+      cameras = {};
+      roland = _FakeRoland();
+      await tester.pumpWidget(MaterialApp(
+        home: MultiDeviceControlPage(
+          rolandConnector: (_) async => roland,
+          cameraConnector: (ip) async => cameras[ip] = _FakeCamera(),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect All'));
+      await tester.pumpAndSettle();
+      await _openSettings(tester);
+      await tester.ensureVisible(find.text('Connections'));
+      await tester.tap(find.text('Connections'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await tester.tap(find.text('Save & Close'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('changing only a switcher input keeps every device connected',
+        (tester) async {
+      await openConnected(tester);
+      await tester.ensureVisible(find.text('None'));
+      await tester.tap(find.text('None'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('HDMI2').last);
+      await tester.pumpAndSettle();
+      await save(tester);
+
+      expect(cameras['10.0.1.10']!.disposed, isFalse);
+      expect(roland.released, isFalse);
+      expect(
+          (await DeviceConfigStore.loadCameras()).single.rolandInput, 'HDMI2');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('changing an address still reconnects', (tester) async {
+      await openConnected(tester);
+      // The name and address fields lock while connected; disconnect first.
+      await tester.ensureVisible(find.text('Disconnect').last);
+      await tester.tap(find.text('Disconnect').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, '10.0.1.10'), '10.0.1.11');
+      await save(tester);
+
+      expect(cameras['10.0.1.10']!.disposed, isTrue);
+      expect(roland.released, isTrue);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   testWidgets('two cameras with the same name keep their own faults',
       (tester) async {
     await DeviceConfigStore.save('10.0.1.100', const [
@@ -942,6 +1019,9 @@ void main() {
     await _openSettings(tester);
     await tester.ensureVisible(find.text('Connections'));
     await tester.tap(find.text('Connections'));
+    await tester.pumpAndSettle();
+    // The camera rows scroll; the last one's Connect sits below the fold.
+    await tester.ensureVisible(find.text('Connect').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Connect').last);
     await tester.pumpAndSettle();

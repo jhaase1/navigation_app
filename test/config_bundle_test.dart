@@ -5,6 +5,7 @@ import 'package:navigation_app/models/person.dart';
 import 'package:navigation_app/models/position.dart';
 import 'package:navigation_app/models/service.dart';
 import 'package:navigation_app/services/config_bundle.dart';
+import 'package:navigation_app/services/device_config_store.dart';
 import 'package:navigation_app/services/height_range_store.dart';
 import 'package:navigation_app/services/people_store.dart';
 import 'package:navigation_app/services/position_store.dart';
@@ -297,6 +298,26 @@ void main() {
       expect(reloaded.presetNames['roland_10.0.1.20']?['2'], 'Entrance Hymn');
       expect(reloaded.presetNames['10.0.1.10']?['0'], 'Wide Shot');
       expect(reloaded.visibilities['roland_10.0.1.20']?['1'], 'basic');
+    });
+
+    test('each camera\'s switcher input survives export, import and reload',
+        () async {
+      const bundle = ConfigBundle(
+        schemaVersion: ConfigBundle.currentSchemaVersion,
+        positions: [],
+        people: [],
+        services: [],
+        rolandIp: '10.0.1.20',
+        cameras: [
+          CameraEntry(name: 'Wide', ip: '10.0.1.10', rolandInput: 'SDI1'),
+          CameraEntry(name: 'Tight', ip: '10.0.1.11'),
+        ],
+      );
+      await ConfigBundle.fromJsonValidated(bundle.toJson())
+          .applyTransactionally();
+      final reloaded = await ConfigBundle.fromStores();
+
+      expect(reloaded.cameras!.map((c) => c.rolandInput), ['SDI1', null]);
     });
   });
 

@@ -5,6 +5,10 @@ import '../services/abstract/panasonic_service_abstract.dart';
 class PanasonicCameraConfig {
   final String name;
   final TextEditingController ipController;
+
+  /// Switcher connector this camera is cabled into (e.g. `SDI2`), or null.
+  /// Not final: changing it needs no reconnect, so Save updates it in place.
+  String? rolandInput;
   PanasonicServiceAbstract? service;
   ValueNotifier<bool> isConnected = ValueNotifier(false);
   ValueNotifier<bool> isConnecting = ValueNotifier(false);
@@ -14,6 +18,7 @@ class PanasonicCameraConfig {
     required this.name,
     required String ipAddress,
     this.service,
+    this.rolandInput,
   }) : ipController = TextEditingController(text: ipAddress);
 
   void dispose() {
